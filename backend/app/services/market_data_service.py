@@ -1,0 +1,270 @@
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+import numpy as np
+import pandas as pd
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
+from app.utils.logging import log_external_failure
+
+
+@dataclass
+class MarketDataResult:
+    dataframe: pd.DataFrame
+    last_trading_date: datetime | None
+    is_stale: bool
+    provider: str
+    data_quality_note: str
+    current_price: float | None = None
+
+
+class MarketDataService:
+    def __init__(
+        self,
+        kr_provider: Any | None = None,
+        yf_module: Any | None = None,
+        now_provider: Any | None = None,
+    ) -> None:
+        self.kr_provider = kr_provider
+        self.yf_module = yf_module
+        self.now_provider = now_provider or (lambda: datetime.now(timezone.utc))
+
+    def fetch_price_history(
+        self,
+        market: str,
+        ticker: str,
+        lookback_days: int = 180,
+        stale_data_business_days: int = 2,
+    ) -> MarketDataResult:
+        normalized_market = market.upper()
+        if normalized_market == "CASH":
+            return MarketDataResult(
+                dataframe=pd.DataFrame(),
+                last_trading_date=None,
+                is_stale=False,
+                provider="cash",
+                data_quality_note="cash asset; no market data fetch",
+                current_price=None,
+            )
+
+        provider = self._provider_name(normalized_market, ticker)
+        try:
+            if provider == "pykrx":
+                raw = self._fetch_kr_with_retry(ticker, lookback_days)
+            else:
+                raw = self._fetch_us_with_retry(ticker, lookback_days)
+            return self._result_from_frame(raw, provider, stale_data_business_days, ticker)
+        except Exception as exc:
+            log_external_failure(
+                provider,
+                exc,
+                {"operation": "fetch_price_history", "market": market, "ticker": ticker},
+            )
+            return MarketDataResult(
+                dataframe=pd.DataFrame(),
+                last_trading_date=None,
+                is_stale=True,
+                provider=provider,
+                data_quality_note=f"{provider} failure; data-limited",
+                current_price=None,
+            )
+
+    def fetch_major_indices(
+        self,
+        report_type: str,
+        lookback_days: int = 180,
+        stale_data_business_days: int = 2,
+    ) -> dict[str, MarketDataResult]:
+        if report_type == "domestic":
+            return {
+                "KOSPI": self._fetch_kr_index("1001", lookback_days, stale_data_business_days),
+                "KOSDAQ": self._fetch_kr_index("2001", lookback_days, stale_data_business_days),
+            }
+        return {
+            "S&P 500": self.fetch_price_history(
+                "US", "^GSPC", lookback_days, stale_data_business_days
+            ),
+            "NASDAQ": self.fetch_price_history(
+                "US", "^IXIC", lookback_days, stale_data_business_days
+            ),
+        }
+
+    def _provider_name(self, market: str, ticker: str) -> str:
+        upper_ticker = ticker.upper()
+        if market == "KR" or upper_ticker.endswith((".KS", ".KQ")):
+            return "pykrx"
+        return "yfinance"
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+        reraise=True,
+    )
+    def _fetch_kr_with_retry(self, ticker: str, lookback_days: int) -> pd.DataFrame:
+        provider = self._kr_provider()
+        end = self.now_provider().date()
+        start = end - timedelta(days=lookback_days * 2)
+        normalized = self.normalize_ticker("KR", ticker)
+        return provider.get_market_ohlcv_by_date(
+            start.strftime("%Y%m%d"),
+            end.strftime("%Y%m%d"),
+            normalized,
+        )
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+        reraise=True,
+    )
+    def _fetch_us_with_retry(self, ticker: str, lookback_days: int) -> pd.DataFrame:
+        yf_module = self._yf_module()
+        normalized = self.normalize_ticker("US", ticker)
+        return yf_module.Ticker(normalized).history(period=f"{lookback_days}d", auto_adjust=False)
+
+    def _fetch_kr_index(
+        self,
+        index_code: str,
+        lookback_days: int,
+        stale_data_business_days: int,
+    ) -> MarketDataResult:
+        try:
+            provider = self._kr_provider()
+            end = self.now_provider().date()
+            start = end - timedelta(days=lookback_days * 2)
+            raw = provider.get_index_ohlcv_by_date(
+                start.strftime("%Y%m%d"),
+                end.strftime("%Y%m%d"),
+                index_code,
+            )
+            return self._result_from_frame(raw, "pykrx", stale_data_business_days, index_code)
+        except Exception as exc:
+            log_external_failure(
+                "pykrx",
+                exc,
+                {"operation": "fetch_kr_index", "index_code": index_code},
+            )
+            return MarketDataResult(
+                dataframe=pd.DataFrame(),
+                last_trading_date=None,
+                is_stale=True,
+                provider="pykrx",
+                data_quality_note="pykrx index failure; data-limited",
+            )
+
+    def normalize_ticker(self, market: str, ticker: str) -> str:
+        upper = ticker.strip().upper()
+        if market.upper() == "KR":
+            return upper.removesuffix(".KS").removesuffix(".KQ")
+        return upper
+
+    def _result_from_frame(
+        self,
+        raw: pd.DataFrame,
+        provider: str,
+        stale_data_business_days: int,
+        ticker: str,
+    ) -> MarketDataResult:
+        frame = self._standardize_frame(raw)
+        if frame.empty or "close" not in frame:
+            return MarketDataResult(
+                dataframe=frame,
+                last_trading_date=None,
+                is_stale=True,
+                provider=provider,
+                data_quality_note="no market data available; data-limited",
+                current_price=None,
+            )
+
+        last_timestamp = pd.to_datetime(frame.index.max())
+        last_date = last_timestamp.to_pydatetime()
+        current_price = float(frame.loc[frame.index.max(), "close"])
+        stale = self._is_stale(last_date, provider, stale_data_business_days)
+        note = "stale market data; data-limited" if stale else "ok"
+        return MarketDataResult(
+            dataframe=frame,
+            last_trading_date=last_date,
+            is_stale=stale,
+            provider=provider,
+            data_quality_note=note,
+            current_price=current_price,
+        )
+
+    def _standardize_frame(self, raw: pd.DataFrame) -> pd.DataFrame:
+        if raw is None or raw.empty:
+            return pd.DataFrame()
+
+        frame = raw.copy()
+        frame.index = pd.to_datetime(frame.index).tz_localize(None)
+        rename_map = {
+            "Open": "open",
+            "High": "high",
+            "Low": "low",
+            "Close": "close",
+            "Adj Close": "adj_close",
+            "Volume": "volume",
+            "시가": "open",
+            "고가": "high",
+            "저가": "low",
+            "종가": "close",
+            "거래량": "volume",
+        }
+        frame = frame.rename(columns=rename_map)
+        expected = [
+            column for column in ("open", "high", "low", "close", "volume") if column in frame
+        ]
+        if "close" not in expected:
+            return pd.DataFrame()
+        frame = frame[expected].sort_index()
+        for column in expected:
+            frame[column] = pd.to_numeric(frame[column], errors="coerce")
+        return frame.dropna(subset=["close"])
+
+    def _is_stale(
+        self,
+        last_trading_date: datetime,
+        provider: str,
+        stale_data_business_days: int,
+    ) -> bool:
+        now_date = self.now_provider().date()
+        if provider == "pykrx":
+            now_date = self._nearest_kr_business_date(now_date)
+        last_date = last_trading_date.date()
+        if now_date <= last_date:
+            return False
+        start = np.datetime64(last_date + timedelta(days=1), "D")
+        end = np.datetime64(now_date + timedelta(days=1), "D")
+        business_days = int(np.busday_count(start, end))
+        return business_days > stale_data_business_days
+
+    def _nearest_kr_business_date(self, current_date: Any) -> Any:
+        provider = self._kr_provider()
+        if hasattr(provider, "get_nearest_business_day_in_a_week"):
+            try:
+                nearest = provider.get_nearest_business_day_in_a_week(
+                    current_date.strftime("%Y%m%d")
+                )
+                return datetime.strptime(nearest, "%Y%m%d").date()
+            except Exception as exc:
+                log_external_failure(
+                    "pykrx",
+                    exc,
+                    {"operation": "get_nearest_business_day_in_a_week"},
+                )
+        return current_date
+
+    def _kr_provider(self) -> Any:
+        if self.kr_provider is None:
+            from pykrx import stock
+
+            self.kr_provider = stock
+        return self.kr_provider
+
+    def _yf_module(self) -> Any:
+        if self.yf_module is None:
+            import yfinance as yf
+
+            self.yf_module = yf
+        return self.yf_module

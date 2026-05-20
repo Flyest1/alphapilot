@@ -1,0 +1,23 @@
+name: Generate Domestic Market Report
+
+on:
+  schedule:
+    - cron: "30 23 * * 0-4"
+  workflow_dispatch:
+
+jobs:
+  call-api:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Warm up backend (Render Free cold start)
+        run: |
+          for i in 1 2 3 4 5; do
+            curl -fsS --max-time 30 "${{ secrets.BACKEND_URL }}/health" && exit 0
+            sleep 30
+          done
+          true
+      - name: Call domestic report API
+        run: |
+          curl -fsS --max-time 120 -X POST \
+            "${{ secrets.BACKEND_URL }}/api/reports/domestic/generate" \
+            -H "Authorization: Bearer ${{ secrets.SCHEDULER_SECRET }}"

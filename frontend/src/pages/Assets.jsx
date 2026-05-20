@@ -1,0 +1,170 @@
+import { useEffect, useState } from "react";
+
+import { api } from "../api/client.js";
+
+const blankAsset = {
+  market: "KR",
+  ticker: "",
+  name: "",
+  quantity: 0,
+  avg_price: 0,
+  currency: "KRW",
+  memo: "",
+};
+
+export default function Assets() {
+  const [assets, setAssets] = useState([]);
+  const [form, setForm] = useState(blankAsset);
+  const [editingId, setEditingId] = useState(null);
+  const [error, setError] = useState("");
+
+  function loadAssets() {
+    api.assets.list().then(setAssets).catch((err) => setError(err.message));
+  }
+
+  useEffect(() => {
+    loadAssets();
+  }, []);
+
+  function updateField(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function submit(event) {
+    event.preventDefault();
+    setError("");
+    const payload = {
+      ...form,
+      quantity: Number(form.quantity),
+      avg_price: Number(form.avg_price),
+    };
+    try {
+      if (editingId) {
+        await api.assets.update(editingId, payload);
+      } else {
+        await api.assets.create(payload);
+      }
+      setForm(blankAsset);
+      setEditingId(null);
+      loadAssets();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function startEdit(asset) {
+    setEditingId(asset.id);
+    setForm({
+      market: asset.market,
+      ticker: asset.ticker,
+      name: asset.name,
+      quantity: asset.quantity,
+      avg_price: asset.avg_price,
+      currency: asset.currency,
+      memo: asset.memo || "",
+    });
+  }
+
+  return (
+    <section className="page">
+      <header className="page-header">
+        <div>
+          <h1>Assets</h1>
+          <p>Register holdings used by portfolio and strategy reports.</p>
+        </div>
+      </header>
+      {error && <p className="alert">{error}</p>}
+
+      <section className="panel">
+        <form className="asset-form" onSubmit={submit}>
+          <label>
+            Market
+            <select value={form.market} onChange={(event) => updateField("market", event.target.value)}>
+              <option value="KR">KR</option>
+              <option value="US">US</option>
+              <option value="ETF">ETF</option>
+              <option value="CASH">CASH</option>
+            </select>
+          </label>
+          <label>
+            Ticker
+            <input value={form.ticker} onChange={(event) => updateField("ticker", event.target.value)} />
+          </label>
+          <label>
+            Name
+            <input value={form.name} onChange={(event) => updateField("name", event.target.value)} />
+          </label>
+          <label>
+            Quantity
+            <input
+              min="0"
+              step="0.0001"
+              type="number"
+              value={form.quantity}
+              onChange={(event) => updateField("quantity", event.target.value)}
+            />
+          </label>
+          <label>
+            Average price
+            <input
+              min="0"
+              step="0.0001"
+              type="number"
+              value={form.avg_price}
+              onChange={(event) => updateField("avg_price", event.target.value)}
+            />
+          </label>
+          <label>
+            Currency
+            <input value={form.currency} onChange={(event) => updateField("currency", event.target.value)} />
+          </label>
+          <label className="wide">
+            Memo
+            <input value={form.memo} onChange={(event) => updateField("memo", event.target.value)} />
+          </label>
+          <button type="submit">{editingId ? "Save asset" : "Add asset"}</button>
+        </form>
+      </section>
+
+      <section className="panel">
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Market</th>
+                <th>Ticker</th>
+                <th>Name</th>
+                <th>Quantity</th>
+                <th>Average price</th>
+                <th>Currency</th>
+                <th>Memo</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {assets.map((asset) => (
+                <tr key={asset.id}>
+                  <td>{asset.market}</td>
+                  <td>{asset.ticker}</td>
+                  <td>{asset.name}</td>
+                  <td>{asset.quantity}</td>
+                  <td>{asset.avg_price}</td>
+                  <td>{asset.currency}</td>
+                  <td>{asset.memo}</td>
+                  <td className="row-actions">
+                    <button type="button" onClick={() => startEdit(asset)}>
+                      Edit
+                    </button>
+                    <button type="button" onClick={() => api.assets.remove(asset.id).then(loadAssets)}>
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+  );
+}

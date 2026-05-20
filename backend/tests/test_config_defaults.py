@@ -1,0 +1,39 @@
+from pathlib import Path
+
+from app.config import resolve_application_settings
+from app.models.settings import Settings
+
+
+def test_application_defaults_match_env_example_and_sql_defaults():
+    root = Path(__file__).resolve().parents[2]
+    env_text = (root / "backend" / ".env.example").read_text()
+    sql_text = (
+        root / "backend" / "app" / "db" / "migrations" / "001_initial_schema.sql"
+    ).read_text()
+    defaults = Settings()
+
+    assert f"DOMESTIC_REPORT_TIME={defaults.domestic_report_time}" in env_text
+    assert f"GLOBAL_REPORT_TIME={defaults.global_report_time}" in env_text
+    assert f"AI_PROVIDER={defaults.ai_provider}" in env_text
+    assert f"OPENAI_MODEL={defaults.ai_model}" in env_text
+    assert f"RISK_PROFILE={defaults.risk_profile}" in env_text
+    assert f"FRONTEND_TIMEZONE={defaults.frontend_timezone}" in env_text
+    assert f"STALE_DATA_BUSINESS_DAYS={defaults.stale_data_business_days}" in env_text
+
+    assert f"domestic_report_time text default '{defaults.domestic_report_time}'" in sql_text
+    assert f"global_report_time text default '{defaults.global_report_time}'" in sql_text
+    assert f"ai_provider text default '{defaults.ai_provider}'" in sql_text
+    assert f"ai_model text default '{defaults.ai_model}'" in sql_text
+    assert f"risk_profile text default '{defaults.risk_profile}'" in sql_text
+    assert f"frontend_timezone text default '{defaults.frontend_timezone}'" in sql_text
+    assert f"stale_data_business_days int default {defaults.stale_data_business_days}" in sql_text
+
+
+def test_settings_row_overrides_env_defaults():
+    resolved = resolve_application_settings(
+        {"ai_model": "table-model", "risk_profile": "aggressive"},
+        {"ai_model": "env-model", "risk_profile": "balanced"},
+    )
+
+    assert resolved.ai_model == "table-model"
+    assert resolved.risk_profile == "aggressive"

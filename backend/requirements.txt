@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+supabase
+openai
+pandas
+numpy
+pykrx
+yfinance
+pydantic>=2,<3
+tenacity
+python-dotenv
+pytest
+ruff
+black
