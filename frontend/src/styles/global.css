@@ -332,6 +332,61 @@ form button,
   color: #17202a;
 }
 
+.asset-card-list {
+  display: none;
+}
+
+.asset-card {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #d7dee8;
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.asset-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.asset-card-header > div {
+  display: grid;
+  gap: 2px;
+}
+
+.asset-card-header span,
+.asset-card dt {
+  color: #64748b;
+}
+
+.market-pill {
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #075985;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.asset-card dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+  margin: 0;
+}
+
+.asset-card dt {
+  font-size: 12px;
+}
+
+.asset-card dd {
+  margin: 2px 0 0;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -341,9 +396,26 @@ form button,
     position: sticky;
     top: 0;
     z-index: 2;
+    padding: 14px;
   }
 
-  nav,
+  .brand {
+    margin-bottom: 12px;
+  }
+
+  nav {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  nav button {
+    flex: 0 0 auto;
+    min-width: 110px;
+    text-align: center;
+  }
+
   .summary-grid,
   .content-grid,
   .risk-grid,
@@ -354,5 +426,75 @@ form button,
 
   .wide {
     grid-column: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  main {
+    padding: 14px;
+  }
+
+  .page {
+    gap: 14px;
+  }
+
+  .page-header {
+    display: block;
+  }
+
+  h1 {
+    font-size: 22px;
+  }
+
+  .brand strong {
+    font-size: 18px;
+  }
+
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .summary-card {
+    min-height: 80px;
+    padding: 12px;
+  }
+
+  .summary-card strong {
+    font-size: 18px;
+    overflow-wrap: anywhere;
+  }
+
+  .panel {
+    padding: 14px;
+  }
+
+  .asset-form,
+  .settings-form {
+    gap: 10px;
+  }
+
+  input,
+  select,
+  form button {
+    min-height: 44px;
+  }
+
+  .asset-card-list {
+    display: grid;
+    gap: 12px;
+  }
+
+  .asset-card .row-actions button {
+    flex: 1;
+    min-height: 42px;
+  }
+
+  .asset-table {
+    display: none;
+  }
+
+  .bar-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
   }
 }

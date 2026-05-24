@@ -127,7 +127,47 @@ export default function Assets() {
       </section>
 
       <section className="panel">
-        <div className="table-wrap">
+        {assets.length === 0 && <p className="empty-state">No assets registered yet.</p>}
+        <div className="asset-card-list">
+          {assets.map((asset) => (
+            <article className="asset-card" key={asset.id}>
+              <div className="asset-card-header">
+                <div>
+                  <strong>{asset.ticker}</strong>
+                  <span>{asset.name}</span>
+                </div>
+                <span className="market-pill">{asset.market}</span>
+              </div>
+              <dl>
+                <div>
+                  <dt>Quantity</dt>
+                  <dd>{asset.quantity}</dd>
+                </div>
+                <div>
+                  <dt>Average price</dt>
+                  <dd>{asset.avg_price}</dd>
+                </div>
+                <div>
+                  <dt>Currency</dt>
+                  <dd>{asset.currency}</dd>
+                </div>
+                <div>
+                  <dt>Memo</dt>
+                  <dd>{asset.memo || "-"}</dd>
+                </div>
+              </dl>
+              <div className="row-actions">
+                <button type="button" onClick={() => startEdit(asset)}>
+                  Edit
+                </button>
+                <button type="button" onClick={() => api.assets.remove(asset.id).then(loadAssets)}>
+                  Delete
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+        <div className="table-wrap asset-table">
           <table>
             <thead>
               <tr>
