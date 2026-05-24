@@ -3,6 +3,7 @@ from typing import Any
 
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
+from app.models.report import ReportContent
 from app.services.ai_provider import AIProvider
 from app.utils.logging import log_external_failure
 
@@ -46,13 +47,14 @@ class OpenAIProvider(AIProvider):
     def _call_openai(self, prompt: str, context: dict[str, Any]) -> str:
         response = self.client.chat.completions.create(
             model=self.model,
-            response_format={"type": "json_object"},
+            response_format=self._response_format(),
             messages=[
                 {
                     "role": "system",
                     "content": (
                         "You are an investment decision-support analyst. "
-                        "Return only valid JSON matching the requested schema. "
+                        "Return only valid JSON matching the provided ReportContent schema. "
+                        "Use exactly the schema field names. "
                         "Do not promise guaranteed profit."
                     ),
                 },
@@ -73,3 +75,12 @@ class OpenAIProvider(AIProvider):
         if not message:
             raise RuntimeError("OpenAI returned an empty response")
         return message
+
+    def _response_format(self) -> dict[str, Any]:
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "ReportContent",
+                "schema": ReportContent.model_json_schema(),
+            },
+        }

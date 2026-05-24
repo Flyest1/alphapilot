@@ -154,6 +154,7 @@ class ReportService:
                 strategy.model_dump(mode="json") for strategy in technical_strategies
             ],
             "stale_tickers": stale_tickers,
+            "generated_at": self._now(app_settings["frontend_timezone"]),
             "asset_context": [
                 {
                     "asset": row["asset"],
@@ -388,9 +389,17 @@ class ReportService:
     def _prompt(self, report_type: str) -> str:
         return (
             f"Generate a {report_type} AlphaPilot report as JSON matching ReportContent exactly. "
-            "Use decision-support language only. Do not include news factors. "
-            "Do not add fields outside the schema. Include action, confidence, ranges, target, "
-            "stop-loss, reasoning, risk, and invalidation condition for each non-stale strategy."
+            "The root object must contain only report_type, generated_at, market_summary, "
+            "portfolio_summary, key_risks, opportunities, asset_strategies, and disclaimer. "
+            "Use context.generated_at as generated_at. market_summary must be an object with "
+            "summary, key_indices, and macro_factors. portfolio_summary must be an object with "
+            "total_market_value, total_return_rate, risk_level, and allocation_comment only. "
+            "asset_strategies must use the technical_strategies input shape and must not be named "
+            "strategies. Do not add market_view, portfolio_notes, stale_tickers, risk_profile, "
+            "total_cost, total_profit_loss, domestic_value, global_value, or cash_value to the "
+            "output. Use decision-support language only. Do not include news factors. Include "
+            "action, confidence, ranges, target, stop-loss, reasoning, risk, and invalidation "
+            "condition for each non-stale strategy."
         )
 
     def _index_summary(

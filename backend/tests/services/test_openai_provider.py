@@ -19,7 +19,7 @@ class FakeClient:
         self.chat = SimpleNamespace(completions=FakeCompletions())
 
 
-def test_openai_provider_uses_json_mode_and_parses_response():
+def test_openai_provider_uses_structured_output_schema_and_parses_response():
     client = FakeClient()
     provider = OpenAIProvider(api_key="unused", model="gpt-5.4-mini", client=client)
 
@@ -28,4 +28,7 @@ def test_openai_provider_uses_json_mode_and_parses_response():
     assert result == {"ok": True}
     kwargs = client.chat.completions.kwargs
     assert kwargs["model"] == "gpt-5.4-mini"
-    assert kwargs["response_format"] == {"type": "json_object"}
+    response_format = kwargs["response_format"]
+    assert response_format["type"] == "json_schema"
+    assert response_format["json_schema"]["name"] == "ReportContent"
+    assert response_format["json_schema"]["schema"]["properties"]["asset_strategies"]
