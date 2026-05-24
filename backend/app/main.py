@@ -70,6 +70,14 @@ def create_app(repository: Repository | None = None) -> FastAPI:
         )
         return JSONResponse({"detail": "internal server error"}, status_code=500)
 
+    @app.get("/")
+    def root() -> dict[str, str]:
+        return {
+            "service": "alphapilot-backend",
+            "status": "ok",
+            "health": "/health",
+        }
+
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}

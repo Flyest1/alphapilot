@@ -8,6 +8,17 @@ def client():
     return TestClient(create_app(repository=InMemoryRepository()))
 
 
+def test_root_endpoint_reports_backend_status():
+    response = client().get("/")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "service": "alphapilot-backend",
+        "status": "ok",
+        "health": "/health",
+    }
+
+
 def test_api_endpoints_reject_missing_and_invalid_api_token():
     test_client = client()
 
