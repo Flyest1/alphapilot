@@ -72,6 +72,28 @@ def test_routes_kr_market_to_pykrx():
     assert provider.calls[0][2] == "005930"
 
 
+def test_standardizes_pykrx_korean_columns():
+    frame = history().rename(
+        columns={
+            "Open": "시가",
+            "High": "고가",
+            "Low": "저가",
+            "Close": "종가",
+            "Volume": "거래량",
+        }
+    )
+    provider = FakeKRProvider(frame)
+    service = MarketDataService(
+        kr_provider=provider,
+        now_provider=lambda: datetime(2026, 5, 21, tzinfo=timezone.utc),
+    )
+
+    result = service.fetch_price_history("KR", "005930")
+
+    assert result.current_price == 14
+    assert list(result.dataframe.columns) == ["open", "high", "low", "close", "volume"]
+
+
 def test_routes_us_market_to_yfinance():
     yf = FakeYFinance(history())
     service = MarketDataService(

@@ -143,3 +143,44 @@ def test_validation_failure_retries_openai_once():
     assert ai.calls == 2
     assert content.market_summary.summary == "validated report"
     assert content.asset_strategies[0].ticker == "005930"
+
+
+def test_backfill_performance_logs_updates_trading_day_returns():
+    repo = InMemoryRepository()
+    strategy = repo.create_strategy(
+        {
+            "report_id": "report-1",
+            "ticker": "AAPL",
+            "name": "Apple",
+            "action": "HOLD",
+            "confidence": 50,
+            "current_price": 100,
+            "created_at": "2026-01-01T00:00:00+00:00",
+        }
+    )
+    log_row = repo.create_performance_log(
+        {
+            "strategy_id": strategy["id"],
+            "ticker": "AAPL",
+            "action": "HOLD",
+            "price_at_recommendation": 100,
+            "created_at": "2026-01-01T00:00:00+00:00",
+        }
+    )
+    service = ReportService(
+        repo,
+        market_data_service=FakeMarketData(),
+        technical_analysis_service=FakeTechnical(),
+        ai_provider=FailingAI(),
+    )
+
+    service.backfill_performance_logs()
+
+    updated = next(row for row in repo.list_performance_logs() if row["id"] == log_row["id"])
+    assert updated["price_after_1d"] == 51
+    assert updated["return_after_1d"] == -49
+    assert updated["price_after_5d"] == 55
+    assert updated["return_after_5d"] == -45
+    assert updated["price_after_20d"] == 70
+    assert updated["return_after_20d"] == -30
+    assert updated["evaluated_at"]
