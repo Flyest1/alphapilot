@@ -26,6 +26,17 @@ def _bearer_token(request: Request) -> str | None:
     return token or None
 
 
+def _cors_headers_for_request(request: Request) -> dict[str, str]:
+    env = get_environment_settings()
+    origin = request.headers.get("origin")
+    if origin and env.frontend_origin and origin == env.frontend_origin:
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Vary": "Origin",
+        }
+    return {}
+
+
 def create_app(repository: Repository | None = None) -> FastAPI:
     logging.basicConfig(level=logging.INFO)
     env = get_environment_settings()
@@ -55,7 +66,11 @@ def create_app(repository: Repository | None = None) -> FastAPI:
             else current_env.api_access_token
         )
         if not expected_token or _bearer_token(request) != expected_token:
-            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+            return JSONResponse(
+                {"detail": "unauthorized"},
+                status_code=401,
+                headers=_cors_headers_for_request(request),
+            )
         return await call_next(request)
 
     @app.exception_handler(HTTPException)

@@ -23,8 +23,15 @@ def test_api_endpoints_reject_missing_and_invalid_api_token():
     test_client = client()
 
     assert test_client.get("/api/assets").status_code == 401
-    response = test_client.get("/api/assets", headers={"Authorization": "Bearer wrong"})
+    response = test_client.get(
+        "/api/assets",
+        headers={
+            "Authorization": "Bearer wrong",
+            "Origin": "http://localhost:5173",
+        },
+    )
     assert response.status_code == 401
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
 
 
 def test_api_endpoint_accepts_valid_api_token():

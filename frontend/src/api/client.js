@@ -4,14 +4,19 @@ const API_ACCESS_TOKEN = import.meta.env.VITE_API_ACCESS_TOKEN || "";
 
 export async function apiRequest(path, options = {}) {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  const response = await fetch(`${API_BASE_URL}${normalizedPath}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${API_ACCESS_TOKEN}`,
-      ...(options.headers || {}),
-    },
-  });
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${normalizedPath}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${API_ACCESS_TOKEN}`,
+        ...(options.headers || {}),
+      },
+    });
+  } catch (error) {
+    throw new Error("백엔드 연결에 실패했습니다. API URL, 토큰, CORS 설정을 확인하세요.");
+  }
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({ detail: "request failed" }));
