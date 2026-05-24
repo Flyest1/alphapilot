@@ -451,12 +451,36 @@ form button,
   margin: 12px 0;
 }
 
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.filter-row button {
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #fff;
+  color: #334155;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.filter-row button.active {
+  border-color: #0f766e;
+  background: #f0fdfa;
+  color: #0f766e;
+}
+
 .asset-card-list {
   display: none;
 }
 
 .asset-card,
-.strategy-card {
+.strategy-card,
+.performance-card {
   display: grid;
   gap: 14px;
   border: 1px solid #d7dee8;
@@ -507,17 +531,20 @@ form button,
 }
 
 .asset-card dt,
-.strategy-card dt {
+.strategy-card dt,
+.performance-card dt {
   font-size: 12px;
 }
 
 .asset-card dd,
-.strategy-card dd {
+.strategy-card dd,
+.performance-card dd {
   margin: 2px 0 0;
   font-weight: 700;
   overflow-wrap: anywhere;
 }
 
+.performance-card-list,
 .strategy-card-list {
   display: none;
 }
@@ -642,12 +669,18 @@ form button,
     gap: 12px;
   }
 
+  .performance-card-list {
+    display: grid;
+    gap: 12px;
+  }
+
   .asset-card .row-actions button {
     flex: 1;
     min-height: 42px;
   }
 
   .asset-table,
+  .performance-table,
   .strategy-table {
     display: none;
   }

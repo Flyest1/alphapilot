@@ -12,6 +12,7 @@ import {
 import StrategyTable from "../components/StrategyTable.jsx";
 
 const reportTypes = ["domestic", "global"];
+const strategyFilters = ["ALL", "BUY", "HOLD", "REDUCE", "SELL", "WATCH", "DATA_LIMITED"];
 
 function firstReportForType(latest, reports, type) {
   return latest[type] || reports.find((report) => report.report_type === type) || null;
@@ -20,17 +21,20 @@ function firstReportForType(latest, reports, type) {
 export default function Reports() {
   const [latest, setLatest] = useState({});
   const [reports, setReports] = useState([]);
+  const [performanceLogs, setPerformanceLogs] = useState([]);
   const [selected, setSelected] = useState(null);
   const [activeType, setActiveType] = useState("domestic");
+  const [strategyFilter, setStrategyFilter] = useState("ALL");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    Promise.all([api.reports.latest(), api.reports.list()])
-      .then(([latestReports, reportList]) => {
+    Promise.all([api.reports.latest(), api.reports.list(), api.performanceLogs.list()])
+      .then(([latestReports, reportList, performanceLogList]) => {
         const initialReport = pickReportWithStrategies(latestReports) || reportList[0] || null;
         setLatest(latestReports);
         setReports(reportList);
+        setPerformanceLogs(performanceLogList);
         setSelected(initialReport);
         setActiveType(initialReport?.report_type || "domestic");
       })
@@ -44,6 +48,13 @@ export default function Reports() {
   const selectedStrategyCount = strategyCount(selected);
   const selectedDataLimitedCount = dataLimitedCount(selected);
   const selectedTechnicalOnly = isTechnicalOnlyReport(selected);
+  const strategies = content.asset_strategies || [];
+  const filteredStrategies = strategies.filter((strategy) => {
+    if (strategyFilter === "ALL") return true;
+    if (strategyFilter === "DATA_LIMITED") return strategy.reasoning === "data-limited";
+    return strategy.action === strategyFilter;
+  });
+  const selectedPerformanceLogs = performanceLogs.filter((row) => row.report_id === selected?.id);
 
   function selectType(type) {
     setActiveType(type);
@@ -168,9 +179,127 @@ export default function Reports() {
         {isLoading ? (
           <p className="empty-state">Loading strategies.</p>
         ) : (
-          <StrategyTable strategies={content.asset_strategies || []} />
+          <>
+            <div className="filter-row">
+              {strategyFilters.map((filter) => (
+                <button
+                  className={strategyFilter === filter ? "active" : ""}
+                  key={filter}
+                  type="button"
+                  onClick={() => setStrategyFilter(filter)}
+                >
+                  {filter.replace("_", "-")}
+                </button>
+              ))}
+            </div>
+            <StrategyTable strategies={filteredStrategies} />
+          </>
+        )}
+      </section>
+
+      <section className="panel">
+        <h2>Performance Tracking</h2>
+        {isLoading ? (
+          <p className="empty-state">Loading performance logs.</p>
+        ) : (
+          <PerformanceTable logs={selectedPerformanceLogs} />
         )}
       </section>
     </section>
+  );
+}
+
+function formatReturn(value) {
+  if (value == null) return "-";
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) return "-";
+  return `${numeric.toFixed(2)}%`;
+}
+
+function formatValue(value) {
+  if (value == null) return "-";
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) return value;
+  return numeric.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function PerformanceTable({ logs = [] }) {
+  if (!logs.length) {
+    return <p className="empty-state">No performance rows available for this report yet.</p>;
+  }
+
+  return (
+    <>
+      <div className="performance-card-list">
+        {logs.map((row) => (
+          <article className="performance-card" key={row.id}>
+            <div className="asset-card-header">
+              <div>
+                <strong>{row.ticker}</strong>
+                <span>{row.name || row.action}</span>
+              </div>
+              <span className={`badge ${row.action.toLowerCase()}`}>{row.action}</span>
+            </div>
+            <dl>
+              <div>
+                <dt>Recommendation</dt>
+                <dd>{formatValue(row.price_at_recommendation)}</dd>
+              </div>
+              <div>
+                <dt>1D</dt>
+                <dd>{formatReturn(row.return_after_1d)}</dd>
+              </div>
+              <div>
+                <dt>5D</dt>
+                <dd>{formatReturn(row.return_after_5d)}</dd>
+              </div>
+              <div>
+                <dt>20D</dt>
+                <dd>{formatReturn(row.return_after_20d)}</dd>
+              </div>
+            </dl>
+          </article>
+        ))}
+      </div>
+      <div className="table-wrap performance-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Action</th>
+              <th>Recommendation</th>
+              <th>1D price</th>
+              <th>1D return</th>
+              <th>5D price</th>
+              <th>5D return</th>
+              <th>20D price</th>
+              <th>20D return</th>
+              <th>Evaluated</th>
+            </tr>
+          </thead>
+          <tbody>
+            {logs.map((row) => (
+              <tr key={row.id}>
+                <td>
+                  <strong>{row.ticker}</strong>
+                  <span>{row.name || "-"}</span>
+                </td>
+                <td>
+                  <span className={`badge ${row.action.toLowerCase()}`}>{row.action}</span>
+                </td>
+                <td>{formatValue(row.price_at_recommendation)}</td>
+                <td>{formatValue(row.price_after_1d)}</td>
+                <td>{formatReturn(row.return_after_1d)}</td>
+                <td>{formatValue(row.price_after_5d)}</td>
+                <td>{formatReturn(row.return_after_5d)}</td>
+                <td>{formatValue(row.price_after_20d)}</td>
+                <td>{formatReturn(row.return_after_20d)}</td>
+                <td>{formatReportTime(row.evaluated_at)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }

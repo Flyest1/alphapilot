@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import logging
 from typing import Any
 
 import numpy as np
@@ -107,7 +108,8 @@ class MarketDataService:
         end = self.now_provider().date()
         start = end - timedelta(days=lookback_days * 2)
         normalized = self.normalize_ticker("KR", ticker)
-        return provider.get_market_ohlcv_by_date(
+        return self._quiet_pykrx_call(
+            provider.get_market_ohlcv_by_date,
             start.strftime("%Y%m%d"),
             end.strftime("%Y%m%d"),
             normalized,
@@ -134,7 +136,8 @@ class MarketDataService:
             provider = self._kr_provider()
             end = self.now_provider().date()
             start = end - timedelta(days=lookback_days * 2)
-            raw = provider.get_index_ohlcv_by_date(
+            raw = self._quiet_pykrx_call(
+                provider.get_index_ohlcv_by_date,
                 start.strftime("%Y%m%d"),
                 end.strftime("%Y%m%d"),
                 index_code,
@@ -243,8 +246,9 @@ class MarketDataService:
         provider = self._kr_provider()
         if hasattr(provider, "get_nearest_business_day_in_a_week"):
             try:
-                nearest = provider.get_nearest_business_day_in_a_week(
-                    current_date.strftime("%Y%m%d")
+                nearest = self._quiet_pykrx_call(
+                    provider.get_nearest_business_day_in_a_week,
+                    current_date.strftime("%Y%m%d"),
                 )
                 return datetime.strptime(nearest, "%Y%m%d").date()
             except Exception as exc:
@@ -254,6 +258,14 @@ class MarketDataService:
                     {"operation": "get_nearest_business_day_in_a_week"},
                 )
         return current_date
+
+    def _quiet_pykrx_call(self, func: Any, *args: Any) -> Any:
+        previous_disable_level = logging.root.manager.disable
+        logging.disable(logging.CRITICAL)
+        try:
+            return func(*args)
+        finally:
+            logging.disable(previous_disable_level)
 
     def _kr_provider(self) -> Any:
         if self.kr_provider is None:

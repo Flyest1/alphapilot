@@ -49,6 +49,9 @@ export const api = {
     list: () => apiRequest("/api/reports"),
     get: (id) => apiRequest(`/api/reports/${id}`),
   },
+  performanceLogs: {
+    list: () => apiRequest("/api/performance-logs"),
+  },
   settings: {
     get: () => apiRequest("/api/settings"),
     save: (payload) =>

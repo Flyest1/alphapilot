@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import assets, portfolio, reports, settings
+from app.api import assets, performance, portfolio, reports, settings
 from app.config import get_environment_settings
 from app.db.supabase_client import Repository, create_repository
 from app.services.market_data_service import MarketDataService
@@ -98,6 +98,7 @@ def create_app(repository: Repository | None = None) -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(assets.router)
+    app.include_router(performance.router)
     app.include_router(portfolio.router)
     app.include_router(reports.router)
     app.include_router(settings.router)
