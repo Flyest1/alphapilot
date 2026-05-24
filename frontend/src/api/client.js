@@ -15,7 +15,7 @@ export async function apiRequest(path, options = {}) {
       },
     });
   } catch (error) {
-    throw new Error("백엔드 연결에 실패했습니다. API URL, 토큰, CORS 설정을 확인하세요.");
+    throw new Error("Backend connection failed. Check API URL, token, and CORS settings.");
   }
 
   if (!response.ok) {

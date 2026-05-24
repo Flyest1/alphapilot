@@ -115,7 +115,11 @@ h3 {
 td span,
 .bar-row span,
 .report-list span,
-.latest-list span {
+.latest-list span,
+.field-hint,
+.form-hint,
+.section-heading p,
+.metric-grid span {
   color: #64748b;
 }
 
@@ -198,7 +202,7 @@ td span,
 
 table {
   width: 100%;
-  min-width: 880px;
+  min-width: 1120px;
   border-collapse: collapse;
 }
 
@@ -254,6 +258,28 @@ td:first-child {
   color: #991b1b;
 }
 
+.badge-stack {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+}
+
+.status-pill {
+  display: inline-flex;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: #ecfdf5;
+  color: #047857;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.status-pill.warning {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
 .asset-form,
 .settings-form {
   display: grid;
@@ -280,6 +306,15 @@ select {
 
 .wide {
   grid-column: span 2;
+}
+
+.field-hint,
+.form-hint {
+  font-size: 12px;
+}
+
+.form-hint {
+  margin: 12px 0 0;
 }
 
 form button,
@@ -332,6 +367,90 @@ form button,
   color: #17202a;
 }
 
+.report-list button.active {
+  border-color: #0f766e;
+  background: #f0fdfa;
+}
+
+.segmented-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.segmented-control button {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #17202a;
+  padding: 12px 14px;
+  text-align: left;
+}
+
+.segmented-control button.active {
+  border-color: #0f766e;
+  background: #f0fdfa;
+}
+
+.segmented-control span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.metric-grid > div {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.metric-grid strong {
+  overflow-wrap: anywhere;
+}
+
+.section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.inline-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.inline-metrics span,
+.index-list span {
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.index-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
 .asset-card-list {
   display: none;
 }
@@ -343,6 +462,10 @@ form button,
   border: 1px solid #d7dee8;
   border-radius: 8px;
   padding: 14px;
+}
+
+.strategy-card.data-limited {
+  border-color: #fed7aa;
 }
 
 .asset-card-header,
@@ -435,6 +558,7 @@ form button,
   .summary-grid,
   .content-grid,
   .risk-grid,
+  .metric-grid,
   .asset-form,
   .settings-form {
     grid-template-columns: 1fr;
@@ -468,6 +592,19 @@ form button,
 
   .summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .segmented-control {
+    grid-template-columns: 1fr;
+  }
+
+  .segmented-control button,
+  .section-heading {
+    display: grid;
+  }
+
+  .inline-metrics {
+    justify-content: flex-start;
   }
 
   .summary-card {
