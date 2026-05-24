@@ -8,16 +8,31 @@ on:
 jobs:
   call-api:
     runs-on: ubuntu-latest
+    env:
+      BACKEND_URL: ${{ secrets.BACKEND_URL }}
+      SCHEDULER_SECRET: ${{ secrets.SCHEDULER_SECRET }}
     steps:
       - name: Warm up backend (Render Free cold start)
         run: |
+          BACKEND_URL="$(printf '%s' "$BACKEND_URL" | grep -Eo 'https://[^"[:space:]]+' | head -n 1)"
+          BACKEND_URL="${BACKEND_URL%/}"
+          if [ -z "$BACKEND_URL" ]; then
+            echo "BACKEND_URL secret must be the Render URL, for example https://alphapilot-backend.onrender.com"
+            exit 1
+          fi
           for i in 1 2 3 4 5; do
-            curl -fsS --max-time 30 "${{ secrets.BACKEND_URL }}/health" && exit 0
+            curl -fsS --max-time 30 "$BACKEND_URL/health" && exit 0
             sleep 30
           done
           true
       - name: Call global report API
         run: |
+          BACKEND_URL="$(printf '%s' "$BACKEND_URL" | grep -Eo 'https://[^"[:space:]]+' | head -n 1)"
+          BACKEND_URL="${BACKEND_URL%/}"
+          if [ -z "$BACKEND_URL" ]; then
+            echo "BACKEND_URL secret must be the Render URL, for example https://alphapilot-backend.onrender.com"
+            exit 1
+          fi
           curl -fsS --max-time 120 -X POST \
-            "${{ secrets.BACKEND_URL }}/api/reports/global/generate" \
-            -H "Authorization: Bearer ${{ secrets.SCHEDULER_SECRET }}"
+            "$BACKEND_URL/api/reports/global/generate" \
+            -H "Authorization: Bearer $SCHEDULER_SECRET"
