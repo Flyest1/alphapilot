@@ -28,7 +28,7 @@ export default function Settings() {
         stale_data_business_days: Number(settings.stale_data_business_days),
       });
       setSettings(saved);
-      setStatus("Saved");
+      setStatus("설정을 저장했습니다.");
     } catch (err) {
       setStatus(err.message);
     }
@@ -37,7 +37,7 @@ export default function Settings() {
   if (!settings) {
     return (
       <section className="page">
-        <p className="empty-state">Loading settings.</p>
+        <p className="empty-state">설정을 불러오는 중입니다.</p>
       </section>
     );
   }
@@ -46,52 +46,52 @@ export default function Settings() {
     <section className="page">
       <header className="page-header">
         <div>
-          <h1>Settings</h1>
-          <p>Report timing, AI model, and risk profile.</p>
+          <h1>설정</h1>
+          <p>리포트 생성 시간, AI 모델, 위험 성향을 관리합니다.</p>
         </div>
       </header>
       {status && <p className="notice">{status}</p>}
       <section className="panel">
         <form className="settings-form" onSubmit={save}>
           <label>
-            Domestic report time
+            국내 리포트 시간
             <input
               value={settings.domestic_report_time}
               onChange={(event) => update("domestic_report_time", event.target.value)}
             />
           </label>
           <label>
-            Global report time
+            글로벌 리포트 시간
             <input
               value={settings.global_report_time}
               onChange={(event) => update("global_report_time", event.target.value)}
             />
           </label>
           <label>
-            AI provider
+            AI 제공자
             <input value={settings.ai_provider} onChange={(event) => update("ai_provider", event.target.value)} />
           </label>
           <label>
-            AI model
+            AI 모델
             <input value={settings.ai_model} onChange={(event) => update("ai_model", event.target.value)} />
           </label>
           <label>
-            Risk profile
+            위험 성향
             <select value={settings.risk_profile} onChange={(event) => update("risk_profile", event.target.value)}>
-              <option value="conservative">conservative</option>
-              <option value="balanced">balanced</option>
-              <option value="aggressive">aggressive</option>
+              <option value="conservative">보수적</option>
+              <option value="balanced">균형</option>
+              <option value="aggressive">공격적</option>
             </select>
           </label>
           <label>
-            Frontend timezone
+            화면 시간대
             <input
               value={settings.frontend_timezone}
               onChange={(event) => update("frontend_timezone", event.target.value)}
             />
           </label>
           <label>
-            Stale data business days
+            데이터 지연 허용 영업일
             <input
               min="0"
               type="number"
@@ -100,10 +100,10 @@ export default function Settings() {
             />
           </label>
           <label>
-            API base URL
+            API 기준 URL
             <input readOnly value={API_BASE_URL} />
           </label>
-          <button type="submit">Save settings</button>
+          <button type="submit">설정 저장</button>
         </form>
       </section>
     </section>

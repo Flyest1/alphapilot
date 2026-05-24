@@ -15,12 +15,12 @@ export async function apiRequest(path, options = {}) {
       },
     });
   } catch (error) {
-    throw new Error("Backend connection failed. Check API URL, token, and CORS settings.");
+    throw new Error("백엔드 연결에 실패했습니다. API URL, 토큰, CORS 설정을 확인하세요.");
   }
 
   if (!response.ok) {
-    const body = await response.json().catch(() => ({ detail: "request failed" }));
-    throw new Error(body.detail || "request failed");
+    const body = await response.json().catch(() => ({ detail: "요청에 실패했습니다." }));
+    throw new Error(body.detail || "요청에 실패했습니다.");
   }
 
   return response.json();

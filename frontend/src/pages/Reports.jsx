@@ -2,17 +2,31 @@ import { useEffect, useState } from "react";
 
 import { api } from "../api/client.js";
 import {
+  actionLabel,
   dataLimitedCount,
+  displayText,
   formatReportTime,
   isTechnicalOnlyReport,
   pickReportWithStrategies,
+  reportAiModeLabel,
+  reportTitle,
   reportTypeLabel,
   strategyCount,
+  trendLabel,
 } from "../api/reports.js";
 import StrategyTable from "../components/StrategyTable.jsx";
 
 const reportTypes = ["domestic", "global"];
 const strategyFilters = ["ALL", "BUY", "HOLD", "REDUCE", "SELL", "WATCH", "DATA_LIMITED"];
+const filterLabels = {
+  ALL: "전체",
+  BUY: "매수",
+  HOLD: "보유",
+  REDUCE: "축소",
+  SELL: "매도",
+  WATCH: "관찰",
+  DATA_LIMITED: "데이터 제한",
+};
 
 function firstReportForType(latest, reports, type) {
   return latest[type] || reports.find((report) => report.report_type === type) || null;
@@ -65,12 +79,12 @@ export default function Reports() {
     <section className="page">
       <header className="page-header">
         <div>
-          <h1>Reports</h1>
-          <p>Domestic and global strategy reports with asset-level risk controls.</p>
+          <h1>리포트</h1>
+          <p>국내/글로벌 시장 리포트와 자산별 리스크 관리 전략을 확인합니다.</p>
         </div>
       </header>
       {error && <p className="alert">{error}</p>}
-      {isLoading && <p className="empty-state">Loading reports.</p>}
+      {isLoading && <p className="empty-state">리포트를 불러오는 중입니다.</p>}
 
       <div className="segmented-control">
         {reportTypes.map((type) => (
@@ -81,39 +95,39 @@ export default function Reports() {
             onClick={() => selectType(type)}
           >
             <strong>{reportTypeLabel(type)}</strong>
-            <span>{strategyCount(latest[type])} strategies</span>
+            <span>{strategyCount(latest[type])}개 전략</span>
           </button>
         ))}
       </div>
 
       <div className="content-grid">
         <section className="panel">
-          <h2>Latest {reportTypeLabel(activeType)}</h2>
+          <h2>최신 {reportTypeLabel(activeType)} 리포트</h2>
           <div className="metric-grid compact">
             <div>
-              <span>Generated</span>
+              <span>생성 시간</span>
               <strong>{formatReportTime(latestForActiveType?.created_at)}</strong>
             </div>
             <div>
-              <span>Strategies</span>
+              <span>전략 수</span>
               <strong>{strategyCount(latestForActiveType)}</strong>
             </div>
             <div>
-              <span>Data-limited</span>
+              <span>데이터 제한</span>
               <strong>{dataLimitedCount(latestForActiveType)}</strong>
             </div>
             <div>
-              <span>AI mode</span>
-              <strong>{isTechnicalOnlyReport(latestForActiveType) ? "Fallback" : "AI"}</strong>
+              <span>AI 모드</span>
+              <strong>{reportAiModeLabel(latestForActiveType)}</strong>
             </div>
           </div>
         </section>
 
         <section className="panel">
-          <h2>{reportTypeLabel(activeType)} History</h2>
+          <h2>{reportTypeLabel(activeType)} 리포트 이력</h2>
           <div className="report-list">
             {!isLoading && filteredReports.length === 0 && (
-              <p className="empty-state">No reports generated yet.</p>
+              <p className="empty-state">아직 생성된 리포트가 없습니다.</p>
             )}
             {filteredReports.map((report) => (
               <button
@@ -122,9 +136,9 @@ export default function Reports() {
                 type="button"
                 onClick={() => setSelected(report)}
               >
-                <strong>{report.title}</strong>
+                <strong>{reportTitle(report)}</strong>
                 <span>
-                  {formatReportTime(report.created_at)} - {strategyCount(report)} strategies
+                  {formatReportTime(report.created_at)} · {strategyCount(report)}개 전략
                 </span>
               </button>
             ))}
@@ -135,39 +149,39 @@ export default function Reports() {
       <section className="panel">
         <div className="section-heading">
           <div>
-            <h2>{selected?.title || "No report selected"}</h2>
+            <h2>{reportTitle(selected)}</h2>
             <p>{formatReportTime(selected?.created_at)}</p>
           </div>
           <div className="inline-metrics">
-            <span>{selectedStrategyCount} strategies</span>
-            <span>{selectedDataLimitedCount} data-limited</span>
-            {selectedTechnicalOnly && <span>technical-only</span>}
+            <span>{selectedStrategyCount}개 전략</span>
+            <span>{selectedDataLimitedCount}개 데이터 제한</span>
+            {selectedTechnicalOnly && <span>기술 지표만</span>}
           </div>
         </div>
-        <p>{content.market_summary?.summary || "No report content available."}</p>
+        <p>{displayText(content.market_summary?.summary) || "표시할 리포트 내용이 없습니다."}</p>
         {!!content.market_summary?.key_indices?.length && (
           <div className="index-list">
             {content.market_summary.key_indices.map((index) => (
               <span key={index.name || JSON.stringify(index)}>
-                {index.name}: {index.technical_score ?? "-"} {index.trend_label || ""}
+                {index.name}: {index.technical_score ?? "-"} {trendLabel(index.trend_label)}
               </span>
             ))}
           </div>
         )}
         <div className="risk-grid">
           <div>
-            <h3>Opportunities</h3>
+            <h3>기회 요인</h3>
             <ul>
               {(content.opportunities || []).map((item) => (
-                <li key={item}>{item}</li>
+                <li key={item}>{displayText(item)}</li>
               ))}
             </ul>
           </div>
           <div>
-            <h3>Key risks</h3>
+            <h3>주요 위험</h3>
             <ul>
               {(content.key_risks || []).map((item) => (
-                <li key={item}>{item}</li>
+                <li key={item}>{displayText(item)}</li>
               ))}
             </ul>
           </div>
@@ -175,9 +189,9 @@ export default function Reports() {
       </section>
 
       <section className="panel">
-        <h2>Asset-Level Strategy</h2>
+        <h2>자산별 전략</h2>
         {isLoading ? (
-          <p className="empty-state">Loading strategies.</p>
+          <p className="empty-state">전략을 불러오는 중입니다.</p>
         ) : (
           <>
             <div className="filter-row">
@@ -188,7 +202,7 @@ export default function Reports() {
                   type="button"
                   onClick={() => setStrategyFilter(filter)}
                 >
-                  {filter.replace("_", "-")}
+                  {filterLabels[filter]}
                 </button>
               ))}
             </div>
@@ -198,9 +212,9 @@ export default function Reports() {
       </section>
 
       <section className="panel">
-        <h2>Performance Tracking</h2>
+        <h2>성과 추적</h2>
         {isLoading ? (
-          <p className="empty-state">Loading performance logs.</p>
+          <p className="empty-state">성과 로그를 불러오는 중입니다.</p>
         ) : (
           <PerformanceTable logs={selectedPerformanceLogs} />
         )}
@@ -225,7 +239,7 @@ function formatValue(value) {
 
 function PerformanceTable({ logs = [] }) {
   if (!logs.length) {
-    return <p className="empty-state">No performance rows available for this report yet.</p>;
+    return <p className="empty-state">이 리포트에 연결된 성과 로그가 아직 없습니다.</p>;
   }
 
   return (
@@ -238,23 +252,25 @@ function PerformanceTable({ logs = [] }) {
                 <strong>{row.ticker}</strong>
                 <span>{row.name || row.action}</span>
               </div>
-              <span className={`badge ${row.action.toLowerCase()}`}>{row.action}</span>
+              <span className={`badge ${row.action.toLowerCase()}`}>
+                {actionLabel(row.action)}
+              </span>
             </div>
             <dl>
               <div>
-                <dt>Recommendation</dt>
+                <dt>추천 당시 가격</dt>
                 <dd>{formatValue(row.price_at_recommendation)}</dd>
               </div>
               <div>
-                <dt>1D</dt>
+                <dt>1일</dt>
                 <dd>{formatReturn(row.return_after_1d)}</dd>
               </div>
               <div>
-                <dt>5D</dt>
+                <dt>5일</dt>
                 <dd>{formatReturn(row.return_after_5d)}</dd>
               </div>
               <div>
-                <dt>20D</dt>
+                <dt>20일</dt>
                 <dd>{formatReturn(row.return_after_20d)}</dd>
               </div>
             </dl>
@@ -265,16 +281,16 @@ function PerformanceTable({ logs = [] }) {
         <table>
           <thead>
             <tr>
-              <th>Ticker</th>
-              <th>Action</th>
-              <th>Recommendation</th>
-              <th>1D price</th>
-              <th>1D return</th>
-              <th>5D price</th>
-              <th>5D return</th>
-              <th>20D price</th>
-              <th>20D return</th>
-              <th>Evaluated</th>
+              <th>티커</th>
+              <th>전략</th>
+              <th>추천 당시 가격</th>
+              <th>1일 후 가격</th>
+              <th>1일 수익률</th>
+              <th>5일 후 가격</th>
+              <th>5일 수익률</th>
+              <th>20일 후 가격</th>
+              <th>20일 수익률</th>
+              <th>평가 시간</th>
             </tr>
           </thead>
           <tbody>
@@ -285,7 +301,9 @@ function PerformanceTable({ logs = [] }) {
                   <span>{row.name || "-"}</span>
                 </td>
                 <td>
-                  <span className={`badge ${row.action.toLowerCase()}`}>{row.action}</span>
+                  <span className={`badge ${row.action.toLowerCase()}`}>
+                    {actionLabel(row.action)}
+                  </span>
                 </td>
                 <td>{formatValue(row.price_at_recommendation)}</td>
                 <td>{formatValue(row.price_after_1d)}</td>

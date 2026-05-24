@@ -22,9 +22,7 @@ from app.services.technical_analysis_service import (
 )
 from app.utils.logging import log_external_failure
 
-DISCLAIMER = (
-    "This report is for investment decision support only and does not execute trades automatically."
-)
+DISCLAIMER = "이 리포트는 투자 의사결정 지원용이며 자동 매매를 실행하지 않습니다."
 
 
 class ReportService:
@@ -226,7 +224,7 @@ class ReportService:
             key_risks.append(f"stale market data for: {', '.join(stale_tickers)}")
 
         opportunities = [
-            f"{strategy.ticker}: {strategy.action} candidate from technical score"
+            f"{strategy.ticker}: 기술 점수 기준 {self._action_label(strategy.action)} 후보"
             for strategy in capped_strategies
             if strategy.action in {"BUY", "HOLD"} and strategy.confidence > 0
         ]
@@ -303,7 +301,7 @@ class ReportService:
         report = self.repository.create_report(
             {
                 "report_type": content.report_type,
-                "title": f"{content.report_type.title()} Market Report",
+                "title": f"{self._report_type_label(content.report_type)} 시장 리포트",
                 "summary": content.market_summary.summary,
                 "content": content.model_dump(mode="json"),
             }
@@ -399,7 +397,12 @@ class ReportService:
             "total_cost, total_profit_loss, domestic_value, global_value, or cash_value to the "
             "output. Use decision-support language only. Do not include news factors. Include "
             "action, confidence, ranges, target, stop-loss, reasoning, risk, and invalidation "
-            "condition for each non-stale strategy."
+            "condition for each non-stale strategy. Write user-facing text fields in Korean, "
+            "including market_summary.summary, macro_factors, key_risks, opportunities, "
+            "reasoning, risk, invalidation_condition, and allocation_comment. Keep schema keys, "
+            "ticker symbols, and action enum values in English exactly as required. Do not write "
+            "English sentences in user-facing fields unless the field value is a ticker, provider "
+            "name, schema key, or action enum."
         )
 
     def _index_summary(
@@ -408,12 +411,12 @@ class ReportService:
         index_rows: dict[str, TechnicalAnalysisResult],
     ) -> str:
         if not index_rows:
-            return f"{report_type.title()} market technical data is limited."
+            return f"{self._report_type_label(report_type)} 시장 기술 데이터가 제한적입니다."
         parts = [
-            f"{name} score {result.technical_score} ({result.trend_label})"
+            f"{name} 기술 점수 {result.technical_score} ({self._trend_label(result.trend_label)})"
             for name, result in index_rows.items()
         ]
-        return f"{report_type.title()} market technical snapshot: " + "; ".join(parts)
+        return f"{self._report_type_label(report_type)} 시장 기술 요약: " + "; ".join(parts)
 
     def _report_portfolio_summary(self, summary: dict[str, Any]) -> PortfolioSummary:
         total_value = float(summary.get("total_market_value") or 0)
@@ -427,8 +430,30 @@ class ReportService:
             total_market_value=total_value,
             total_return_rate=total_return,
             risk_level=risk_level,
-            allocation_comment=f"Largest position weight is {max_weight:.2f}%.",
+            allocation_comment=f"최대 보유 비중은 {max_weight:.2f}%입니다.",
         )
+
+    def _report_type_label(self, report_type: str) -> str:
+        return "국내" if report_type == "domestic" else "글로벌"
+
+    def _action_label(self, action: str) -> str:
+        return {
+            "BUY": "매수",
+            "HOLD": "보유",
+            "REDUCE": "축소",
+            "SELL": "매도",
+            "WATCH": "관찰",
+        }.get(action, action)
+
+    def _trend_label(self, trend_label: str) -> str:
+        return {
+            "strong bullish setup": "강한 상승 흐름",
+            "bullish but needs confirmation": "상승 우위이나 확인 필요",
+            "neutral / watch": "중립 또는 관찰",
+            "weak / reduce risk": "약세, 위험 축소 필요",
+            "bearish / sell or avoid": "약세, 매도 또는 회피",
+            "data-limited": "데이터 제한",
+        }.get(trend_label, trend_label)
 
     def _now(self, frontend_timezone: str) -> str:
         try:

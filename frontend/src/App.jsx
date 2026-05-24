@@ -6,10 +6,10 @@ import Reports from "./pages/Reports.jsx";
 import Settings from "./pages/Settings.jsx";
 
 const tabs = [
-  { id: "dashboard", label: "Dashboard" },
-  { id: "assets", label: "Assets" },
-  { id: "reports", label: "Reports" },
-  { id: "settings", label: "Settings" },
+  { id: "dashboard", label: "대시보드" },
+  { id: "assets", label: "자산" },
+  { id: "reports", label: "리포트" },
+  { id: "settings", label: "설정" },
 ];
 
 export default function App() {
@@ -26,7 +26,7 @@ export default function App() {
       <aside className="sidebar">
         <div className="brand">
           <strong>AlphaPilot</strong>
-          <span>Personal CIO</span>
+          <span>개인 투자 전략가</span>
         </div>
         <nav>
           {tabs.map((tab) => (

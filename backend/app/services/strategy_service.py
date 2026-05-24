@@ -21,9 +21,9 @@ class StrategyService:
                 current_price=float(asset.get("avg_price") or 0),
                 action="HOLD",
                 confidence=50,
-                reasoning="cash reserve; no market data fetch",
-                risk="cash allocation can reduce upside participation",
-                invalidation_condition="cash allocation target changes",
+                reasoning="현금성 자산이라 시장 데이터 조회를 건너뜁니다.",
+                risk="현금 비중은 하락 위험을 낮출 수 있지만 상승 참여를 제한할 수 있습니다.",
+                invalidation_condition="현금 비중 목표가 바뀌면 전략을 다시 검토합니다.",
             )
 
         if (
@@ -37,8 +37,8 @@ class StrategyService:
                 action="WATCH",
                 confidence=0,
                 reasoning="data-limited",
-                risk="market data is stale or unavailable",
-                invalidation_condition="fresh market data becomes available",
+                risk="시장 데이터가 지연되었거나 사용할 수 없습니다.",
+                invalidation_condition="최신 시장 데이터가 확보되면 다시 판단합니다.",
             )
 
         current_price = float(market_data.current_price)
@@ -50,10 +50,11 @@ class StrategyService:
         stop_pct = self._stop_loss_pct(risk_profile)
         range_pct = self._range_pct(risk_profile)
         target_pct = self._target_pct(risk_profile, action)
+        trend_label = self._trend_label(getattr(technical_analysis, "trend_label", "watch"))
         reasoning = (
             "technical-only fallback (LLM unavailable)"
             if fallback_mode
-            else f"technical score {score}: {getattr(technical_analysis, 'trend_label', 'watch')}"
+            else f"기술 점수 {score}: {trend_label}"
         )
 
         buy_low = current_price * (1 - range_pct)
@@ -109,12 +110,30 @@ class StrategyService:
         return {"conservative": 0.08, "balanced": 0.12, "aggressive": 0.18}.get(risk_profile, 0.12)
 
     def _risk_text(self, risk_profile: str, score: int) -> str:
+        risk_label = self._risk_profile_label(risk_profile)
         if score < 50:
-            return f"{risk_profile} profile: weak technical setup requires downside control"
-        return f"{risk_profile} profile: use position sizing and stop-loss discipline"
+            return f"{risk_label} 성향: 약한 기술적 흐름이므로 하락 위험 관리가 필요합니다."
+        return f"{risk_label} 성향: 포지션 크기와 손절 기준을 지키는 것이 중요합니다."
 
     def _invalidation_condition(self, action: str, current_price: float, stop_pct: float) -> str:
         if action in {"BUY", "HOLD", "WATCH"}:
             invalidation_price = current_price * (1 - stop_pct)
-            return f"close below {invalidation_price:.4f}"
-        return "technical score recovers above 50 with improving momentum"
+            return f"종가가 {invalidation_price:.4f} 아래로 내려가면 무효화합니다."
+        return "기술 점수가 50을 회복하고 모멘텀이 개선되면 판단을 다시 검토합니다."
+
+    def _risk_profile_label(self, risk_profile: str) -> str:
+        return {
+            "conservative": "보수적",
+            "balanced": "균형",
+            "aggressive": "공격적",
+        }.get(risk_profile, risk_profile)
+
+    def _trend_label(self, trend_label: str) -> str:
+        return {
+            "strong bullish setup": "강한 상승 흐름",
+            "bullish but needs confirmation": "상승 우위이나 확인 필요",
+            "neutral / watch": "중립 또는 관찰",
+            "weak / reduce risk": "약세, 위험 축소 필요",
+            "bearish / sell or avoid": "약세, 매도 또는 회피",
+            "data-limited": "데이터 제한",
+        }.get(trend_label, trend_label)
