@@ -16,10 +16,16 @@ export default function Assets() {
   const [assets, setAssets] = useState([]);
   const [form, setForm] = useState(blankAsset);
   const [editingId, setEditingId] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
   function loadAssets() {
-    api.assets.list().then(setAssets).catch((err) => setError(err.message));
+    setIsLoading(true);
+    api.assets
+      .list()
+      .then(setAssets)
+      .catch((err) => setError(err.message))
+      .finally(() => setIsLoading(false));
   }
 
   useEffect(() => {
@@ -127,7 +133,8 @@ export default function Assets() {
       </section>
 
       <section className="panel">
-        {assets.length === 0 && <p className="empty-state">No assets registered yet.</p>}
+        {isLoading && <p className="empty-state">Loading assets.</p>}
+        {!isLoading && assets.length === 0 && <p className="empty-state">No assets registered yet.</p>}
         <div className="asset-card-list">
           {assets.map((asset) => (
             <article className="asset-card" key={asset.id}>

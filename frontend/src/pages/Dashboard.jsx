@@ -12,6 +12,7 @@ function money(value) {
 export default function Dashboard() {
   const [summary, setSummary] = useState(null);
   const [latest, setLatest] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -20,7 +21,8 @@ export default function Dashboard() {
         setSummary(portfolio);
         setLatest(reports);
       })
-      .catch((err) => setError(err.message));
+      .catch((err) => setError(err.message))
+      .finally(() => setIsLoading(false));
   }, []);
 
   const report = pickReportWithStrategies(latest);
@@ -36,6 +38,7 @@ export default function Dashboard() {
       </header>
 
       {error && <p className="alert">{error}</p>}
+      {isLoading && <p className="empty-state">Loading portfolio data.</p>}
 
       <div className="summary-grid">
         <SummaryCard label="Total value" value={money(summary?.total_market_value)} />
@@ -91,7 +94,7 @@ export default function Dashboard() {
 
       <section className="panel">
         <h2>Asset Strategies</h2>
-        <StrategyTable strategies={content.asset_strategies || []} />
+        {isLoading ? <p className="empty-state">Loading strategies.</p> : <StrategyTable strategies={content.asset_strategies || []} />}
       </section>
     </section>
   );

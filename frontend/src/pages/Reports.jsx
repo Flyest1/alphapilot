@@ -8,6 +8,7 @@ export default function Reports() {
   const [latest, setLatest] = useState({});
   const [reports, setReports] = useState([]);
   const [selected, setSelected] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -17,7 +18,8 @@ export default function Reports() {
         setReports(reportList);
         setSelected(pickReportWithStrategies(latestReports) || reportList[0] || null);
       })
-      .catch((err) => setError(err.message));
+      .catch((err) => setError(err.message))
+      .finally(() => setIsLoading(false));
   }, []);
 
   const content = selected?.content || {};
@@ -31,6 +33,7 @@ export default function Reports() {
         </div>
       </header>
       {error && <p className="alert">{error}</p>}
+      {isLoading && <p className="empty-state">Loading reports.</p>}
 
       <div className="content-grid">
         <section className="panel">
@@ -56,6 +59,7 @@ export default function Reports() {
         <section className="panel">
           <h2>History</h2>
           <div className="report-list">
+            {!isLoading && reports.length === 0 && <p className="empty-state">No reports generated yet.</p>}
             {reports.map((report) => (
               <button key={report.id} type="button" onClick={() => setSelected(report)}>
                 <strong>{report.title}</strong>
@@ -91,7 +95,7 @@ export default function Reports() {
 
       <section className="panel">
         <h2>Asset-Level Strategy</h2>
-        <StrategyTable strategies={content.asset_strategies || []} />
+        {isLoading ? <p className="empty-state">Loading strategies.</p> : <StrategyTable strategies={content.asset_strategies || []} />}
       </section>
     </section>
   );
