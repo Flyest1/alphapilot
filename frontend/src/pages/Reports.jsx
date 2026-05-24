@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { api } from "../api/client.js";
+import { pickReportWithStrategies, strategyCount } from "../api/reports.js";
 import StrategyTable from "../components/StrategyTable.jsx";
 
 export default function Reports() {
@@ -14,7 +15,7 @@ export default function Reports() {
       .then(([latestReports, reportList]) => {
         setLatest(latestReports);
         setReports(reportList);
-        setSelected(latestReports.domestic || latestReports.global || reportList[0] || null);
+        setSelected(pickReportWithStrategies(latestReports) || reportList[0] || null);
       })
       .catch((err) => setError(err.message));
   }, []);
@@ -43,7 +44,10 @@ export default function Reports() {
                 disabled={!latest[type]}
               >
                 <strong>{type}</strong>
-                <span>{latest[type]?.created_at || "not generated"}</span>
+                <span>
+                  {latest[type]?.created_at || "not generated"}
+                  {latest[type] ? ` · ${strategyCount(latest[type])} strategies` : ""}
+                </span>
               </button>
             ))}
           </div>

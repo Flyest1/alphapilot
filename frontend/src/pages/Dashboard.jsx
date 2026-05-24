@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { api } from "../api/client.js";
+import { pickReportWithStrategies } from "../api/reports.js";
 import StrategyTable from "../components/StrategyTable.jsx";
 import SummaryCard from "../components/SummaryCard.jsx";
 
@@ -22,7 +23,7 @@ export default function Dashboard() {
       .catch((err) => setError(err.message));
   }, []);
 
-  const report = latest?.domestic || latest?.global;
+  const report = pickReportWithStrategies(latest);
   const content = report?.content || {};
 
   return (
