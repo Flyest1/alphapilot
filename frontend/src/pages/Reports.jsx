@@ -46,7 +46,7 @@ export default function Reports() {
                 <strong>{type}</strong>
                 <span>
                   {latest[type]?.created_at || "not generated"}
-                  {latest[type] ? ` · ${strategyCount(latest[type])} strategies` : ""}
+                  {latest[type] ? ` - ${strategyCount(latest[type])} strategies` : ""}
                 </span>
               </button>
             ))}

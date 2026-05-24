@@ -3,6 +3,7 @@ export function strategyCount(report) {
 }
 
 export function pickReportWithStrategies(latestReports = {}) {
-  const reports = [latestReports.domestic, latestReports.global].filter(Boolean);
+  const source = latestReports || {};
+  const reports = [source.domestic, source.global].filter(Boolean);
   return reports.find((report) => strategyCount(report) > 0) || reports[0] || null;
 }
