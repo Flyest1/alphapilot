@@ -93,6 +93,8 @@ VITE_API_ACCESS_TOKEN=change-this-user-token
 `VITE_API_ACCESS_TOKEN`은 단일 사용자 MVP용 가벼운 접근 제어입니다. 이 값은 프론트엔드 번들에
 포함되므로, 배포된 프론트엔드에 접근할 수 있는 사람은 값을 확인할 수 있습니다. 이 MVP를 다중 사용자
 서비스나 production-grade 인증으로 간주하면 안 됩니다.
+GitHub Pages 저장소가 public이면 URL을 아는 사람이 화면에 접근하고 자산/리포트 데이터를 볼 수
+있다고 가정해야 합니다.
 
 프론트엔드에는 OpenAI 키, Supabase 키, 시장 데이터 자격 정보, `SCHEDULER_SECRET`을 넣지 마세요.
 

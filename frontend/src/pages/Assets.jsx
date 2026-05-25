@@ -14,30 +14,59 @@ const blankAsset = {
 
 const marketGuides = {
   KR: {
+    title: "국내 주식 / 국내 ETF",
     ticker: "한국거래소 6자리 코드",
     placeholder: "005930 또는 069500",
     examples: "국내 주식과 국내 ETF는 KR을 선택하고 6자리 종목코드를 입력하세요.",
+    rules: ["6자리 숫자만 입력", "삼성전자: 005930", "KODEX 200: 069500"],
     currency: "KRW",
   },
   US: {
+    title: "미국 개별 주식",
     ticker: "미국 주식 티커",
     placeholder: "AAPL 또는 MSFT",
     examples: "미국 개별 주식은 US를 선택하고 영문 티커를 입력하세요.",
+    rules: ["영문 티커 입력", "애플: AAPL", "마이크로소프트: MSFT"],
     currency: "USD",
   },
   ETF: {
+    title: "미국 상장 ETF",
     ticker: "미국 ETF 티커",
     placeholder: "VOO, SPY, QQQ 또는 SCHD",
     examples: "미국 상장 ETF는 ETF를 선택하세요. 국내 ETF는 KR을 사용합니다.",
+    rules: ["미국 ETF만 선택", "VOO, SPY, QQQ, SCHD", "국내 ETF는 KR + 6자리 코드"],
     currency: "USD",
   },
   CASH: {
+    title: "현금성 자산",
     ticker: "현금 구분명",
     placeholder: "KRW 또는 USD",
     examples: "현금은 자산 비중 계산에는 포함되지만 시장 데이터 조회는 건너뜁니다.",
+    rules: ["예: KRW, USD", "시장 데이터 조회 없음", "전략 리포트 대상에서는 제외"],
     currency: "KRW",
   },
 };
+
+function validateAsset(payload) {
+  if (!payload.ticker) return "티커를 입력하세요.";
+  if (!payload.name) return "자산 이름을 입력하세요.";
+  if (!Number.isFinite(payload.quantity) || payload.quantity < 0) {
+    return "수량은 0 이상 숫자로 입력하세요.";
+  }
+  if (!Number.isFinite(payload.avg_price) || payload.avg_price < 0) {
+    return "평균 매입가는 0 이상 숫자로 입력하세요.";
+  }
+  if (payload.market === "KR" && !/^\d{6}$/.test(payload.ticker)) {
+    return "KR과 국내 ETF는 6자리 숫자 종목코드를 입력하세요. 예: 005930, 069500";
+  }
+  if (payload.market === "ETF" && /^\d{6}$/.test(payload.ticker)) {
+    return "국내 ETF 6자리 코드는 시장을 ETF가 아니라 KR로 선택하세요.";
+  }
+  if (["US", "ETF"].includes(payload.market) && !/^[A-Z][A-Z0-9.-]{0,14}$/.test(payload.ticker)) {
+    return "미국 주식/ETF는 영문 티커를 입력하세요. 예: AAPL, VOO";
+  }
+  return "";
+}
 
 export default function Assets() {
   const [assets, setAssets] = useState([]);
@@ -91,6 +120,11 @@ export default function Assets() {
       currency: form.currency.trim().toUpperCase(),
       memo: form.memo.trim(),
     };
+    const validationError = validateAsset(payload);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
     try {
       if (editingId) {
         await api.assets.update(editingId, payload);
@@ -150,15 +184,17 @@ export default function Assets() {
           <label>
             시장
             <select value={form.market} onChange={(event) => updateMarket(event.target.value)}>
-              <option value="KR">KR</option>
-              <option value="US">US</option>
-              <option value="ETF">ETF</option>
-              <option value="CASH">CASH</option>
+              <option value="KR">KR - 국내 주식/국내 ETF</option>
+              <option value="US">US - 미국 주식</option>
+              <option value="ETF">ETF - 미국 ETF</option>
+              <option value="CASH">CASH - 현금</option>
             </select>
           </label>
           <label>
             티커
             <input
+              autoCapitalize="characters"
+              inputMode={form.market === "KR" ? "numeric" : "text"}
               placeholder={guide.placeholder}
               value={form.ticker}
               onChange={(event) => updateField("ticker", event.target.value.toUpperCase())}
@@ -203,7 +239,17 @@ export default function Assets() {
           </label>
           <button type="submit">{editingId ? "자산 저장" : "자산 추가"}</button>
         </form>
-        <p className="form-hint">{guide.examples}</p>
+        <div className="asset-guide">
+          <div>
+            <strong>{guide.title}</strong>
+            <p>{guide.examples}</p>
+          </div>
+          <ul>
+            {guide.rules.map((rule) => (
+              <li key={rule}>{rule}</li>
+            ))}
+          </ul>
+        </div>
       </section>
 
       <section className="panel">

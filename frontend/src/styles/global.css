@@ -118,6 +118,7 @@ td span,
 .latest-list span,
 .field-hint,
 .form-hint,
+.asset-guide p,
 .section-heading p,
 .metric-grid span {
   color: #64748b;
@@ -339,6 +340,36 @@ select {
 
 .form-hint {
   margin: 12px 0 0;
+}
+
+.asset-guide {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 14px;
+  margin-top: 14px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #f8fbff;
+  padding: 12px 14px;
+}
+
+.asset-guide strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.asset-guide p {
+  margin-bottom: 0;
+  font-size: 13px;
+}
+
+.asset-guide ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  color: #334155;
+  font-size: 13px;
 }
 
 form button,
@@ -571,7 +602,8 @@ form button,
 }
 
 .asset-card dl,
-.strategy-card dl {
+.strategy-card dl,
+.performance-card dl {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px 14px;
@@ -636,7 +668,8 @@ form button,
   .risk-grid,
   .metric-grid,
   .asset-form,
-  .settings-form {
+  .settings-form,
+  .asset-guide {
     grid-template-columns: 1fr;
   }
 
@@ -646,12 +679,16 @@ form button,
 }
 
 @media (max-width: 640px) {
+  body {
+    background: #f4f7fa;
+  }
+
   main {
-    padding: 14px;
+    padding: 12px;
   }
 
   .page {
-    gap: 14px;
+    gap: 12px;
   }
 
   .page-header {
@@ -666,19 +703,47 @@ form button,
     font-size: 18px;
   }
 
+  .brand span {
+    font-size: 12px;
+  }
+
+  .sidebar {
+    padding: 10px 10px 8px;
+  }
+
+  nav {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    overflow: visible;
+  }
+
+  nav button {
+    min-width: 0;
+    border-radius: 7px;
+    padding: 8px 4px;
+    font-size: 13px;
+  }
+
   .summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
   }
 
   .action-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
   }
 
   .segmented-control {
     grid-template-columns: 1fr;
   }
 
-  .segmented-control button,
+  .segmented-control button {
+    min-height: 52px;
+    padding: 10px 12px;
+  }
+
   .section-heading {
     display: grid;
   }
@@ -687,8 +752,12 @@ form button,
     justify-content: flex-start;
   }
 
+  .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .summary-card {
-    min-height: 80px;
+    min-height: 76px;
     padding: 12px;
   }
 
@@ -698,7 +767,7 @@ form button,
   }
 
   .panel {
-    padding: 14px;
+    padding: 13px;
   }
 
   .asset-form,
@@ -710,6 +779,11 @@ form button,
   select,
   form button {
     min-height: 44px;
+  }
+
+  .asset-guide {
+    gap: 10px;
+    padding: 11px 12px;
   }
 
   .asset-card-list {
@@ -732,6 +806,17 @@ form button,
     min-height: 42px;
   }
 
+  .filter-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .filter-row button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
   .asset-table,
   .performance-table,
   .strategy-table {
@@ -744,6 +829,26 @@ form button,
   }
 
   .top-strategy-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+
+  .top-strategy-row > span:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .asset-card-header,
+  .strategy-card-header {
+    display: grid;
+  }
+
+  .badge-stack {
+    justify-items: start;
+  }
+
+  .asset-card dl,
+  .strategy-card dl,
+  .performance-card dl {
     grid-template-columns: 1fr;
   }
 }
