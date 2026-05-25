@@ -9,6 +9,23 @@ export function dataLimitedCount(report) {
   );
 }
 
+export function normalizeTicker(ticker) {
+  return String(ticker || "")
+    .toUpperCase()
+    .replace(/\.KS$|\.KQ$/, "")
+    .trim();
+}
+
+export function splitStrategiesByAssets(strategies = [], assets = []) {
+  const ownedTickers = new Set(assets.map((asset) => normalizeTicker(asset.ticker)));
+  return {
+    ownedStrategies: strategies.filter((strategy) => ownedTickers.has(normalizeTicker(strategy.ticker))),
+    candidateStrategies: strategies.filter(
+      (strategy) => !ownedTickers.has(normalizeTicker(strategy.ticker)),
+    ),
+  };
+}
+
 export function isTechnicalOnlyReport(report) {
   return (
     report?.content?.key_risks?.includes("AI reasoning unavailable for this report") ||

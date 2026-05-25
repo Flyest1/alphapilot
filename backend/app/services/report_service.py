@@ -23,6 +23,32 @@ from app.services.technical_analysis_service import (
 from app.utils.logging import log_external_failure
 
 DISCLAIMER = "이 리포트는 투자 의사결정 지원용이며 자동 매매를 실행하지 않습니다."
+CANDIDATE_MIN_TECHNICAL_SCORE = 75
+MAX_RECOMMENDED_CANDIDATES = 5
+CANDIDATE_UNIVERSE: dict[str, list[dict[str, str]]] = {
+    "domestic": [
+        {"market": "KR", "ticker": "005930", "name": "삼성전자", "currency": "KRW"},
+        {"market": "KR", "ticker": "000660", "name": "SK하이닉스", "currency": "KRW"},
+        {"market": "KR", "ticker": "005380", "name": "현대차", "currency": "KRW"},
+        {"market": "KR", "ticker": "035420", "name": "NAVER", "currency": "KRW"},
+        {"market": "KR", "ticker": "068270", "name": "셀트리온", "currency": "KRW"},
+        {"market": "KR", "ticker": "105560", "name": "KB금융", "currency": "KRW"},
+        {"market": "KR", "ticker": "069500", "name": "KODEX 200", "currency": "KRW"},
+        {"market": "KR", "ticker": "091160", "name": "KODEX 반도체", "currency": "KRW"},
+    ],
+    "global": [
+        {"market": "US", "ticker": "NVDA", "name": "NVIDIA", "currency": "USD"},
+        {"market": "US", "ticker": "MSFT", "name": "Microsoft", "currency": "USD"},
+        {"market": "US", "ticker": "AAPL", "name": "Apple", "currency": "USD"},
+        {"market": "US", "ticker": "AMZN", "name": "Amazon", "currency": "USD"},
+        {"market": "US", "ticker": "GOOGL", "name": "Alphabet", "currency": "USD"},
+        {"market": "US", "ticker": "META", "name": "Meta Platforms", "currency": "USD"},
+        {"market": "ETF", "ticker": "VOO", "name": "Vanguard S&P 500 ETF", "currency": "USD"},
+        {"market": "ETF", "ticker": "QQQ", "name": "Invesco QQQ Trust", "currency": "USD"},
+        {"market": "ETF", "ticker": "SMH", "name": "VanEck Semiconductor ETF", "currency": "USD"},
+        {"market": "ETF", "ticker": "SCHD", "name": "Schwab US Dividend ETF", "currency": "USD"},
+    ],
+}
 
 
 class ReportService:
@@ -45,12 +71,24 @@ class ReportService:
             self.repository.get_settings(),
             get_env_application_defaults(),
         )
-        assets = self._assets_for_report(self.repository.list_assets(), report_type)
+        all_assets = self.repository.list_assets()
+        assets = self._assets_for_report(all_assets, report_type)
         portfolio_summary = PortfolioService(
             self.repository,
             self.market_data_service,
         ).get_summary()
-        analysis_rows = self._build_asset_analysis(assets, app_settings.stale_data_business_days)
+        analysis_rows = self._build_asset_analysis(
+            assets,
+            app_settings.stale_data_business_days,
+            app_settings.risk_profile,
+        )
+        candidate_rows = self._build_candidate_analysis(
+            report_type,
+            all_assets,
+            app_settings.stale_data_business_days,
+            app_settings.risk_profile,
+        )
+        analysis_rows = analysis_rows + candidate_rows
         index_rows = self._build_index_analysis(report_type, app_settings.stale_data_business_days)
         stale_tickers = [
             row["asset"]["ticker"] for row in analysis_rows if row["market_data"].is_stale
@@ -150,6 +188,13 @@ class ReportService:
             "market_indices": {key: value.__dict__ for key, value in index_rows.items()},
             "technical_strategies": [
                 strategy.model_dump(mode="json") for strategy in technical_strategies
+            ],
+            "owned_tickers": [
+                self._normalize_ticker(asset.get("ticker", ""))
+                for asset in self.repository.list_assets()
+            ],
+            "candidate_tickers": [
+                row["asset"]["ticker"] for row in analysis_rows if row["asset"].get("id") is None
             ],
             "stale_tickers": stale_tickers,
             "generated_at": self._now(app_settings["frontend_timezone"]),
@@ -255,6 +300,7 @@ class ReportService:
         self,
         assets: list[dict[str, Any]],
         stale_data_business_days: int,
+        risk_profile: str,
     ) -> list[dict[str, Any]]:
         rows = []
         for asset in assets:
@@ -271,7 +317,7 @@ class ReportService:
                 asset,
                 market_data,
                 technical_analysis,
-                self._risk_profile(),
+                risk_profile,
             )
             rows.append(
                 {
@@ -282,6 +328,62 @@ class ReportService:
                 }
             )
         return rows
+
+    def _build_candidate_analysis(
+        self,
+        report_type: str,
+        all_assets: list[dict[str, Any]],
+        stale_data_business_days: int,
+        risk_profile: str,
+    ) -> list[dict[str, Any]]:
+        owned_tickers = {self._normalize_ticker(asset.get("ticker", "")) for asset in all_assets}
+        rows = []
+        for asset in self._candidate_assets(report_type):
+            if self._normalize_ticker(asset["ticker"]) in owned_tickers:
+                continue
+            market_data = self.market_data_service.fetch_price_history(
+                asset["market"],
+                asset["ticker"],
+                stale_data_business_days=stale_data_business_days,
+            )
+            if market_data.is_stale:
+                continue
+            technical_analysis = self.technical_analysis_service.analyze(
+                asset["ticker"],
+                market_data.dataframe,
+            )
+            if technical_analysis.technical_score < CANDIDATE_MIN_TECHNICAL_SCORE:
+                continue
+            strategy = self.strategy_service.generate_strategy(
+                asset,
+                market_data,
+                technical_analysis,
+                risk_profile,
+            )
+            if strategy.action not in {"BUY", "HOLD"} or strategy.reasoning == "data-limited":
+                continue
+            strategy = strategy.model_copy(
+                update={
+                    "reasoning": f"보유 외 추가 매수 후보: {strategy.reasoning}",
+                    "risk": f"신규 진입 후보입니다. {strategy.risk}",
+                }
+            )
+            rows.append(
+                {
+                    "asset": asset,
+                    "market_data": market_data,
+                    "technical_analysis": technical_analysis,
+                    "strategy": strategy,
+                }
+            )
+        return sorted(
+            rows,
+            key=lambda row: (
+                row["technical_analysis"].technical_score,
+                row["strategy"].confidence,
+            ),
+            reverse=True,
+        )[:MAX_RECOMMENDED_CANDIDATES]
 
     def _build_index_analysis(
         self,
@@ -368,6 +470,18 @@ class ReportService:
         markets = {"KR"} if report_type == "domestic" else {"US", "ETF"}
         return [asset for asset in assets if asset.get("market") in markets]
 
+    def _candidate_assets(self, report_type: str) -> list[dict[str, Any]]:
+        return [
+            {
+                **candidate,
+                "id": None,
+                "quantity": 0,
+                "avg_price": 0,
+                "memo": "보유 외 추천 후보",
+            }
+            for candidate in CANDIDATE_UNIVERSE.get(report_type, [])
+        ]
+
     def _risk_profile(self) -> str:
         settings = resolve_application_settings(
             self.repository.get_settings(),
@@ -402,7 +516,9 @@ class ReportService:
             "reasoning, risk, invalidation_condition, and allocation_comment. Keep schema keys, "
             "ticker symbols, and action enum values in English exactly as required. Do not write "
             "English sentences in user-facing fields unless the field value is a ticker, provider "
-            "name, schema key, or action enum."
+            "name, schema key, or action enum. context.candidate_tickers contains non-owned "
+            "screened buy candidates. Include them in asset_strategies when they are present, and "
+            "make their reasoning clearly say they are 보유 외 추가 매수 후보."
         )
 
     def _index_summary(
@@ -465,6 +581,9 @@ class ReportService:
     def _infer_market(self, ticker: str) -> str:
         clean = ticker.replace(".KS", "").replace(".KQ", "")
         return "KR" if clean.isdigit() else "US"
+
+    def _normalize_ticker(self, ticker: str) -> str:
+        return str(ticker).upper().replace(".KS", "").replace(".KQ", "").strip()
 
     def _parse_datetime(self, value: Any) -> datetime | None:
         if value is None:

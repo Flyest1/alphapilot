@@ -11,6 +11,7 @@ import {
   reportAiModeLabel,
   reportTitle,
   reportTypeLabel,
+  splitStrategiesByAssets,
   strategyCount,
   trendLabel,
 } from "../api/reports.js";
@@ -35,6 +36,7 @@ function firstReportForType(latest, reports, type) {
 export default function Reports() {
   const [latest, setLatest] = useState({});
   const [reports, setReports] = useState([]);
+  const [assets, setAssets] = useState([]);
   const [performanceLogs, setPerformanceLogs] = useState([]);
   const [selected, setSelected] = useState(null);
   const [activeType, setActiveType] = useState("domestic");
@@ -43,12 +45,18 @@ export default function Reports() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    Promise.all([api.reports.latest(), api.reports.list(), api.performanceLogs.list()])
-      .then(([latestReports, reportList, performanceLogList]) => {
+    Promise.all([
+      api.reports.latest(),
+      api.reports.list(),
+      api.performanceLogs.list(),
+      api.assets.list(),
+    ])
+      .then(([latestReports, reportList, performanceLogList, assetList]) => {
         const initialReport = pickReportWithStrategies(latestReports) || reportList[0] || null;
         setLatest(latestReports);
         setReports(reportList);
         setPerformanceLogs(performanceLogList);
+        setAssets(assetList);
         setSelected(initialReport);
         setActiveType(initialReport?.report_type || "domestic");
       })
@@ -59,11 +67,15 @@ export default function Reports() {
   const content = selected?.content || {};
   const filteredReports = reports.filter((report) => report.report_type === activeType);
   const latestForActiveType = latest[activeType];
-  const selectedStrategyCount = strategyCount(selected);
   const selectedDataLimitedCount = dataLimitedCount(selected);
   const selectedTechnicalOnly = isTechnicalOnlyReport(selected);
   const strategies = content.asset_strategies || [];
-  const filteredStrategies = strategies.filter((strategy) => {
+  const { ownedStrategies, candidateStrategies } = splitStrategiesByAssets(strategies, assets);
+  const latestSplit = splitStrategiesByAssets(
+    latestForActiveType?.content?.asset_strategies || [],
+    assets,
+  );
+  const filteredStrategies = ownedStrategies.filter((strategy) => {
     if (strategyFilter === "ALL") return true;
     if (strategyFilter === "DATA_LIMITED") return strategy.reasoning === "data-limited";
     return strategy.action === strategyFilter;
@@ -109,8 +121,12 @@ export default function Reports() {
               <strong>{formatReportTime(latestForActiveType?.created_at)}</strong>
             </div>
             <div>
-              <span>전략 수</span>
-              <strong>{strategyCount(latestForActiveType)}</strong>
+              <span>보유 전략</span>
+              <strong>{latestSplit.ownedStrategies.length}</strong>
+            </div>
+            <div>
+              <span>추가 후보</span>
+              <strong>{latestSplit.candidateStrategies.length}</strong>
             </div>
             <div>
               <span>데이터 제한</span>
@@ -153,7 +169,8 @@ export default function Reports() {
             <p>{formatReportTime(selected?.created_at)}</p>
           </div>
           <div className="inline-metrics">
-            <span>{selectedStrategyCount}개 전략</span>
+            <span>{ownedStrategies.length}개 보유 전략</span>
+            <span>{candidateStrategies.length}개 추가 후보</span>
             <span>{selectedDataLimitedCount}개 데이터 제한</span>
             {selectedTechnicalOnly && <span>기술 지표만</span>}
           </div>
@@ -212,6 +229,19 @@ export default function Reports() {
       </section>
 
       <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h2>추가 매수 후보</h2>
+            <p>보유 자산이 아닌 기본 후보군을 기술 점수로 선별한 결과입니다.</p>
+          </div>
+          <div className="inline-metrics">
+            <span>{candidateStrategies.length}개 후보</span>
+          </div>
+        </div>
+        <StrategyTable strategies={candidateStrategies} />
+      </section>
+
+      <section className="panel">
         <h2>성과 추적</h2>
         {isLoading ? (
           <p className="empty-state">성과 로그를 불러오는 중입니다.</p>
@@ -241,9 +271,28 @@ function PerformanceTable({ logs = [] }) {
   if (!logs.length) {
     return <p className="empty-state">이 리포트에 연결된 성과 로그가 아직 없습니다.</p>;
   }
+  const summary = performanceSummary(logs);
 
   return (
     <>
+      <div className="metric-grid compact performance-summary">
+        <div>
+          <span>평가 로그</span>
+          <strong>{logs.length}</strong>
+        </div>
+        <div>
+          <span>1일 평균</span>
+          <strong>{formatReturn(summary.return_after_1d)}</strong>
+        </div>
+        <div>
+          <span>5일 평균</span>
+          <strong>{formatReturn(summary.return_after_5d)}</strong>
+        </div>
+        <div>
+          <span>20일 평균</span>
+          <strong>{formatReturn(summary.return_after_20d)}</strong>
+        </div>
+      </div>
       <div className="performance-card-list">
         {logs.map((row) => (
           <article className="performance-card" key={row.id}>
@@ -320,4 +369,20 @@ function PerformanceTable({ logs = [] }) {
       </div>
     </>
   );
+}
+
+function performanceSummary(logs) {
+  return {
+    return_after_1d: average(logs.map((row) => row.return_after_1d)),
+    return_after_5d: average(logs.map((row) => row.return_after_5d)),
+    return_after_20d: average(logs.map((row) => row.return_after_20d)),
+  };
+}
+
+function average(values) {
+  const numericValues = values
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
+  if (!numericValues.length) return null;
+  return numericValues.reduce((sum, value) => sum + value, 0) / numericValues.length;
 }

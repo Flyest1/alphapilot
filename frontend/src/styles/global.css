@@ -475,6 +475,10 @@ form button,
   overflow-wrap: anywhere;
 }
 
+.performance-summary {
+  margin-bottom: 14px;
+}
+
 .section-heading {
   display: flex;
   align-items: flex-start;

@@ -9,7 +9,7 @@ import {
   pickReportWithStrategies,
   reportAiModeLabel,
   reportTypeLabel,
-  strategyCount,
+  splitStrategiesByAssets,
 } from "../api/reports.js";
 import StrategyTable from "../components/StrategyTable.jsx";
 import SummaryCard from "../components/SummaryCard.jsx";
@@ -21,14 +21,16 @@ function money(value) {
 export default function Dashboard() {
   const [summary, setSummary] = useState(null);
   const [latest, setLatest] = useState(null);
+  const [assets, setAssets] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    Promise.all([api.portfolio.summary(), api.reports.latest()])
-      .then(([portfolio, reports]) => {
+    Promise.all([api.portfolio.summary(), api.reports.latest(), api.assets.list()])
+      .then(([portfolio, reports, assetList]) => {
         setSummary(portfolio);
         setLatest(reports);
+        setAssets(assetList);
       })
       .catch((err) => setError(err.message))
       .finally(() => setIsLoading(false));
@@ -37,11 +39,15 @@ export default function Dashboard() {
   const report = pickReportWithStrategies(latest);
   const content = report?.content || {};
   const strategies = content.asset_strategies || [];
+  const { ownedStrategies, candidateStrategies } = splitStrategiesByAssets(strategies, assets);
   const actionCounts = ["BUY", "HOLD", "REDUCE", "SELL", "WATCH"].map((action) => ({
     action,
-    count: strategies.filter((strategy) => strategy.action === action).length,
+    count: ownedStrategies.filter((strategy) => strategy.action === action).length,
   }));
-  const topStrategies = [...strategies]
+  const topStrategies = [...ownedStrategies]
+    .sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
+    .slice(0, 5);
+  const topCandidates = [...candidateStrategies]
     .sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
     .slice(0, 5);
 
@@ -83,7 +89,8 @@ export default function Dashboard() {
             </p>
           </div>
           <div className="inline-metrics">
-            <span>{strategyCount(report)}개 전략</span>
+            <span>{ownedStrategies.length}개 보유 전략</span>
+            <span>{candidateStrategies.length}개 추가 후보</span>
             <span>{dataLimitedCount(report)}개 데이터 제한</span>
             <span>{reportAiModeLabel(report)}</span>
           </div>
@@ -99,6 +106,35 @@ export default function Dashboard() {
         <div className="top-strategy-list">
           {topStrategies.length === 0 && <p className="empty-state">표시할 최신 전략이 없습니다.</p>}
           {topStrategies.map((strategy) => (
+            <div className="top-strategy-row" key={`${strategy.ticker}-${strategy.action}`}>
+              <div>
+                <strong>{strategy.ticker}</strong>
+                <span>{strategy.name}</span>
+              </div>
+              <span className={`badge ${strategy.action.toLowerCase()}`}>
+                {actionLabel(strategy.action)}
+              </span>
+              <span>{strategy.confidence}%</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h2>추가 매수 후보</h2>
+            <p>보유 자산이 아닌 후보군 중 기술 점수가 높은 항목입니다.</p>
+          </div>
+          <div className="inline-metrics">
+            <span>{candidateStrategies.length}개 후보</span>
+          </div>
+        </div>
+        <div className="top-strategy-list">
+          {topCandidates.length === 0 && (
+            <p className="empty-state">현재 표시할 추가 매수 후보가 없습니다.</p>
+          )}
+          {topCandidates.map((strategy) => (
             <div className="top-strategy-row" key={`${strategy.ticker}-${strategy.action}`}>
               <div>
                 <strong>{strategy.ticker}</strong>
@@ -158,7 +194,7 @@ export default function Dashboard() {
         {isLoading ? (
           <p className="empty-state">전략을 불러오는 중입니다.</p>
         ) : (
-          <StrategyTable strategies={strategies} />
+          <StrategyTable strategies={ownedStrategies} />
         )}
       </section>
     </section>

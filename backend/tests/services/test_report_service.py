@@ -127,6 +127,31 @@ def test_openai_failure_generates_technical_only_report_with_capped_confidence()
     assert repo.list_performance_logs()
 
 
+def test_report_adds_screened_non_owned_candidates_with_null_asset_id():
+    repo = seeded_repo()
+    service = ReportService(
+        repo,
+        market_data_service=FakeMarketData(),
+        technical_analysis_service=FakeTechnical(),
+        ai_provider=FailingAI(),
+    )
+
+    report = service.generate_report("domestic")
+    content = ReportContent.model_validate(report["content"])
+    candidate_tickers = [
+        strategy.ticker for strategy in content.asset_strategies if strategy.ticker != "005930"
+    ]
+    saved_candidate_rows = [
+        row
+        for row in repo.list_strategies(report["id"])
+        if row["ticker"] in candidate_tickers and row.get("asset_id") is None
+    ]
+
+    assert candidate_tickers
+    assert len(content.asset_strategies) <= 1 + 5
+    assert saved_candidate_rows
+
+
 def test_validation_failure_retries_openai_once():
     repo = seeded_repo()
     ai = RetryAI()
