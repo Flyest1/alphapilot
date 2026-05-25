@@ -21,6 +21,18 @@ class Repository(Protocol):
 
     def delete_asset(self, asset_id: str) -> bool: ...
 
+    def list_candidate_assets(self) -> list[dict[str, Any]]: ...
+
+    def get_candidate_asset(self, candidate_id: str) -> dict[str, Any] | None: ...
+
+    def create_candidate_asset(self, data: dict[str, Any]) -> dict[str, Any]: ...
+
+    def update_candidate_asset(
+        self, candidate_id: str, data: dict[str, Any]
+    ) -> dict[str, Any] | None: ...
+
+    def delete_candidate_asset(self, candidate_id: str) -> bool: ...
+
     def get_settings(self) -> dict[str, Any] | None: ...
 
     def upsert_settings(self, data: dict[str, Any]) -> dict[str, Any]: ...
@@ -57,6 +69,7 @@ def _copy_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
 class InMemoryRepository:
     def __init__(self) -> None:
         self.assets: dict[str, dict[str, Any]] = {}
+        self.candidate_assets: dict[str, dict[str, Any]] = {}
         self.settings: dict[str, Any] | None = None
         self.reports: dict[str, dict[str, Any]] = {}
         self.strategies: dict[str, dict[str, Any]] = {}
@@ -88,6 +101,36 @@ class InMemoryRepository:
 
     def delete_asset(self, asset_id: str) -> bool:
         return self.assets.pop(asset_id, None) is not None
+
+    def list_candidate_assets(self) -> list[dict[str, Any]]:
+        return sorted(_copy_rows(self.candidate_assets.values()), key=lambda row: row["created_at"])
+
+    def get_candidate_asset(self, candidate_id: str) -> dict[str, Any] | None:
+        row = self.candidate_assets.get(candidate_id)
+        return deepcopy(row) if row else None
+
+    def create_candidate_asset(self, data: dict[str, Any]) -> dict[str, Any]:
+        row = deepcopy(data)
+        row["id"] = row.get("id") or str(uuid4())
+        now = _now_iso()
+        row["created_at"] = row.get("created_at") or now
+        row["updated_at"] = row.get("updated_at") or now
+        row["is_active"] = row.get("is_active", True)
+        self.candidate_assets[row["id"]] = row
+        return deepcopy(row)
+
+    def update_candidate_asset(
+        self, candidate_id: str, data: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        if candidate_id not in self.candidate_assets:
+            return None
+        clean_data = {key: value for key, value in data.items() if value is not None}
+        self.candidate_assets[candidate_id].update(clean_data)
+        self.candidate_assets[candidate_id]["updated_at"] = _now_iso()
+        return deepcopy(self.candidate_assets[candidate_id])
+
+    def delete_candidate_asset(self, candidate_id: str) -> bool:
+        return self.candidate_assets.pop(candidate_id, None) is not None
 
     def get_settings(self) -> dict[str, Any] | None:
         return deepcopy(self.settings) if self.settings else None
@@ -207,6 +250,42 @@ class SupabaseRepository:
     def delete_asset(self, asset_id: str) -> bool:
         builder = self.client.table("assets").delete().eq("id", asset_id)
         rows = self._run(builder, {"operation": "delete_asset", "asset_id": asset_id})
+        return bool(rows)
+
+    def list_candidate_assets(self) -> list[dict[str, Any]]:
+        builder = self.client.table("candidate_assets").select("*").order("created_at")
+        return self._run(builder, {"operation": "list_candidate_assets"})
+
+    def get_candidate_asset(self, candidate_id: str) -> dict[str, Any] | None:
+        builder = self.client.table("candidate_assets").select("*").eq("id", candidate_id).limit(1)
+        rows = self._run(
+            builder,
+            {"operation": "get_candidate_asset", "candidate_id": candidate_id},
+        )
+        return rows[0] if rows else None
+
+    def create_candidate_asset(self, data: dict[str, Any]) -> dict[str, Any]:
+        builder = self.client.table("candidate_assets").insert(data)
+        rows = self._run(builder, {"operation": "create_candidate_asset"})
+        return rows[0]
+
+    def update_candidate_asset(
+        self, candidate_id: str, data: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        clean_data = {key: value for key, value in data.items() if value is not None}
+        builder = self.client.table("candidate_assets").update(clean_data).eq("id", candidate_id)
+        rows = self._run(
+            builder,
+            {"operation": "update_candidate_asset", "candidate_id": candidate_id},
+        )
+        return rows[0] if rows else None
+
+    def delete_candidate_asset(self, candidate_id: str) -> bool:
+        builder = self.client.table("candidate_assets").delete().eq("id", candidate_id)
+        rows = self._run(
+            builder,
+            {"operation": "delete_candidate_asset", "candidate_id": candidate_id},
+        )
         return bool(rows)
 
     def get_settings(self) -> dict[str, Any] | None:

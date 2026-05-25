@@ -58,6 +58,20 @@ export const api = {
       }),
     remove: (id) => apiRequest(`/api/assets/${id}`, { method: "DELETE" }),
   },
+  candidates: {
+    list: () => apiRequest("/api/candidates"),
+    create: (payload) =>
+      apiRequest("/api/candidates", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    update: (id, payload) =>
+      apiRequest(`/api/candidates/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }),
+    remove: (id) => apiRequest(`/api/candidates/${id}`, { method: "DELETE" }),
+  },
   portfolio: {
     summary: () => apiRequest("/api/portfolio/summary"),
   },
@@ -78,5 +92,8 @@ export const api = {
         method: "POST",
         body: JSON.stringify(payload),
       }),
+  },
+  system: {
+    status: () => apiRequest("/api/system/status"),
   },
 };

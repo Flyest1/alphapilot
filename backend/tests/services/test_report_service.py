@@ -152,6 +152,33 @@ def test_report_adds_screened_non_owned_candidates_with_null_asset_id():
     assert saved_candidate_rows
 
 
+def test_report_uses_configured_candidate_assets_before_default_universe():
+    repo = seeded_repo()
+    repo.create_candidate_asset(
+        {
+            "market": "KR",
+            "ticker": "035420",
+            "name": "NAVER",
+            "currency": "KRW",
+            "is_active": True,
+        }
+    )
+    service = ReportService(
+        repo,
+        market_data_service=FakeMarketData(),
+        technical_analysis_service=FakeTechnical(),
+        ai_provider=FailingAI(),
+    )
+
+    report = service.generate_report("domestic")
+    content = ReportContent.model_validate(report["content"])
+    candidate_tickers = [
+        strategy.ticker for strategy in content.asset_strategies if strategy.ticker != "005930"
+    ]
+
+    assert candidate_tickers == ["035420"]
+
+
 def test_validation_failure_retries_openai_once():
     repo = seeded_repo()
     ai = RetryAI()

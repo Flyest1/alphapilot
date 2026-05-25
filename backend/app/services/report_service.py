@@ -518,6 +518,35 @@ class ReportService:
         return [asset for asset in assets if asset.get("market") in markets]
 
     def _candidate_assets(self, report_type: str) -> list[dict[str, Any]]:
+        market_filter = {"KR"} if report_type == "domestic" else {"US", "ETF"}
+        try:
+            candidate_rows = self.repository.list_candidate_assets()
+        except Exception as exc:
+            log_external_failure(
+                "candidate_assets",
+                exc,
+                {"operation": "list_candidate_assets_for_report"},
+            )
+            candidate_rows = []
+        configured_candidates = [
+            row
+            for row in candidate_rows
+            if row.get("is_active", True) and row.get("market") in market_filter
+        ]
+        if configured_candidates:
+            return [
+                {
+                    "id": None,
+                    "market": candidate["market"],
+                    "ticker": candidate["ticker"],
+                    "name": candidate["name"],
+                    "currency": candidate.get("currency") or "KRW",
+                    "quantity": 0,
+                    "avg_price": 0,
+                    "memo": candidate.get("memo") or "보유 외 추천 후보",
+                }
+                for candidate in configured_candidates
+            ]
         return [
             {
                 **candidate,

@@ -6,11 +6,13 @@ import Assets from "./pages/Assets.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import Reports from "./pages/Reports.jsx";
 import Settings from "./pages/Settings.jsx";
+import Status from "./pages/Status.jsx";
 
 const tabs = [
   { id: "dashboard", label: "대시보드" },
   { id: "assets", label: "자산" },
   { id: "reports", label: "리포트" },
+  { id: "status", label: "상태" },
   { id: "settings", label: "설정" },
 ];
 
@@ -21,6 +23,7 @@ export default function App() {
     dashboard: Dashboard,
     assets: Assets,
     reports: Reports,
+    status: Status,
     settings: Settings,
   }[activeTab];
 

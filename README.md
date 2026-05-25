@@ -21,8 +21,10 @@ Market Data: pykrx, yfinance
 2. 첫 화면에 Render 환경변수 `API_ACCESS_TOKEN` 값을 입력합니다.
 3. `자산` 화면에서 보유 종목을 추가합니다.
 4. `설정` 화면에서 AI 모델, 위험 성향, 추가 매수 후보 목표 기간을 조정합니다.
-5. `리포트` 화면에서 국내/글로벌 리포트를 수동 생성하거나, GitHub Actions 정기 실행 결과를 확인합니다.
-6. `성과 추적`은 리포트 생성 이후 1일, 5일, 20일 가격 데이터가 쌓이면 표시됩니다.
+5. `설정` 화면에서 보유 외 추가 매수 후보군을 직접 추가하거나 비활성화합니다.
+6. `상태` 화면에서 백엔드, Supabase, OpenAI 설정과 최근 리포트 상태를 확인합니다.
+7. `리포트` 화면에서 국내/글로벌 리포트를 수동 생성하거나, GitHub Actions 정기 실행 결과를 확인합니다.
+8. `성과 추적`은 리포트 생성 이후 1일, 5일, 20일 가격 데이터가 쌓이면 표시됩니다.
 
 추가 매수 후보 목표 기간은 다음 기준으로 동작합니다.
 
@@ -116,6 +118,28 @@ alter table settings
 add column if not exists candidate_horizon text default 'medium';
 ```
 
+후보군 관리 기능을 사용하려면 아래 파일도 실행합니다.
+
+```text
+backend/app/db/migrations/003_create_candidate_assets.sql
+```
+
+실행 SQL:
+
+```sql
+create table if not exists candidate_assets (
+  id uuid primary key default gen_random_uuid(),
+  market text not null,
+  ticker text not null,
+  name text not null,
+  currency text default 'KRW',
+  memo text,
+  is_active boolean default true,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+```
+
 Supabase service role key는 RLS를 우회합니다. 반드시 백엔드 서버 환경변수에만 보관하고, 프론트엔드나 에러 메시지에 노출하지 마세요.
 
 ## Render 배포
@@ -171,6 +195,8 @@ GitHub Actions 예약 실행은 best-effort입니다. GitHub 부하에 따라 �
 ## 수동 리포트 생성
 
 프론트엔드 `리포트` 화면에서 국내/글로벌 리포트를 직접 생성할 수 있습니다. 수동 생성 API는 `API_ACCESS_TOKEN`으로 보호됩니다.
+
+보유 외 추가 매수 후보는 `설정` 화면의 후보군 목록을 우선 사용합니다. 직접 등록한 활성 후보가 없으면 앱에 포함된 기본 후보군을 사용합니다.
 
 스케줄러용 엔드포인트는 계속 `SCHEDULER_SECRET`을 사용합니다.
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { API_BASE_URL, api } from "../api/client.js";
+import CandidateAssetsPanel from "../components/CandidateAssetsPanel.jsx";
 
 export default function Settings() {
   const [settings, setSettings] = useState(null);
@@ -118,6 +119,7 @@ export default function Settings() {
           <button type="submit">설정 저장</button>
         </form>
       </section>
+      <CandidateAssetsPanel />
     </section>
   );
 }
