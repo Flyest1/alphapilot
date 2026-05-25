@@ -1,17 +1,34 @@
 const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 export const API_BASE_URL = rawApiBaseUrl.replace(/\/+$/, "");
-const API_ACCESS_TOKEN = import.meta.env.VITE_API_ACCESS_TOKEN || "";
+export const API_ACCESS_TOKEN_STORAGE_KEY = "alphapilot_api_access_token";
+
+export function getApiAccessToken() {
+  return window.localStorage.getItem(API_ACCESS_TOKEN_STORAGE_KEY) || "";
+}
+
+export function setApiAccessToken(token) {
+  window.localStorage.setItem(API_ACCESS_TOKEN_STORAGE_KEY, token.trim());
+}
+
+export function clearApiAccessToken() {
+  window.localStorage.removeItem(API_ACCESS_TOKEN_STORAGE_KEY);
+}
 
 export async function apiRequest(path, options = {}) {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const accessToken = options.accessToken ?? getApiAccessToken();
+  const { accessToken: _accessToken, ...fetchOptions } = options;
+  if (!accessToken) {
+    throw new Error("접속 토큰을 먼저 입력하세요.");
+  }
   let response;
   try {
     response = await fetch(`${API_BASE_URL}${normalizedPath}`, {
-      ...options,
+      ...fetchOptions,
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${API_ACCESS_TOKEN}`,
-        ...(options.headers || {}),
+        Authorization: `Bearer ${accessToken}`,
+        ...(fetchOptions.headers || {}),
       },
     });
   } catch (error) {
@@ -48,6 +65,8 @@ export const api = {
     latest: () => apiRequest("/api/reports/latest"),
     list: () => apiRequest("/api/reports"),
     get: (id) => apiRequest(`/api/reports/${id}`),
+    generate: (reportType) =>
+      apiRequest(`/api/reports/${reportType}/manual-generate`, { method: "POST" }),
   },
   performanceLogs: {
     list: () => apiRequest("/api/performance-logs"),

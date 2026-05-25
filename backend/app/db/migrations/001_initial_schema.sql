@@ -48,6 +48,7 @@ create table if not exists settings (
   ai_provider text default 'openai',
   ai_model text default 'gpt-5.4-mini',
   risk_profile text default 'balanced',
+  candidate_horizon text default 'medium',
   frontend_timezone text default 'Asia/Seoul',
   stale_data_business_days int default 2,
   created_at timestamptz default now(),

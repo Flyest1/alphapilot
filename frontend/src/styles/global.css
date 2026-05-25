@@ -72,9 +72,51 @@ nav button:hover {
   background: #243447;
 }
 
+.lock-button {
+  width: 100%;
+  margin-top: 18px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: transparent;
+  color: #cbd5e1;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.lock-button:hover {
+  background: #243447;
+}
+
 main {
   min-width: 0;
   padding: 28px;
+}
+
+.access-screen {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 20px;
+}
+
+.access-panel {
+  display: grid;
+  width: min(100%, 420px);
+  gap: 18px;
+  border: 1px solid #d7dee8;
+  border-radius: 8px;
+  background: #fff;
+  padding: 24px;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
+}
+
+.access-panel strong {
+  color: #0f766e;
+}
+
+.access-panel form {
+  display: grid;
+  gap: 12px;
 }
 
 .page {
@@ -86,6 +128,29 @@ main {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
+}
+
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.header-actions button {
+  border: 0;
+  border-radius: 6px;
+  background: #0f766e;
+  color: #fff;
+  padding: 10px 12px;
+  font-weight: 700;
+}
+
+.header-actions button:disabled,
+form button:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 h1,
@@ -699,6 +764,12 @@ form button,
     display: block;
   }
 
+  .header-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    margin-top: 10px;
+  }
+
   h1 {
     font-size: 22px;
   }
@@ -722,11 +793,18 @@ form button,
     overflow: visible;
   }
 
-  nav button {
+  nav button,
+  .lock-button {
     min-width: 0;
     border-radius: 7px;
     padding: 8px 4px;
     font-size: 13px;
+    text-align: center;
+  }
+
+  .lock-button {
+    margin-top: 6px;
+    width: 100%;
   }
 
   .summary-grid {

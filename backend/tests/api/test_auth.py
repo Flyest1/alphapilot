@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from app.db.supabase_client import InMemoryRepository
 from app.main import create_app
+from app.services.report_service import ReportService
 
 
 def client():
@@ -55,3 +56,20 @@ def test_scheduler_endpoint_rejects_wrong_token():
     )
 
     assert response.status_code == 401
+
+
+def test_manual_report_endpoint_uses_api_token(monkeypatch):
+    monkeypatch.setattr(
+        ReportService,
+        "generate_report",
+        lambda _self, report_type: {"report_type": report_type, "status": "generated"},
+    )
+    test_client = client()
+
+    response = test_client.post(
+        "/api/reports/domestic/manual-generate",
+        headers={"Authorization": "Bearer test-api-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"report_type": "domestic", "status": "generated"}

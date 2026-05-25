@@ -17,6 +17,7 @@ def test_application_defaults_match_env_example_and_sql_defaults():
     assert f"AI_PROVIDER={defaults.ai_provider}" in env_text
     assert f"OPENAI_MODEL={defaults.ai_model}" in env_text
     assert f"RISK_PROFILE={defaults.risk_profile}" in env_text
+    assert f"CANDIDATE_HORIZON={defaults.candidate_horizon}" in env_text
     assert f"FRONTEND_TIMEZONE={defaults.frontend_timezone}" in env_text
     assert f"STALE_DATA_BUSINESS_DAYS={defaults.stale_data_business_days}" in env_text
 
@@ -25,15 +26,25 @@ def test_application_defaults_match_env_example_and_sql_defaults():
     assert f"ai_provider text default '{defaults.ai_provider}'" in sql_text
     assert f"ai_model text default '{defaults.ai_model}'" in sql_text
     assert f"risk_profile text default '{defaults.risk_profile}'" in sql_text
+    assert f"candidate_horizon text default '{defaults.candidate_horizon}'" in sql_text
     assert f"frontend_timezone text default '{defaults.frontend_timezone}'" in sql_text
     assert f"stale_data_business_days int default {defaults.stale_data_business_days}" in sql_text
 
 
 def test_settings_row_overrides_env_defaults():
     resolved = resolve_application_settings(
-        {"ai_model": "table-model", "risk_profile": "aggressive"},
-        {"ai_model": "env-model", "risk_profile": "balanced"},
+        {
+            "ai_model": "table-model",
+            "risk_profile": "aggressive",
+            "candidate_horizon": "short",
+        },
+        {
+            "ai_model": "env-model",
+            "risk_profile": "balanced",
+            "candidate_horizon": "long",
+        },
     )
 
     assert resolved.ai_model == "table-model"
     assert resolved.risk_profile == "aggressive"
+    assert resolved.candidate_horizon == "short"

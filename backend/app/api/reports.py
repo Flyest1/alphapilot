@@ -12,16 +12,25 @@ def _report_service(request: Request, repository: Repository) -> ReportService:
     return ReportService(repository=repository, market_data_service=market_data_service)
 
 
+def _generate_report(
+    report_type: str,
+    endpoint_key: str,
+    request: Request,
+    repository: Repository,
+) -> dict:
+    if not request.app.state.rate_limiter.allow(endpoint_key):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded"
+        )
+    return _report_service(request, repository).generate_report(report_type)
+
+
 @router.post("/domestic/generate")
 def generate_domestic_report(
     request: Request,
     repository: Repository = Depends(get_repository),
 ) -> dict:
-    if not request.app.state.rate_limiter.allow("/api/reports/domestic/generate"):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded"
-        )
-    return _report_service(request, repository).generate_report("domestic")
+    return _generate_report("domestic", "/api/reports/domestic/generate", request, repository)
 
 
 @router.post("/global/generate")
@@ -29,11 +38,25 @@ def generate_global_report(
     request: Request,
     repository: Repository = Depends(get_repository),
 ) -> dict:
-    if not request.app.state.rate_limiter.allow("/api/reports/global/generate"):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded"
-        )
-    return _report_service(request, repository).generate_report("global")
+    return _generate_report("global", "/api/reports/global/generate", request, repository)
+
+
+@router.post("/domestic/manual-generate")
+def manually_generate_domestic_report(
+    request: Request,
+    repository: Repository = Depends(get_repository),
+) -> dict:
+    return _generate_report(
+        "domestic", "/api/reports/domestic/manual-generate", request, repository
+    )
+
+
+@router.post("/global/manual-generate")
+def manually_generate_global_report(
+    request: Request,
+    repository: Repository = Depends(get_repository),
+) -> dict:
+    return _generate_report("global", "/api/reports/global/manual-generate", request, repository)
 
 
 @router.get("/latest")

@@ -13,6 +13,7 @@ APPLICATION_DEFAULT_ENV_MAP = {
     "ai_provider": "AI_PROVIDER",
     "ai_model": "OPENAI_MODEL",
     "risk_profile": "RISK_PROFILE",
+    "candidate_horizon": "CANDIDATE_HORIZON",
     "frontend_timezone": "FRONTEND_TIMEZONE",
     "stale_data_business_days": "STALE_DATA_BUSINESS_DAYS",
 }

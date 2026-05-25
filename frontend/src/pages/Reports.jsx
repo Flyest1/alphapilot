@@ -42,10 +42,13 @@ export default function Reports() {
   const [activeType, setActiveType] = useState("domestic");
   const [strategyFilter, setStrategyFilter] = useState("ALL");
   const [isLoading, setIsLoading] = useState(true);
+  const [generatingType, setGeneratingType] = useState("");
+  const [statusMessage, setStatusMessage] = useState("");
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    Promise.all([
+  function loadReports() {
+    setIsLoading(true);
+    return Promise.all([
       api.reports.latest(),
       api.reports.list(),
       api.performanceLogs.list(),
@@ -57,11 +60,18 @@ export default function Reports() {
         setReports(reportList);
         setPerformanceLogs(performanceLogList);
         setAssets(assetList);
-        setSelected(initialReport);
-        setActiveType(initialReport?.report_type || "domestic");
+        const nextReport = selected
+          ? reportList.find((report) => report.id === selected.id) || initialReport
+          : initialReport;
+        setSelected(nextReport);
+        if (nextReport) setActiveType(nextReport.report_type);
       })
       .catch((err) => setError(err.message))
       .finally(() => setIsLoading(false));
+  }
+
+  useEffect(() => {
+    loadReports();
   }, []);
 
   const content = selected?.content || {};
@@ -87,6 +97,23 @@ export default function Reports() {
     setSelected(firstReportForType(latest, reports, type));
   }
 
+  async function generateManualReport(type) {
+    setError("");
+    setStatusMessage("");
+    setGeneratingType(type);
+    try {
+      const generated = await api.reports.generate(type);
+      setStatusMessage(`${reportTypeLabel(type)} 리포트를 생성했습니다.`);
+      await loadReports();
+      setSelected(generated);
+      setActiveType(type);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setGeneratingType("");
+    }
+  }
+
   return (
     <section className="page">
       <header className="page-header">
@@ -94,8 +121,23 @@ export default function Reports() {
           <h1>리포트</h1>
           <p>국내/글로벌 시장 리포트와 자산별 리스크 관리 전략을 확인합니다.</p>
         </div>
+        <div className="header-actions">
+          {reportTypes.map((type) => (
+            <button
+              disabled={Boolean(generatingType)}
+              key={type}
+              type="button"
+              onClick={() => generateManualReport(type)}
+            >
+              {generatingType === type
+                ? `${reportTypeLabel(type)} 생성 중`
+                : `${reportTypeLabel(type)} 리포트 생성`}
+            </button>
+          ))}
+        </div>
       </header>
       {error && <p className="alert">{error}</p>}
+      {statusMessage && <p className="notice">{statusMessage}</p>}
       {isLoading && <p className="empty-state">리포트를 불러오는 중입니다.</p>}
 
       <div className="segmented-control">

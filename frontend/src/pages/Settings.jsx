@@ -24,6 +24,7 @@ export default function Settings() {
         ai_provider: settings.ai_provider,
         ai_model: settings.ai_model,
         risk_profile: settings.risk_profile,
+        candidate_horizon: settings.candidate_horizon,
         frontend_timezone: settings.frontend_timezone,
         stale_data_business_days: Number(settings.stale_data_business_days),
       });
@@ -81,6 +82,17 @@ export default function Settings() {
               <option value="conservative">보수적</option>
               <option value="balanced">균형</option>
               <option value="aggressive">공격적</option>
+            </select>
+          </label>
+          <label>
+            추가 매수 후보 목표 기간
+            <select
+              value={settings.candidate_horizon}
+              onChange={(event) => update("candidate_horizon", event.target.value)}
+            >
+              <option value="short">단기 - 약 5거래일</option>
+              <option value="medium">중기 - 약 20거래일</option>
+              <option value="long">장기 - 약 60거래일</option>
             </select>
           </label>
           <label>

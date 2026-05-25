@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+import { clearApiAccessToken, getApiAccessToken } from "./api/client.js";
+import AccessGate from "./components/AccessGate.jsx";
 import Assets from "./pages/Assets.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import Reports from "./pages/Reports.jsx";
@@ -14,12 +16,23 @@ const tabs = [
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [isUnlocked, setIsUnlocked] = useState(Boolean(getApiAccessToken()));
   const Page = {
     dashboard: Dashboard,
     assets: Assets,
     reports: Reports,
     settings: Settings,
   }[activeTab];
+
+  if (!isUnlocked) {
+    return <AccessGate onUnlock={() => setIsUnlocked(true)} />;
+  }
+
+  function lock() {
+    clearApiAccessToken();
+    setIsUnlocked(false);
+    setActiveTab("dashboard");
+  }
 
   return (
     <div className="app-shell">
@@ -40,6 +53,9 @@ export default function App() {
             </button>
           ))}
         </nav>
+        <button className="lock-button" type="button" onClick={lock}>
+          잠금
+        </button>
       </aside>
       <main>
         <Page />

@@ -23,8 +23,12 @@ from app.services.technical_analysis_service import (
 from app.utils.logging import log_external_failure
 
 DISCLAIMER = "이 리포트는 투자 의사결정 지원용이며 자동 매매를 실행하지 않습니다."
-CANDIDATE_MIN_TECHNICAL_SCORE = 75
 MAX_RECOMMENDED_CANDIDATES = 5
+CANDIDATE_HORIZON_RULES = {
+    "short": {"min_score": 80, "label": "단기 5거래일", "target_days": 5},
+    "medium": {"min_score": 75, "label": "중기 20거래일", "target_days": 20},
+    "long": {"min_score": 70, "label": "장기 60거래일", "target_days": 60},
+}
 CANDIDATE_UNIVERSE: dict[str, list[dict[str, str]]] = {
     "domestic": [
         {"market": "KR", "ticker": "005930", "name": "삼성전자", "currency": "KRW"},
@@ -87,6 +91,7 @@ class ReportService:
             all_assets,
             app_settings.stale_data_business_days,
             app_settings.risk_profile,
+            app_settings.candidate_horizon,
         )
         analysis_rows = analysis_rows + candidate_rows
         index_rows = self._build_index_analysis(report_type, app_settings.stale_data_business_days)
@@ -196,6 +201,7 @@ class ReportService:
             "candidate_tickers": [
                 row["asset"]["ticker"] for row in analysis_rows if row["asset"].get("id") is None
             ],
+            "candidate_horizon": app_settings.get("candidate_horizon", "medium"),
             "stale_tickers": stale_tickers,
             "generated_at": self._now(app_settings["frontend_timezone"]),
             "asset_context": [
@@ -335,8 +341,12 @@ class ReportService:
         all_assets: list[dict[str, Any]],
         stale_data_business_days: int,
         risk_profile: str,
+        candidate_horizon: str,
     ) -> list[dict[str, Any]]:
         owned_tickers = {self._normalize_ticker(asset.get("ticker", "")) for asset in all_assets}
+        horizon_rule = CANDIDATE_HORIZON_RULES.get(
+            candidate_horizon, CANDIDATE_HORIZON_RULES["medium"]
+        )
         rows = []
         for asset in self._candidate_assets(report_type):
             if self._normalize_ticker(asset["ticker"]) in owned_tickers:
@@ -352,7 +362,10 @@ class ReportService:
                 asset["ticker"],
                 market_data.dataframe,
             )
-            if technical_analysis.technical_score < CANDIDATE_MIN_TECHNICAL_SCORE:
+            if technical_analysis.technical_score < horizon_rule["min_score"]:
+                continue
+            horizon_score = self._candidate_horizon_score(technical_analysis, candidate_horizon)
+            if horizon_score < horizon_rule["min_score"]:
                 continue
             strategy = self.strategy_service.generate_strategy(
                 asset,
@@ -364,8 +377,14 @@ class ReportService:
                 continue
             strategy = strategy.model_copy(
                 update={
-                    "reasoning": f"보유 외 추가 매수 후보: {strategy.reasoning}",
-                    "risk": f"신규 진입 후보입니다. {strategy.risk}",
+                    "reasoning": (
+                        f"보유 외 추가 매수 후보({horizon_rule['label']} 목표): "
+                        f"{strategy.reasoning}"
+                    ),
+                    "risk": (
+                        f"신규 진입 후보입니다. 목표 기간은 {horizon_rule['label']}이며, "
+                        f"{strategy.risk}"
+                    ),
                 }
             )
             rows.append(
@@ -379,11 +398,39 @@ class ReportService:
         return sorted(
             rows,
             key=lambda row: (
-                row["technical_analysis"].technical_score,
+                self._candidate_horizon_score(row["technical_analysis"], candidate_horizon),
                 row["strategy"].confidence,
             ),
             reverse=True,
         )[:MAX_RECOMMENDED_CANDIDATES]
+
+    def _candidate_horizon_score(
+        self,
+        technical_analysis: TechnicalAnalysisResult,
+        candidate_horizon: str,
+    ) -> float:
+        score = float(technical_analysis.technical_score)
+        breakdown = technical_analysis.score_breakdown
+        indicators = technical_analysis.indicators
+        rsi = float(indicators.get("rsi_14") or 0)
+        volume_rate = float(indicators.get("volume_change_rate") or 0)
+
+        if candidate_horizon == "short":
+            score += (breakdown.get("momentum", 0) * 0.5) + (breakdown.get("volume", 0) * 0.7)
+            if 55 <= rsi <= 72:
+                score += 5
+            if volume_rate > 20:
+                score += 3
+            return score
+        if candidate_horizon == "long":
+            score += (breakdown.get("trend", 0) * 0.7) + (breakdown.get("volatility", 0) * 0.4)
+            if rsi <= 75:
+                score += 3
+            return score
+        score += (breakdown.get("trend", 0) * 0.4) + (breakdown.get("price_position", 0) * 0.4)
+        if 50 <= rsi <= 70:
+            score += 3
+        return score
 
     def _build_index_analysis(
         self,
@@ -518,7 +565,9 @@ class ReportService:
             "English sentences in user-facing fields unless the field value is a ticker, provider "
             "name, schema key, or action enum. context.candidate_tickers contains non-owned "
             "screened buy candidates. Include them in asset_strategies when they are present, and "
-            "make their reasoning clearly say they are 보유 외 추가 매수 후보."
+            "make their reasoning clearly say they are 보유 외 추가 매수 후보. "
+            "context.candidate_horizon is the target holding/profit-taking horizon for those "
+            "candidate ideas."
         )
 
     def _index_summary(

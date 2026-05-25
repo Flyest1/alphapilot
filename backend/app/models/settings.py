@@ -11,6 +11,7 @@ class Settings(BaseModel):
     ai_provider: str = "openai"
     ai_model: str = "gpt-5.4-mini"
     risk_profile: Literal["conservative", "balanced", "aggressive"] = "balanced"
+    candidate_horizon: Literal["short", "medium", "long"] = "medium"
     frontend_timezone: str = "Asia/Seoul"
     stale_data_business_days: int = Field(default=2, ge=0)
     created_at: str | None = None
@@ -25,5 +26,6 @@ class SettingsUpdate(BaseModel):
     ai_provider: str | None = None
     ai_model: str | None = None
     risk_profile: Literal["conservative", "balanced", "aggressive"] | None = None
+    candidate_horizon: Literal["short", "medium", "long"] | None = None
     frontend_timezone: str | None = None
     stale_data_business_days: int | None = Field(default=None, ge=0)
