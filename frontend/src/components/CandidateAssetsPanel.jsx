@@ -12,7 +12,7 @@ const blankCandidate = {
 };
 
 const marketDefaults = {
-  KR: { currency: "KRW", placeholder: "005930 또는 069500" },
+  KR: { currency: "KRW", placeholder: "005930, 069500 또는 0183J0" },
   US: { currency: "USD", placeholder: "AAPL 또는 NVDA" },
   ETF: { currency: "USD", placeholder: "VOO 또는 QQQ" },
 };
@@ -20,8 +20,8 @@ const marketDefaults = {
 function validateCandidate(payload) {
   if (!payload.ticker) return "후보 티커를 입력하세요.";
   if (!payload.name) return "후보 이름을 입력하세요.";
-  if (payload.market === "KR" && !/^\d{6}$/.test(payload.ticker)) {
-    return "국내 후보는 6자리 종목코드를 입력하세요.";
+  if (payload.market === "KR" && !/^[A-Z0-9]{6}$/.test(payload.ticker)) {
+    return "국내 후보는 6자리 종목코드를 입력하세요. 예: 005930, 0183J0";
   }
   if (["US", "ETF"].includes(payload.market) && !/^[A-Z][A-Z0-9.-]{0,14}$/.test(payload.ticker)) {
     return "미국 주식/ETF 후보는 영문 티커를 입력하세요.";
@@ -151,7 +151,7 @@ export default function CandidateAssetsPanel() {
           티커
           <input
             autoCapitalize="characters"
-            inputMode={form.market === "KR" ? "numeric" : "text"}
+            inputMode="text"
             placeholder={placeholder}
             value={form.ticker}
             onChange={(event) => updateField("ticker", event.target.value.toUpperCase())}

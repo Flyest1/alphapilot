@@ -703,7 +703,9 @@ class ReportService:
 
     def _infer_market(self, ticker: str) -> str:
         clean = ticker.replace(".KS", "").replace(".KQ", "")
-        return "KR" if clean.isdigit() else "US"
+        if len(clean) == 6 and clean.isalnum():
+            return "KR"
+        return "US"
 
     def _normalize_ticker(self, ticker: str) -> str:
         return str(ticker).upper().replace(".KS", "").replace(".KQ", "").strip()

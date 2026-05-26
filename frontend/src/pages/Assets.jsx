@@ -15,10 +15,14 @@ const blankAsset = {
 const marketGuides = {
   KR: {
     title: "국내 주식 / 국내 ETF",
-    ticker: "한국거래소 6자리 코드",
-    placeholder: "005930 또는 069500",
+    ticker: "한국거래소 6자리 종목코드",
+    placeholder: "005930, 069500 또는 0183J0",
     examples: "국내 주식과 국내 ETF는 KR을 선택하고 6자리 종목코드를 입력하세요.",
-    rules: ["6자리 숫자만 입력", "삼성전자: 005930", "KODEX 200: 069500"],
+    rules: [
+      "6자리 숫자 또는 영문 포함 코드 입력",
+      "삼성전자: 005930",
+      "TIGER 미국우주테크: 0183J0",
+    ],
     currency: "KRW",
   },
   US: {
@@ -56,10 +60,10 @@ function validateAsset(payload) {
   if (!Number.isFinite(payload.avg_price) || payload.avg_price < 0) {
     return "평균 매입가는 0 이상 숫자로 입력하세요.";
   }
-  if (payload.market === "KR" && !/^\d{6}$/.test(payload.ticker)) {
-    return "KR과 국내 ETF는 6자리 숫자 종목코드를 입력하세요. 예: 005930, 069500";
+  if (payload.market === "KR" && !/^[A-Z0-9]{6}$/.test(payload.ticker)) {
+    return "KR과 국내 ETF는 6자리 종목코드를 입력하세요. 예: 005930, 069500, 0183J0";
   }
-  if (payload.market === "ETF" && /^\d{6}$/.test(payload.ticker)) {
+  if (payload.market === "ETF" && /^[A-Z0-9]{6}$/.test(payload.ticker)) {
     return "국내 ETF 6자리 코드는 시장을 ETF가 아니라 KR로 선택하세요.";
   }
   if (["US", "ETF"].includes(payload.market) && !/^[A-Z][A-Z0-9.-]{0,14}$/.test(payload.ticker)) {
@@ -204,7 +208,7 @@ export default function Assets() {
             티커
             <input
               autoCapitalize="characters"
-              inputMode={form.market === "KR" ? "numeric" : "text"}
+              inputMode="text"
               placeholder={guide.placeholder}
               value={form.ticker}
               onChange={(event) => updateField("ticker", event.target.value.toUpperCase())}

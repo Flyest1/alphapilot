@@ -38,3 +38,23 @@ def test_asset_crud_endpoints():
     deleted = test_client.delete(f"/api/assets/{asset['id']}", headers=AUTH)
     assert deleted.status_code == 200
     assert deleted.json() == {"deleted": True}
+
+
+def test_asset_endpoint_accepts_alphanumeric_kr_etf_ticker():
+    test_client = TestClient(create_app(repository=InMemoryRepository()))
+
+    response = test_client.post(
+        "/api/assets",
+        headers=AUTH,
+        json={
+            "market": "KR",
+            "ticker": "0183J0",
+            "name": "TIGER 미국우주테크",
+            "quantity": 1,
+            "avg_price": 10000,
+            "currency": "KRW",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["ticker"] == "0183J0"

@@ -285,3 +285,16 @@ def test_backfill_performance_logs_updates_trading_day_returns():
     assert updated["price_after_20d"] == 70
     assert updated["return_after_20d"] == -30
     assert updated["evaluated_at"]
+
+
+def test_infer_market_treats_alphanumeric_six_character_codes_as_kr():
+    service = ReportService(
+        InMemoryRepository(),
+        market_data_service=FakeMarketData(),
+        technical_analysis_service=FakeTechnical(),
+        ai_provider=FailingAI(),
+        news_service=FakeNews(),
+    )
+
+    assert service._infer_market("0183J0") == "KR"
+    assert service._infer_market("AAPL") == "US"
