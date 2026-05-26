@@ -63,6 +63,7 @@ create table if not exists settings (
   candidate_horizon text default 'medium',
   frontend_timezone text default 'Asia/Seoul',
   stale_data_business_days int default 2,
+  usd_krw_rate numeric default 1400,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );

@@ -108,6 +108,16 @@ def test_routes_us_market_to_yfinance():
     assert yf.tickers == ["AAPL"]
 
 
+def test_fetches_usd_krw_rate_from_yfinance():
+    yf = FakeYFinance(history())
+    service = MarketDataService(yf_module=yf)
+
+    rate = service.fetch_usd_krw_rate(fallback=1400)
+
+    assert rate == 14
+    assert yf.tickers == ["KRW=X"]
+
+
 def test_stale_detection_at_exactly_two_business_days_is_not_stale():
     provider = FakeKRProvider(history("2026-05-19"))
     service = MarketDataService(

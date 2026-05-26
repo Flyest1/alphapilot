@@ -32,12 +32,39 @@ def test_portfolio_summary_calculates_values_and_returns():
             "currency": "KRW",
         }
     )
+    repo.create_asset(
+        {
+            "market": "US",
+            "ticker": "AAPL",
+            "name": "Apple",
+            "quantity": 1,
+            "avg_price": 100,
+            "currency": "USD",
+        }
+    )
+    repo.create_asset(
+        {
+            "market": "CASH",
+            "ticker": "USD",
+            "name": "USD Cash",
+            "quantity": 1,
+            "avg_price": 50,
+            "currency": "USD",
+        }
+    )
+    repo.upsert_settings({"usd_krw_rate": 1400})
 
     summary = PortfolioService(repo, FakeMarketData()).get_summary()
 
-    assert summary.total_market_value == 1240
-    assert summary.total_cost == 1200
-    assert summary.total_profit_loss == 40
+    assert summary.total_market_value == 183240
+    assert summary.total_cost == 211200
+    assert summary.total_profit_loss == -27960
     assert summary.domestic_value == 240
-    assert summary.cash_value == 1000
+    assert summary.global_value == 112000
+    assert summary.cash_value == 71000
+    assert summary.usd_krw_rate == 1400
     assert summary.asset_allocation[0]["weight"] > 0
+    assert (
+        next(row for row in summary.asset_returns if row["ticker"] == "AAPL")["market_value"]
+        == 112000
+    )

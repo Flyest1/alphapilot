@@ -14,6 +14,7 @@ class Settings(BaseModel):
     candidate_horizon: Literal["short", "medium", "long"] = "medium"
     frontend_timezone: str = "Asia/Seoul"
     stale_data_business_days: int = Field(default=2, ge=0)
+    usd_krw_rate: float = Field(default=1400, gt=0)
     created_at: str | None = None
     updated_at: str | None = None
 
@@ -29,3 +30,4 @@ class SettingsUpdate(BaseModel):
     candidate_horizon: Literal["short", "medium", "long"] | None = None
     frontend_timezone: str | None = None
     stale_data_business_days: int | None = Field(default=None, ge=0)
+    usd_krw_rate: float | None = Field(default=None, gt=0)

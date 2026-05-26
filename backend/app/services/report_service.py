@@ -78,6 +78,7 @@ class ReportService:
             self.repository.get_settings(),
             get_env_application_defaults(),
         )
+        app_settings = self._refresh_usd_krw_rate(app_settings)
         all_assets = self.repository.list_assets()
         assets = self._assets_for_report(all_assets, report_type)
         portfolio_summary = PortfolioService(
@@ -700,6 +701,26 @@ class ReportService:
         except Exception:
             tz = timezone.utc
         return datetime.now(tz).isoformat()
+
+    def _refresh_usd_krw_rate(self, app_settings: Any) -> Any:
+        fetch_rate = getattr(self.market_data_service, "fetch_usd_krw_rate", None)
+        if fetch_rate is None:
+            return app_settings
+        try:
+            refreshed_rate = fetch_rate(app_settings.usd_krw_rate)
+        except Exception as exc:
+            log_external_failure("yfinance", exc, {"operation": "fetch_usd_krw_rate"})
+            return app_settings
+        if refreshed_rate is None or refreshed_rate <= 0:
+            return app_settings
+        if abs(float(refreshed_rate) - float(app_settings.usd_krw_rate)) < 0.01:
+            return app_settings
+        try:
+            saved = self.repository.upsert_settings({"usd_krw_rate": float(refreshed_rate)})
+            return resolve_application_settings(saved, get_env_application_defaults())
+        except Exception as exc:
+            log_external_failure("settings", exc, {"operation": "refresh_usd_krw_rate"})
+            return app_settings
 
     def _infer_market(self, ticker: str) -> str:
         clean = ticker.replace(".KS", "").replace(".KQ", "")

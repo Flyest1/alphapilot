@@ -46,7 +46,12 @@ const marketGuides = {
     ticker: "현금 구분명",
     placeholder: "KRW 또는 USD",
     examples: "현금은 자산 비중 계산에는 포함되지만 시장 데이터 조회는 건너뜁니다.",
-    rules: ["예: KRW, USD", "시장 데이터 조회 없음", "전략 리포트 대상에서는 제외"],
+    rules: [
+      "예: KRW, USD",
+      "권장 입력: 수량 1, 평균 매입가에 현금 총액 입력",
+      "USD 현금은 설정의 USD-KRW 환율로 KRW 환산",
+      "전략 리포트 대상에서는 제외",
+    ],
     currency: "KRW",
   },
 };
@@ -56,6 +61,9 @@ function validateAsset(payload) {
   if (!payload.name) return "자산 이름을 입력하세요.";
   if (!Number.isFinite(payload.quantity) || payload.quantity < 0) {
     return "수량은 0 이상 숫자로 입력하세요.";
+  }
+  if (payload.market === "CASH" && payload.quantity <= 0) {
+    return "현금은 수량을 1 이상으로 입력하세요. 총액을 평균 매입가에 넣는 경우 수량은 1입니다.";
   }
   if (!Number.isFinite(payload.avg_price) || payload.avg_price < 0) {
     return "평균 매입가는 0 이상 숫자로 입력하세요.";
@@ -117,6 +125,7 @@ export default function Assets() {
         !current.currency || current.currency === marketGuides[current.market]?.currency
           ? nextGuide.currency
           : current.currency,
+      quantity: value === "CASH" && Number(current.quantity) === 0 ? 1 : current.quantity,
     }));
   }
 
@@ -222,12 +231,15 @@ export default function Assets() {
           <label>
             수량
             <input
-              min="0"
+              min={form.market === "CASH" ? "1" : "0"}
               step="0.0001"
               type="number"
               value={form.quantity}
               onChange={(event) => updateField("quantity", event.target.value)}
             />
+            {form.market === "CASH" && (
+              <span className="field-hint">현금 총액을 평균 매입가에 넣는 경우 수량은 1입니다.</span>
+            )}
           </label>
           <label>
             평균 매입가

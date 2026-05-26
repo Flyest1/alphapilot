@@ -16,6 +16,7 @@ APPLICATION_DEFAULT_ENV_MAP = {
     "candidate_horizon": "CANDIDATE_HORIZON",
     "frontend_timezone": "FRONTEND_TIMEZONE",
     "stale_data_business_days": "STALE_DATA_BUSINESS_DAYS",
+    "usd_krw_rate": "USD_KRW_RATE",
 }
 
 INFRASTRUCTURE_ENV_KEYS = (
@@ -85,6 +86,8 @@ def get_env_application_defaults() -> dict[str, Any]:
             continue
         if field_name == "stale_data_business_days":
             values[field_name] = int(raw_value)
+        elif field_name == "usd_krw_rate":
+            values[field_name] = float(raw_value)
         else:
             values[field_name] = raw_value
     return values

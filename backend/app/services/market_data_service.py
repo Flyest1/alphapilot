@@ -91,6 +91,21 @@ class MarketDataService:
             ),
         }
 
+    def fetch_usd_krw_rate(self, fallback: float | None = None) -> float | None:
+        try:
+            raw = self._fetch_usd_krw_with_retry()
+            frame = self._standardize_frame(raw)
+            if frame.empty or "close" not in frame:
+                return fallback
+            return float(frame.loc[frame.index.max(), "close"])
+        except Exception as exc:
+            log_external_failure(
+                "yfinance",
+                exc,
+                {"operation": "fetch_usd_krw_rate", "ticker": "KRW=X"},
+            )
+            return fallback
+
     def _provider_name(self, market: str, ticker: str) -> str:
         upper_ticker = ticker.upper()
         if market == "KR" or upper_ticker.endswith((".KS", ".KQ")):
@@ -125,6 +140,16 @@ class MarketDataService:
         yf_module = self._yf_module()
         normalized = self.normalize_ticker("US", ticker)
         return yf_module.Ticker(normalized).history(period=f"{lookback_days}d", auto_adjust=False)
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+        reraise=True,
+    )
+    def _fetch_usd_krw_with_retry(self) -> pd.DataFrame:
+        yf_module = self._yf_module()
+        return yf_module.Ticker("KRW=X").history(period="5d", auto_adjust=False)
 
     def _fetch_kr_index(
         self,

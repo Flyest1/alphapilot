@@ -306,8 +306,10 @@ global_report_time
 ai_provider
 ai_model
 risk_profile
+candidate_horizon
 frontend_timezone
 stale_data_business_days
+usd_krw_rate
 ```
 
 **Runtime resolution order for application defaults:**
@@ -333,9 +335,16 @@ OPENAI_MODEL=gpt-5.4-mini
 SCHEDULER_SECRET=change-this-secret
 API_ACCESS_TOKEN=change-this-user-token
 
+DOMESTIC_REPORT_TIME=08:30
+GLOBAL_REPORT_TIME=22:30
+AI_PROVIDER=openai
+RISK_PROFILE=balanced
+CANDIDATE_HORIZON=medium
+FRONTEND_TIMEZONE=Asia/Seoul
 MARKET_DATA_PROVIDER_KR=pykrx
 MARKET_DATA_PROVIDER_US=yfinance
 STALE_DATA_BUSINESS_DAYS=2
+USD_KRW_RATE=1400
 
 ```
 
@@ -347,6 +356,7 @@ STALE_DATA_BUSINESS_DAYS=2
 - `SUPABASE_ANON_KEY` is included only if required by the Supabase Python client initialization or future server-side usage. It must remain server-side only and must never be exposed to the frontend. If the implementation does not need it, leave it unused but documented.
 - `API_ACCESS_TOKEN` protects all `/api/*` endpoints (see Security Rules). Distinct from `SCHEDULER_SECRET`.
 - `STALE_DATA_BUSINESS_DAYS` defines the data-limited threshold (see Market Data Rules). It is an application default, so the runtime resolution order applies: `settings.stale_data_business_days` first, then `STALE_DATA_BUSINESS_DAYS` from `.env`, then the Pydantic model default (`2`).
+- `USD_KRW_RATE` defines the portfolio conversion rate for USD assets and USD cash. The runtime resolution order applies: `settings.usd_krw_rate` first, then `USD_KRW_RATE` from `.env`, then the Pydantic model default (`1400`). Report generation may refresh this setting from yfinance `KRW=X`; if that fails, the previous configured value remains editable in Settings.
 
 Frontend environment variables:
 
@@ -456,6 +466,8 @@ total_return_rate
 domestic_value
 global_value
 cash_value
+base_currency
+usd_krw_rate
 asset_allocation
 asset_returns
 latest_report_summary
@@ -498,8 +510,10 @@ global_report_time
 ai_provider
 ai_model
 risk_profile
+candidate_horizon
 frontend_timezone
 stale_data_business_days
+usd_krw_rate
 created_at
 updated_at
 ```
@@ -512,8 +526,10 @@ global_report_time       = 22:30
 ai_provider              = openai
 ai_model                 = gpt-5.4-mini
 risk_profile             = balanced
+candidate_horizon        = medium
 frontend_timezone        = Asia/Seoul
 stale_data_business_days = 2
+usd_krw_rate             = 1400
 ```
 
 ---
@@ -593,8 +609,10 @@ create table if not exists settings (
   ai_provider text default 'openai',
   ai_model text default 'gpt-5.4-mini',
   risk_profile text default 'balanced',
+  candidate_horizon text default 'medium',
   frontend_timezone text default 'Asia/Seoul',
   stale_data_business_days int default 2,
+  usd_krw_rate numeric default 1400,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
@@ -1427,9 +1445,11 @@ FRONTEND_ORIGIN
 
 ```text
 OPENAI_MODEL
+CANDIDATE_HORIZON
 MARKET_DATA_PROVIDER_KR
 MARKET_DATA_PROVIDER_US
 STALE_DATA_BUSINESS_DAYS
+USD_KRW_RATE
 ```
 
 ### Database

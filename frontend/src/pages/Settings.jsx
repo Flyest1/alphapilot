@@ -28,6 +28,7 @@ export default function Settings() {
         candidate_horizon: settings.candidate_horizon,
         frontend_timezone: settings.frontend_timezone,
         stale_data_business_days: Number(settings.stale_data_business_days),
+        usd_krw_rate: Number(settings.usd_krw_rate),
       });
       setSettings(saved);
       setStatus("설정을 저장했습니다.");
@@ -111,6 +112,17 @@ export default function Settings() {
               value={settings.stale_data_business_days}
               onChange={(event) => update("stale_data_business_days", event.target.value)}
             />
+          </label>
+          <label>
+            USD-KRW 환율
+            <input
+              min="1"
+              step="0.01"
+              type="number"
+              value={settings.usd_krw_rate}
+              onChange={(event) => update("usd_krw_rate", event.target.value)}
+            />
+            <span className="field-hint">대시보드 총액을 KRW로 환산할 때 사용합니다.</span>
           </label>
           <label>
             API 기준 URL

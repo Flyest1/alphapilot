@@ -41,6 +41,11 @@ class FakeMarketData:
         return {"KOSPI" if report_type == "domestic" else "S&P 500": self.fetch_price_history()}
 
 
+class FakeMarketDataWithFx(FakeMarketData):
+    def fetch_usd_krw_rate(self, fallback):
+        return 1450
+
+
 class FakeTechnical:
     def analyze(self, ticker, _dataframe):
         return TechnicalAnalysisResult(
@@ -224,6 +229,21 @@ def test_report_passes_news_context_to_openai():
     assert (
         ai.contexts[-1]["news_context"]["articles"][0]["title"] == "Semiconductor demand improves"
     )
+
+
+def test_report_generation_refreshes_usd_krw_rate_setting():
+    repo = seeded_repo()
+    service = ReportService(
+        repo,
+        market_data_service=FakeMarketDataWithFx(),
+        technical_analysis_service=FakeTechnical(),
+        ai_provider=FailingAI(),
+        news_service=FakeNews(),
+    )
+
+    service.generate_report("domestic")
+
+    assert repo.get_settings()["usd_krw_rate"] == 1450
 
 
 def test_validation_failure_retries_openai_once():

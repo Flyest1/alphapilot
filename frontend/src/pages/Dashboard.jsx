@@ -93,9 +93,9 @@ export default function Dashboard() {
       {isRefreshing && <p className="field-hint">최신 데이터를 확인하는 중입니다.</p>}
 
       <div className="summary-grid">
-        <SummaryCard label="총 평가금액" value={money(summary?.total_market_value)} />
+        <SummaryCard label="총 평가금액(KRW)" value={money(summary?.total_market_value)} />
         <SummaryCard
-          label="평가손익"
+          label="평가손익(KRW)"
           value={money(summary?.total_profit_loss)}
           tone={summary?.total_profit_loss >= 0 ? "positive" : "negative"}
         />
@@ -104,8 +104,13 @@ export default function Dashboard() {
           value={`${summary?.total_return_rate ?? 0}%`}
           tone={summary?.total_return_rate >= 0 ? "positive" : "negative"}
         />
-        <SummaryCard label="현금" value={money(summary?.cash_value)} />
+        <SummaryCard label="현금(KRW)" value={money(summary?.cash_value)} />
       </div>
+      {summary?.usd_krw_rate && (
+        <p className="field-hint">
+          USD 자산은 1 USD = {money(summary.usd_krw_rate)} KRW 기준으로 환산합니다.
+        </p>
+      )}
 
       <section className="panel">
         <div className="section-heading">

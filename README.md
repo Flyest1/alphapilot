@@ -21,11 +21,15 @@ News/Trend Context: GDELT DOC 2.0 API
 1. GitHub Pages 주소에 접속합니다.
 2. 첫 화면에 Render 환경변수 `API_ACCESS_TOKEN` 값을 입력합니다.
 3. `자산` 화면에서 보유 종목을 추가합니다.
-4. `설정` 화면에서 AI 모델, 위험 성향, 추가 매수 후보 목표 기간을 조정합니다.
+4. `설정` 화면에서 AI 모델, 위험 성향, 추가 매수 후보 목표 기간, USD-KRW 환율을 조정합니다.
 5. `설정` 화면에서 보유 외 추가 매수 후보군을 직접 추가하거나 비활성화합니다.
 6. `상태` 화면에서 백엔드, Supabase, OpenAI 설정과 최근 리포트 상태를 확인합니다.
 7. `리포트` 화면에서 국내/글로벌 리포트를 수동 생성하거나, GitHub Actions 정기 실행 결과를 확인합니다.
 8. `성과 추적`은 리포트 생성 이후 1일, 5일, 20일 가격 데이터가 쌓이면 표시됩니다.
+
+대시보드 총액은 KRW 기준입니다. USD 주식, 미국 ETF, USD 현금은 `설정`의 USD-KRW 환율로 환산합니다. 리포트 생성 시 yfinance의 `KRW=X` 최신 값을 가져올 수 있으면 해당 환율이 설정에 반영되고, 실패하면 기존 설정값을 그대로 사용합니다.
+
+CASH 자산은 `수량 × 평균 매입가`로 계산됩니다. 현금 총액을 한 번에 넣으려면 수량은 `1`, 평균 매입가는 현금 총액으로 입력하세요. 수량을 `0`으로 입력하면 평가금액도 `0`으로 계산됩니다.
 
 추가 매수 후보 목표 기간은 다음 기준으로 동작합니다.
 
@@ -84,6 +88,7 @@ FRONTEND_TIMEZONE=Asia/Seoul
 MARKET_DATA_PROVIDER_KR=pykrx
 MARKET_DATA_PROVIDER_US=yfinance
 STALE_DATA_BUSINESS_DAYS=2
+USD_KRW_RATE=1400
 ```
 
 애플리케이션 기본값은 `settings` 테이블 값을 우선 사용하고, 값이 없으면 `.env`, 그 다음 Pydantic 기본값을 사용합니다.
@@ -139,6 +144,19 @@ create table if not exists candidate_assets (
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
+```
+
+USD-KRW 환율 설정을 사용하려면 아래 파일도 실행합니다.
+
+```text
+backend/app/db/migrations/004_add_usd_krw_rate.sql
+```
+
+실행 SQL:
+
+```sql
+alter table settings
+add column if not exists usd_krw_rate numeric default 1400;
 ```
 
 Supabase service role key는 RLS를 우회합니다. 반드시 백엔드 서버 환경변수에만 보관하고, 프론트엔드나 에러 메시지에 노출하지 마세요.

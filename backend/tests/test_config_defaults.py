@@ -20,6 +20,7 @@ def test_application_defaults_match_env_example_and_sql_defaults():
     assert f"CANDIDATE_HORIZON={defaults.candidate_horizon}" in env_text
     assert f"FRONTEND_TIMEZONE={defaults.frontend_timezone}" in env_text
     assert f"STALE_DATA_BUSINESS_DAYS={defaults.stale_data_business_days}" in env_text
+    assert f"USD_KRW_RATE={int(defaults.usd_krw_rate)}" in env_text
 
     assert f"domestic_report_time text default '{defaults.domestic_report_time}'" in sql_text
     assert f"global_report_time text default '{defaults.global_report_time}'" in sql_text
@@ -29,6 +30,7 @@ def test_application_defaults_match_env_example_and_sql_defaults():
     assert f"candidate_horizon text default '{defaults.candidate_horizon}'" in sql_text
     assert f"frontend_timezone text default '{defaults.frontend_timezone}'" in sql_text
     assert f"stale_data_business_days int default {defaults.stale_data_business_days}" in sql_text
+    assert f"usd_krw_rate numeric default {int(defaults.usd_krw_rate)}" in sql_text
 
 
 def test_settings_row_overrides_env_defaults():
@@ -37,14 +39,17 @@ def test_settings_row_overrides_env_defaults():
             "ai_model": "table-model",
             "risk_profile": "aggressive",
             "candidate_horizon": "short",
+            "usd_krw_rate": 1450,
         },
         {
             "ai_model": "env-model",
             "risk_profile": "balanced",
             "candidate_horizon": "long",
+            "usd_krw_rate": 1300,
         },
     )
 
     assert resolved.ai_model == "table-model"
     assert resolved.risk_profile == "aggressive"
     assert resolved.candidate_horizon == "short"
+    assert resolved.usd_krw_rate == 1450
