@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { api } from "../api/client.js";
+import { api, readApiCache } from "../api/client.js";
 import { formatReportTime } from "../api/reports.js";
 
 function statusText(value) {
@@ -8,22 +8,31 @@ function statusText(value) {
 }
 
 export default function Status() {
-  const [status, setStatus] = useState(null);
+  const cachedStatus = readApiCache("/api/system/status");
+  const [status, setStatus] = useState(cachedStatus);
   const [error, setError] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!cachedStatus);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  function loadStatus() {
-    setIsLoading(true);
+  function loadStatus({ background = false } = {}) {
+    if (background) {
+      setIsRefreshing(true);
+    } else {
+      setIsLoading(true);
+    }
     setError("");
     api.system
       .status()
       .then(setStatus)
       .catch((err) => setError(err.message))
-      .finally(() => setIsLoading(false));
+      .finally(() => {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      });
   }
 
   useEffect(() => {
-    loadStatus();
+    loadStatus({ background: Boolean(cachedStatus) });
   }, []);
 
   const databaseOk = status?.database?.status === "ok";
@@ -43,6 +52,7 @@ export default function Status() {
       </header>
       {error && <p className="alert">{error}</p>}
       {isLoading && <p className="empty-state">상태를 확인하는 중입니다.</p>}
+      {isRefreshing && <p className="field-hint">최신 상태를 확인하는 중입니다.</p>}
       {status && (
         <>
           <section className="panel">
@@ -79,6 +89,14 @@ export default function Status() {
                 <span>리포트</span>
                 <strong>{status.reports?.total_count ?? 0}</strong>
               </div>
+              <div>
+                <span>국내 자동 리포트</span>
+                <strong>{status.scheduler?.domestic?.status_label || "-"}</strong>
+              </div>
+              <div>
+                <span>글로벌 자동 리포트</span>
+                <strong>{status.scheduler?.global?.status_label || "-"}</strong>
+              </div>
             </div>
           </section>
 
@@ -100,6 +118,14 @@ export default function Status() {
               <div>
                 <span>Supabase 설정</span>
                 <strong>{statusText(status.database?.configured)}</strong>
+              </div>
+              <div>
+                <span>국내 예정 시간</span>
+                <strong>{formatReportTime(status.scheduler?.domestic?.last_expected_at)}</strong>
+              </div>
+              <div>
+                <span>글로벌 예정 시간</span>
+                <strong>{formatReportTime(status.scheduler?.global?.last_expected_at)}</strong>
               </div>
             </div>
             {status.database?.error && <p className="alert">{status.database.error}</p>}

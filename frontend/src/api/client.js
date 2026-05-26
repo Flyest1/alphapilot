@@ -1,6 +1,7 @@
 const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 export const API_BASE_URL = rawApiBaseUrl.replace(/\/+$/, "");
 export const API_ACCESS_TOKEN_STORAGE_KEY = "alphapilot_api_access_token";
+const API_CACHE_PREFIX = "alphapilot_api_cache:";
 
 export function getApiAccessToken() {
   return window.localStorage.getItem(API_ACCESS_TOKEN_STORAGE_KEY) || "";
@@ -12,12 +13,49 @@ export function setApiAccessToken(token) {
 
 export function clearApiAccessToken() {
   window.localStorage.removeItem(API_ACCESS_TOKEN_STORAGE_KEY);
+  clearApiCache();
+}
+
+function cacheKey(path) {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${API_CACHE_PREFIX}${API_BASE_URL}${normalizedPath}`;
+}
+
+export function readApiCache(path) {
+  try {
+    const cached = window.localStorage.getItem(cacheKey(path));
+    if (!cached) return null;
+    return JSON.parse(cached).data ?? null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function writeApiCache(path, data) {
+  try {
+    window.localStorage.setItem(
+      cacheKey(path),
+      JSON.stringify({ cached_at: new Date().toISOString(), data }),
+    );
+  } catch (_error) {
+    // Browser storage can be full or unavailable; the app should still work without cache.
+  }
+}
+
+export function clearApiCache() {
+  const keys = [];
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index);
+    if (key?.startsWith(API_CACHE_PREFIX)) keys.push(key);
+  }
+  keys.forEach((key) => window.localStorage.removeItem(key));
 }
 
 export async function apiRequest(path, options = {}) {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   const accessToken = options.accessToken ?? getApiAccessToken();
   const { accessToken: _accessToken, ...fetchOptions } = options;
+  const method = (fetchOptions.method || "GET").toUpperCase();
   if (!accessToken) {
     throw new Error("접속 토큰을 먼저 입력하세요.");
   }
@@ -40,7 +78,13 @@ export async function apiRequest(path, options = {}) {
     throw new Error(body.detail || "요청에 실패했습니다.");
   }
 
-  return response.json();
+  const data = await response.json();
+  if (method === "GET") {
+    writeApiCache(normalizedPath, data);
+  } else {
+    clearApiCache();
+  }
+  return data;
 }
 
 export const api = {

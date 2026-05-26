@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { api } from "../api/client.js";
+import { api, readApiCache } from "../api/client.js";
 import {
   actionLabel,
   dataLimitedCount,
@@ -28,38 +28,58 @@ const filterLabels = {
   WATCH: "관찰",
   DATA_LIMITED: "데이터 제한",
 };
+const horizonLabels = {
+  short: "단기 5거래일",
+  medium: "중기 20거래일",
+  long: "장기 60거래일",
+};
 
 function firstReportForType(latest, reports, type) {
   return latest[type] || reports.find((report) => report.report_type === type) || null;
 }
 
 export default function Reports() {
-  const [latest, setLatest] = useState({});
-  const [reports, setReports] = useState([]);
-  const [assets, setAssets] = useState([]);
-  const [performanceLogs, setPerformanceLogs] = useState([]);
-  const [selected, setSelected] = useState(null);
+  const cachedLatest = readApiCache("/api/reports/latest") || {};
+  const cachedReports = readApiCache("/api/reports") || [];
+  const cachedAssets = readApiCache("/api/assets") || [];
+  const cachedPerformanceLogs = readApiCache("/api/performance-logs") || [];
+  const cachedSettings = readApiCache("/api/settings");
+  const cachedSelected = pickReportWithStrategies(cachedLatest) || cachedReports[0] || null;
+  const hasCachedData = Boolean(cachedSelected || cachedReports.length || cachedAssets.length);
+  const [latest, setLatest] = useState(cachedLatest);
+  const [reports, setReports] = useState(cachedReports);
+  const [assets, setAssets] = useState(cachedAssets);
+  const [performanceLogs, setPerformanceLogs] = useState(cachedPerformanceLogs);
+  const [settings, setSettings] = useState(cachedSettings);
+  const [selected, setSelected] = useState(cachedSelected);
   const [activeType, setActiveType] = useState("domestic");
   const [strategyFilter, setStrategyFilter] = useState("ALL");
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!hasCachedData);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [generatingType, setGeneratingType] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const [error, setError] = useState("");
 
-  function loadReports() {
-    setIsLoading(true);
+  function loadReports({ background = false } = {}) {
+    if (background) {
+      setIsRefreshing(true);
+    } else {
+      setIsLoading(true);
+    }
     return Promise.all([
       api.reports.latest(),
       api.reports.list(),
       api.performanceLogs.list(),
       api.assets.list(),
+      api.settings.get(),
     ])
-      .then(([latestReports, reportList, performanceLogList, assetList]) => {
+      .then(([latestReports, reportList, performanceLogList, assetList, appSettings]) => {
         const initialReport = pickReportWithStrategies(latestReports) || reportList[0] || null;
         setLatest(latestReports);
         setReports(reportList);
         setPerformanceLogs(performanceLogList);
         setAssets(assetList);
+        setSettings(appSettings);
         const nextReport = selected
           ? reportList.find((report) => report.id === selected.id) || initialReport
           : initialReport;
@@ -67,15 +87,30 @@ export default function Reports() {
         if (nextReport) setActiveType(nextReport.report_type);
       })
       .catch((err) => setError(err.message))
-      .finally(() => setIsLoading(false));
+      .finally(() => {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      });
   }
 
   useEffect(() => {
-    loadReports();
+    loadReports({ background: hasCachedData });
+
+    function refreshOnReturn() {
+      if (!document.hidden) loadReports({ background: true });
+    }
+
+    window.addEventListener("focus", refreshOnReturn);
+    document.addEventListener("visibilitychange", refreshOnReturn);
+    return () => {
+      window.removeEventListener("focus", refreshOnReturn);
+      document.removeEventListener("visibilitychange", refreshOnReturn);
+    };
   }, []);
 
   const content = selected?.content || {};
   const filteredReports = reports.filter((report) => report.report_type === activeType);
+  const candidateHorizonLabel = horizonLabels[settings?.candidate_horizon] || "중기 20거래일";
   const latestForActiveType = latest[activeType];
   const selectedDataLimitedCount = dataLimitedCount(selected);
   const selectedTechnicalOnly = isTechnicalOnlyReport(selected);
@@ -139,6 +174,7 @@ export default function Reports() {
       {error && <p className="alert">{error}</p>}
       {statusMessage && <p className="notice">{statusMessage}</p>}
       {isLoading && <p className="empty-state">리포트를 불러오는 중입니다.</p>}
+      {isRefreshing && <p className="field-hint">최신 리포트를 확인하는 중입니다.</p>}
 
       <div className="segmented-control">
         {reportTypes.map((type) => (
@@ -274,12 +310,20 @@ export default function Reports() {
         <div className="section-heading">
           <div>
             <h2>추가 매수 후보</h2>
-            <p>보유 자산이 아닌 기본 후보군을 기술 점수로 선별한 결과입니다.</p>
+            <p>
+              보유 자산이 아닌 후보군을 현재 설정의 {candidateHorizonLabel} 목표 기준으로
+              선별한 결과입니다.
+            </p>
           </div>
           <div className="inline-metrics">
+            <span>목표 {candidateHorizonLabel}</span>
             <span>{candidateStrategies.length}개 후보</span>
           </div>
         </div>
+        <p className="form-hint">
+          비보유 후보에서 관찰은 보유하라는 뜻이 아니라 신규 매수를 기다리라는 의미입니다. 신뢰도는
+          수익 확률이 아니라 데이터 품질과 기술 점수 기반의 추천 강도입니다.
+        </p>
         <StrategyTable strategies={candidateStrategies} />
       </section>
 

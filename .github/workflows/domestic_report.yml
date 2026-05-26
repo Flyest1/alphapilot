@@ -33,6 +33,6 @@ jobs:
             echo "BACKEND_URL secret must be the Render URL, for example https://alphapilot-backend.onrender.com"
             exit 1
           fi
-          curl -fsS --max-time 120 -X POST \
+          curl -fsS --max-time 300 -X POST \
             "$BACKEND_URL/api/reports/domestic/generate" \
             -H "Authorization: Bearer $SCHEDULER_SECRET"

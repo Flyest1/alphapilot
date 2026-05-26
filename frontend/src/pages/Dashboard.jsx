@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { api } from "../api/client.js";
+import { api, readApiCache } from "../api/client.js";
 import {
   actionLabel,
   dataLimitedCount,
@@ -19,13 +19,23 @@ function money(value) {
 }
 
 export default function Dashboard() {
-  const [summary, setSummary] = useState(null);
-  const [latest, setLatest] = useState(null);
-  const [assets, setAssets] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const cachedSummary = readApiCache("/api/portfolio/summary");
+  const cachedLatest = readApiCache("/api/reports/latest");
+  const cachedAssets = readApiCache("/api/assets");
+  const hasCachedData = Boolean(cachedSummary || cachedLatest || cachedAssets);
+  const [summary, setSummary] = useState(cachedSummary);
+  const [latest, setLatest] = useState(cachedLatest);
+  const [assets, setAssets] = useState(cachedAssets || []);
+  const [isLoading, setIsLoading] = useState(!hasCachedData);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
+  function loadDashboard({ background = false } = {}) {
+    if (background) {
+      setIsRefreshing(true);
+    } else {
+      setIsLoading(true);
+    }
     Promise.all([api.portfolio.summary(), api.reports.latest(), api.assets.list()])
       .then(([portfolio, reports, assetList]) => {
         setSummary(portfolio);
@@ -33,7 +43,25 @@ export default function Dashboard() {
         setAssets(assetList);
       })
       .catch((err) => setError(err.message))
-      .finally(() => setIsLoading(false));
+      .finally(() => {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      });
+  }
+
+  useEffect(() => {
+    loadDashboard({ background: hasCachedData });
+
+    function refreshOnReturn() {
+      if (!document.hidden) loadDashboard({ background: true });
+    }
+
+    window.addEventListener("focus", refreshOnReturn);
+    document.addEventListener("visibilitychange", refreshOnReturn);
+    return () => {
+      window.removeEventListener("focus", refreshOnReturn);
+      document.removeEventListener("visibilitychange", refreshOnReturn);
+    };
   }, []);
 
   const report = pickReportWithStrategies(latest);
@@ -62,6 +90,7 @@ export default function Dashboard() {
 
       {error && <p className="alert">{error}</p>}
       {isLoading && <p className="empty-state">포트폴리오 데이터를 불러오는 중입니다.</p>}
+      {isRefreshing && <p className="field-hint">최신 데이터를 확인하는 중입니다.</p>}
 
       <div className="summary-grid">
         <SummaryCard label="총 평가금액" value={money(summary?.total_market_value)} />

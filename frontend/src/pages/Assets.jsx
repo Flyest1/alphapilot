@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { api } from "../api/client.js";
+import { api, readApiCache } from "../api/client.js";
 
 const blankAsset = {
   market: "KR",
@@ -69,26 +69,35 @@ function validateAsset(payload) {
 }
 
 export default function Assets() {
-  const [assets, setAssets] = useState([]);
+  const cachedAssets = readApiCache("/api/assets") || [];
+  const [assets, setAssets] = useState(cachedAssets);
   const [form, setForm] = useState(blankAsset);
   const [editingId, setEditingId] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(cachedAssets.length === 0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
 
   const guide = marketGuides[form.market] || marketGuides.KR;
 
-  function loadAssets() {
-    setIsLoading(true);
+  function loadAssets({ background = false } = {}) {
+    if (background) {
+      setIsRefreshing(true);
+    } else {
+      setIsLoading(true);
+    }
     api.assets
       .list()
       .then(setAssets)
       .catch((err) => setError(err.message))
-      .finally(() => setIsLoading(false));
+      .finally(() => {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      });
   }
 
   useEffect(() => {
-    loadAssets();
+    loadAssets({ background: cachedAssets.length > 0 });
   }, []);
 
   function updateField(field, value) {
@@ -178,6 +187,7 @@ export default function Assets() {
       </header>
       {error && <p className="alert">{error}</p>}
       {status && <p className="notice">{status}</p>}
+      {isRefreshing && <p className="field-hint">최신 자산 정보를 확인하는 중입니다.</p>}
 
       <section className="panel">
         <form className="asset-form" onSubmit={submit}>

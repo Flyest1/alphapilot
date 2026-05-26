@@ -48,3 +48,5 @@ def test_system_status_endpoint_reports_operational_counts():
     assert body["candidate_assets"]["active_count"] == 1
     assert body["reports"]["total_count"] == 1
     assert body["reports"]["latest_global_created_at"]
+    assert body["scheduler"]["domestic"]["status"] in {"ok", "pending", "late"}
+    assert body["scheduler"]["global"]["last_expected_at"]

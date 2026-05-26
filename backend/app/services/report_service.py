@@ -375,11 +375,21 @@ class ReportService:
             )
             if strategy.action not in {"BUY", "HOLD"} or strategy.reasoning == "data-limited":
                 continue
+            action_update = {}
+            if strategy.action == "HOLD":
+                action_update = {
+                    "action": "WATCH",
+                    "reasoning": (
+                        "보유하지 않은 후보이므로 신규 매수 대기(WATCH)로 해석합니다. "
+                        f"{strategy.reasoning}"
+                    ),
+                }
             strategy = strategy.model_copy(
                 update={
+                    **action_update,
                     "reasoning": (
                         f"보유 외 추가 매수 후보({horizon_rule['label']} 목표): "
-                        f"{strategy.reasoning}"
+                        f"{action_update.get('reasoning', strategy.reasoning)}"
                     ),
                     "risk": (
                         f"신규 진입 후보입니다. 목표 기간은 {horizon_rule['label']}이며, "
@@ -595,6 +605,8 @@ class ReportService:
             "name, schema key, or action enum. context.candidate_tickers contains non-owned "
             "screened buy candidates. Include them in asset_strategies when they are present, and "
             "make their reasoning clearly say they are 보유 외 추가 매수 후보. "
+            "For non-owned candidates, do not use HOLD; use BUY for active entry ideas and WATCH "
+            "for waitlisted ideas. "
             "context.candidate_horizon is the target holding/profit-taking horizon for those "
             "candidate ideas."
         )
