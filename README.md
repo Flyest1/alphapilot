@@ -13,6 +13,7 @@ Database: Supabase PostgreSQL
 Scheduler: GitHub Actions
 AI: OpenAI API
 Market Data: pykrx, yfinance
+News/Trend Context: GDELT DOC 2.0 API
 ```
 
 ## 사용 방법
@@ -198,6 +199,12 @@ GitHub Actions 예약 실행은 best-effort입니다. GitHub 부하에 따라 �
 
 보유 외 추가 매수 후보는 `설정` 화면의 후보군 목록을 우선 사용합니다. 직접 등록한 활성 후보가 없으면 앱에 포함된 기본 후보군을 사용합니다.
 
+## 뉴스/동향 반영
+
+리포트 생성 시 GDELT DOC 2.0 API에서 최근 3일 뉴스/동향 헤드라인을 조회해 AI 분석 컨텍스트로 전달합니다. 별도 뉴스 섹션을 화면에 만들지는 않고, 관련성이 있을 때만 시장 요약, 위험 요인, 기회 요인, 종목별 판단 근거에 반영합니다.
+
+GDELT는 무료/무키 기반의 글로벌 뉴스 검색 API입니다. 제공자 장애, 검색 누락, 언어/출처 편향이 있을 수 있으며, 뉴스 조회 실패가 리포트 생성을 막지는 않습니다.
+
 스케줄러용 엔드포인트는 계속 `SCHEDULER_SECRET`을 사용합니다.
 
 ```powershell
@@ -224,12 +231,12 @@ curl -X POST "$env:BACKEND_URL/api/reports/domestic/generate" `
 
 - 자동 매매와 주문 실행 없음
 - 수익 보장 없음
-- 뉴스 수집 없음
+- 뉴스/동향 컨텍스트는 GDELT DOC 2.0 API에 한정되며 누락될 수 있음
 - pykrx/yfinance 데이터는 지연되거나 실패할 수 있음
 - Render Free cold start 가능
 - GitHub Actions 예약 실행 지연 가능
 - 글로벌 리포트 cron은 미국 서머타임 자동 보정 없음
-- 추가 매수 후보군은 MVP용 고정 후보군이며, 뉴스나 외부 스크리닝 API를 사용하지 않음
+- 추가 매수 후보군은 직접 등록한 후보군 또는 MVP용 기본 후보군을 사용하며, 외부 스크리닝 API를 사용하지 않음
 
 ## 검증 명령
 

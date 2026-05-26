@@ -27,9 +27,8 @@ class MarketSummary(BaseModel):
     summary: str
     key_indices: list[dict] = Field(default_factory=list)
     macro_factors: list[str] = Field(default_factory=list)
-    # news_factors intentionally omitted: news ingestion is out of scope for the MVP
-    # (see "News Data Scope for MVP"). Re-add this field via a documented PR if a news
-    # provider is approved and added to the Allowed External Services whitelist.
+    # news_factors intentionally omitted. Approved news/trend context may be folded into
+    # existing allowed fields, but the schema must not add a separate news_factors field.
 
 
 class PortfolioSummary(BaseModel):

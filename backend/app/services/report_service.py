@@ -13,6 +13,7 @@ from app.db.supabase_client import Repository
 from app.models.report import AssetStrategy, MarketSummary, PortfolioSummary, ReportContent
 from app.services.ai_provider import AIProvider
 from app.services.market_data_service import MarketDataService
+from app.services.news_service import NewsService
 from app.services.openai_provider import OpenAIProvider
 from app.services.portfolio_service import PortfolioService
 from app.services.strategy_service import StrategyService
@@ -63,12 +64,14 @@ class ReportService:
         technical_analysis_service: TechnicalAnalysisService | None = None,
         strategy_service: StrategyService | None = None,
         ai_provider: AIProvider | None = None,
+        news_service: NewsService | None = None,
     ) -> None:
         self.repository = repository
         self.market_data_service = market_data_service or MarketDataService()
         self.technical_analysis_service = technical_analysis_service or TechnicalAnalysisService()
         self.strategy_service = strategy_service or StrategyService()
         self.ai_provider = ai_provider
+        self.news_service = news_service or NewsService()
 
     def generate_report(self, report_type: str) -> dict[str, Any]:
         app_settings = resolve_application_settings(
@@ -101,6 +104,10 @@ class ReportService:
         technical_strategies = [
             row["strategy"] for row in analysis_rows if row["strategy"].reasoning != "data-limited"
         ]
+        news_context = self._build_news_context(
+            report_type,
+            [row["asset"] for row in analysis_rows if not row["market_data"].is_stale],
+        )
 
         content = self._generate_ai_content(
             report_type=report_type,
@@ -110,6 +117,7 @@ class ReportService:
             index_rows=index_rows,
             technical_strategies=technical_strategies,
             stale_tickers=stale_tickers,
+            news_context=news_context,
         )
         if content is None:
             content = self._technical_only_report(
@@ -119,6 +127,7 @@ class ReportService:
                 [row["strategy"] for row in analysis_rows],
                 stale_tickers,
                 app_settings.frontend_timezone,
+                news_context,
             )
         else:
             content = self._enforce_stale_rules(content, analysis_rows, stale_tickers)
@@ -179,6 +188,7 @@ class ReportService:
         index_rows: dict[str, TechnicalAnalysisResult],
         technical_strategies: list[AssetStrategy],
         stale_tickers: list[str],
+        news_context: dict[str, Any],
     ) -> ReportContent | None:
         try:
             provider = self.ai_provider or self._build_ai_provider(app_settings)
@@ -203,6 +213,7 @@ class ReportService:
             ],
             "candidate_horizon": app_settings.get("candidate_horizon", "medium"),
             "stale_tickers": stale_tickers,
+            "news_context": news_context,
             "generated_at": self._now(app_settings["frontend_timezone"]),
             "asset_context": [
                 {
@@ -255,6 +266,7 @@ class ReportService:
         strategies: list[AssetStrategy],
         stale_tickers: list[str],
         frontend_timezone: str,
+        news_context: dict[str, Any] | None = None,
     ) -> ReportContent:
         capped_strategies = []
         for strategy in strategies:
@@ -273,6 +285,8 @@ class ReportService:
         key_risks = ["AI reasoning unavailable for this report"]
         if stale_tickers:
             key_risks.append(f"stale market data for: {', '.join(stale_tickers)}")
+        if news_context and news_context.get("status") == "unavailable":
+            key_risks.append("recent news context unavailable for this report")
 
         opportunities = [
             f"{strategy.ticker}: 기술 점수 기준 {self._action_label(strategy.action)} 후보"
@@ -456,6 +470,22 @@ class ReportService:
             for name, result in results.items()
         }
 
+    def _build_news_context(
+        self,
+        report_type: str,
+        assets: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        try:
+            return self.news_service.fetch_report_context(report_type, assets)
+        except Exception as exc:
+            log_external_failure("gdelt", exc, {"operation": "build_news_context"})
+            return {
+                "provider": "gdelt_doc_2_0",
+                "status": "unavailable",
+                "articles": [],
+                "queries": [],
+            }
+
     def _save_report(self, content: ReportContent, assets: list[dict[str, Any]]) -> dict[str, Any]:
         report = self.repository.create_report(
             {
@@ -595,7 +625,7 @@ class ReportService:
             "asset_strategies must use the technical_strategies input shape and must not be named "
             "strategies. Do not add market_view, portfolio_notes, stale_tickers, risk_profile, "
             "total_cost, total_profit_loss, domestic_value, global_value, or cash_value to the "
-            "output. Use decision-support language only. Do not include news factors. Include "
+            "output. Use decision-support language only. Do not add a news_factors field. Include "
             "action, confidence, ranges, target, stop-loss, reasoning, risk, and invalidation "
             "condition for each non-stale strategy. Write user-facing text fields in Korean, "
             "including market_summary.summary, macro_factors, key_risks, opportunities, "
@@ -608,7 +638,10 @@ class ReportService:
             "For non-owned candidates, do not use HOLD; use BUY for active entry ideas and WATCH "
             "for waitlisted ideas. "
             "context.candidate_horizon is the target holding/profit-taking horizon for those "
-            "candidate ideas."
+            "candidate ideas. context.news_context contains recent GDELT news/trend headlines. "
+            "Use it only when relevant inside allowed fields such as macro_factors, key_risks, "
+            "opportunities, reasoning, and risk. Do not cite unsupported details or create a "
+            "separate news section."
         )
 
     def _index_summary(

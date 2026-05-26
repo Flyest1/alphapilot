@@ -68,9 +68,11 @@ class FailingAI:
 class RetryAI:
     def __init__(self):
         self.calls = 0
+        self.contexts = []
 
-    def generate_report(self, _prompt, _context):
+    def generate_report(self, _prompt, context):
         self.calls += 1
+        self.contexts.append(context)
         if self.calls == 1:
             return {"report_type": "domestic"}
         return {
@@ -91,6 +93,27 @@ class RetryAI:
             "opportunities": [],
             "asset_strategies": [],
             "disclaimer": DISCLAIMER,
+        }
+
+
+class FakeNews:
+    def __init__(self):
+        self.calls = []
+
+    def fetch_report_context(self, report_type, assets):
+        self.calls.append((report_type, assets))
+        return {
+            "provider": "gdelt_doc_2_0",
+            "status": "ok",
+            "articles": [
+                {
+                    "query": "mock",
+                    "title": "Semiconductor demand improves",
+                    "domain": "example.com",
+                    "url": "https://example.com/news",
+                }
+            ],
+            "queries": ["mock"],
         }
 
 
@@ -116,6 +139,7 @@ def test_openai_failure_generates_technical_only_report_with_capped_confidence()
         market_data_service=FakeMarketData(),
         technical_analysis_service=FakeTechnical(),
         ai_provider=FailingAI(),
+        news_service=FakeNews(),
     )
 
     report = service.generate_report("domestic")
@@ -134,6 +158,7 @@ def test_report_adds_screened_non_owned_candidates_with_null_asset_id():
         market_data_service=FakeMarketData(),
         technical_analysis_service=FakeTechnical(),
         ai_provider=FailingAI(),
+        news_service=FakeNews(),
     )
 
     report = service.generate_report("domestic")
@@ -168,6 +193,7 @@ def test_report_uses_configured_candidate_assets_before_default_universe():
         market_data_service=FakeMarketData(),
         technical_analysis_service=FakeTechnical(),
         ai_provider=FailingAI(),
+        news_service=FakeNews(),
     )
 
     report = service.generate_report("domestic")
@@ -179,6 +205,27 @@ def test_report_uses_configured_candidate_assets_before_default_universe():
     assert candidate_tickers == ["035420"]
 
 
+def test_report_passes_news_context_to_openai():
+    repo = seeded_repo()
+    ai = RetryAI()
+    news = FakeNews()
+    service = ReportService(
+        repo,
+        market_data_service=FakeMarketData(),
+        technical_analysis_service=FakeTechnical(),
+        ai_provider=ai,
+        news_service=news,
+    )
+
+    service.generate_report("domestic")
+
+    assert news.calls
+    assert ai.contexts[-1]["news_context"]["provider"] == "gdelt_doc_2_0"
+    assert (
+        ai.contexts[-1]["news_context"]["articles"][0]["title"] == "Semiconductor demand improves"
+    )
+
+
 def test_validation_failure_retries_openai_once():
     repo = seeded_repo()
     ai = RetryAI()
@@ -187,6 +234,7 @@ def test_validation_failure_retries_openai_once():
         market_data_service=FakeMarketData(),
         technical_analysis_service=FakeTechnical(),
         ai_provider=ai,
+        news_service=FakeNews(),
     )
 
     report = service.generate_report("domestic")
@@ -224,6 +272,7 @@ def test_backfill_performance_logs_updates_trading_day_returns():
         market_data_service=FakeMarketData(),
         technical_analysis_service=FakeTechnical(),
         ai_provider=FailingAI(),
+        news_service=FakeNews(),
     )
 
     service.backfill_performance_logs()

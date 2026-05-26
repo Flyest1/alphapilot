@@ -43,7 +43,7 @@ The highest-level objective is to help the user improve investment returns by co
 - Domestic and global market data
 - Technical analysis
 - Macro context from available market/index data
-- News ingestion is out of scope for MVP unless the user explicitly approves an additional news data provider
+- News/trend context from the approved GDELT DOC 2.0 API
 - AI-based reasoning
 - Risk management
 - Strategy performance tracking
@@ -97,6 +97,7 @@ The agent MUST NOT add any external service outside this list without explicit u
 - GitHub Actions              (scheduler)
 - pykrx                       (KR market data)
 - yfinance                    (US market data)
+- GDELT DOC 2.0 API           (news/trend context)
 ```
 
 Explicitly forbidden additions (examples, not exhaustive):
@@ -107,7 +108,9 @@ Explicitly forbidden additions (examples, not exhaustive):
 
 ### News Data Scope for MVP
 
-News ingestion is explicitly out of scope for the MVP because no news provider is included in the Allowed External Services whitelist. Do not add `NEWS_API_KEY`, news APIs, scraping, RSS ingestion, browser automation, or search providers unless the user explicitly approves a specific provider and updates this document.
+News/trend context is approved for the MVP through **GDELT DOC 2.0 API** only. Use it as contextual input to AI report generation and strategy reasoning. Do not add a separate `news_factors` field to `ReportContent`; fold relevant signals into existing allowed fields such as `market_summary.macro_factors`, `key_risks`, `opportunities`, `reasoning`, and `risk`.
+
+Do not add `NEWS_API_KEY`, paid news APIs, RSS ingestion, browser automation, search providers, or scraping unless the user explicitly approves the specific provider and this document is updated again. GDELT failures must not block report generation.
 
 High-level architecture:
 
@@ -725,9 +728,9 @@ class MarketSummary(BaseModel):
     summary: str
     key_indices: list[dict] = Field(default_factory=list)
     macro_factors: list[str] = Field(default_factory=list)
-    # news_factors intentionally omitted: news ingestion is out of scope for the MVP
-    # (see "News Data Scope for MVP"). Re-add this field via a documented PR if a news
-    # provider is approved and added to the Allowed External Services whitelist.
+    # news_factors intentionally omitted. Approved news/trend context may be folded into
+    # macro_factors, key_risks, opportunities, reasoning, and risk, but the schema must
+    # not add a separate news_factors field.
 
 
 class PortfolioSummary(BaseModel):
@@ -819,7 +822,7 @@ The AI report must synthesize:
 - Market data
 - Technical indicators
 - Macro factors if available
-- News summary is out of scope for MVP unless the user explicitly approves an additional external news provider
+- News/trend context from the approved GDELT DOC 2.0 API
 - Risk profile
 - Existing asset allocation
 
@@ -1455,7 +1458,7 @@ The root README must include:
 - Manual report generation test
 - Security warnings, including the frontend token limitation
 - Single-user MVP scope warning: no login, no multi-user security, no Supabase Auth
-- MVP limitations (including: no automatic trading, GitHub Actions cron drift, US DST drift, Render Free cold start, news ingestion out of scope, free market data quality)
+- MVP limitations (including: no automatic trading, GitHub Actions cron drift, US DST drift, Render Free cold start, approved GDELT news context limits, free market data quality)
 
 ---
 
@@ -1469,7 +1472,7 @@ Document these limitations clearly:
 - AI report quality depends on input data quality
 - Render Free may sleep when idle
 - GitHub Actions schedule may not run exactly at the target second
-- News ingestion is out of scope for MVP unless explicitly approved
+- News/trend context is limited to the approved GDELT DOC 2.0 API and may be incomplete
 - Single-user only: no login, no multi-user separation, no production-grade authentication
 - Backtesting is basic or deferred unless explicitly implemented
 
