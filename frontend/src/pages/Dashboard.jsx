@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { api, readApiCache } from "../api/client.js";
+import { api, isApiCacheFresh, readApiCache } from "../api/client.js";
 import {
   actionLabel,
   dataLimitedCount,
@@ -18,10 +18,12 @@ function money(value) {
   return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+const DASHBOARD_CACHE_MS = 5 * 60 * 1000;
+
 export default function Dashboard() {
-  const cachedSummary = readApiCache("/api/portfolio/summary");
-  const cachedLatest = readApiCache("/api/reports/latest");
-  const cachedAssets = readApiCache("/api/assets");
+  const cachedSummary = readApiCache("/api/portfolio/summary", { maxAgeMs: DASHBOARD_CACHE_MS });
+  const cachedLatest = readApiCache("/api/reports/latest", { maxAgeMs: DASHBOARD_CACHE_MS });
+  const cachedAssets = readApiCache("/api/assets", { maxAgeMs: DASHBOARD_CACHE_MS });
   const hasCachedData = Boolean(cachedSummary || cachedLatest || cachedAssets);
   const [summary, setSummary] = useState(cachedSummary);
   const [latest, setLatest] = useState(cachedLatest);
@@ -29,8 +31,10 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(!hasCachedData);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const lastRefreshAt = useRef(0);
 
   function loadDashboard({ background = false } = {}) {
+    lastRefreshAt.current = Date.now();
     if (background) {
       setIsRefreshing(true);
     } else {
@@ -50,10 +54,18 @@ export default function Dashboard() {
   }
 
   useEffect(() => {
-    loadDashboard({ background: hasCachedData });
+    const cacheFresh =
+      isApiCacheFresh("/api/portfolio/summary", DASHBOARD_CACHE_MS) &&
+      isApiCacheFresh("/api/reports/latest", DASHBOARD_CACHE_MS) &&
+      isApiCacheFresh("/api/assets", DASHBOARD_CACHE_MS);
+    if (!cacheFresh) {
+      loadDashboard({ background: hasCachedData });
+    }
 
     function refreshOnReturn() {
-      if (!document.hidden) loadDashboard({ background: true });
+      if (!document.hidden && Date.now() - lastRefreshAt.current > DASHBOARD_CACHE_MS) {
+        loadDashboard({ background: true });
+      }
     }
 
     window.addEventListener("focus", refreshOnReturn);
@@ -78,6 +90,7 @@ export default function Dashboard() {
   const topCandidates = [...candidateStrategies]
     .sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
     .slice(0, 5);
+  const dailyChanges = (summary?.daily_asset_changes || []).slice(0, 8);
 
   return (
     <section className="page">
@@ -105,12 +118,59 @@ export default function Dashboard() {
           tone={summary?.total_return_rate >= 0 ? "positive" : "negative"}
         />
         <SummaryCard label="현금(KRW)" value={money(summary?.cash_value)} />
+        <SummaryCard
+          label="1일 변동(KRW)"
+          value={money(summary?.daily_profit_loss)}
+          tone={summary?.daily_profit_loss >= 0 ? "positive" : "negative"}
+        />
       </div>
       {summary?.usd_krw_rate && (
         <p className="field-hint">
           USD 자산은 1 USD = {money(summary.usd_krw_rate)} KRW 기준으로 환산합니다.
         </p>
       )}
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h2>일별 자산 변동</h2>
+            <p>
+              최신 거래일 종가와 직전 거래일 종가 차이를 KRW 기준으로 환산한 값입니다.
+            </p>
+          </div>
+          <div className="inline-metrics">
+            <span>{summary?.daily_return_rate ?? 0}%</span>
+            <span>현금 {money(summary?.cash_value)} KRW</span>
+          </div>
+        </div>
+        <div className="daily-change-list">
+          {dailyChanges.length === 0 && (
+            <p className="empty-state">표시할 일별 변동 데이터가 아직 없습니다.</p>
+          )}
+          {dailyChanges.map((asset) => (
+            <div className="daily-change-row" key={`${asset.market}-${asset.ticker}`}>
+              <div>
+                <strong>{asset.ticker}</strong>
+                <span>{asset.name}</span>
+              </div>
+              <div className="daily-change-track">
+                <span
+                  className={asset.daily_profit_loss >= 0 ? "positive" : "negative"}
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      Math.max(6, Math.abs(asset.daily_return_rate || 0) * 12),
+                    )}%`,
+                  }}
+                />
+              </div>
+              <em className={asset.daily_profit_loss >= 0 ? "positive-text" : "negative-text"}>
+                {money(asset.daily_profit_loss)} KRW · {asset.daily_return_rate}%
+              </em>
+            </div>
+          ))}
+        </div>
+      </section>
 
       <section className="panel">
         <div className="section-heading">

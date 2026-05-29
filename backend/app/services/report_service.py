@@ -21,6 +21,7 @@ from app.services.technical_analysis_service import (
     TechnicalAnalysisResult,
     TechnicalAnalysisService,
 )
+from app.utils.datetime import parse_iso_datetime
 from app.utils.logging import log_external_failure
 
 DISCLAIMER = "이 리포트는 투자 의사결정 지원용이며 자동 매매를 실행하지 않습니다."
@@ -132,6 +133,7 @@ class ReportService:
             )
         else:
             content = self._enforce_stale_rules(content, analysis_rows, stale_tickers)
+        content = self._append_news_context_note(content, news_context)
 
         saved = self._save_report(content, assets)
         self.backfill_performance_logs()
@@ -140,7 +142,7 @@ class ReportService:
 
     def backfill_performance_logs(self) -> None:
         try:
-            logs = self.repository.list_performance_logs()
+            logs = self.repository.list_performance_logs(limit=250)
             strategies = {row["id"]: row for row in self.repository.list_strategies()}
             for log_row in logs:
                 strategy = strategies.get(log_row.get("strategy_id"))
@@ -158,7 +160,7 @@ class ReportService:
         result = self.market_data_service.fetch_price_history(market, ticker, lookback_days=90)
         if result.dataframe.empty:
             return
-        created_at = self._parse_datetime(strategy.get("created_at") or log_row.get("created_at"))
+        created_at = parse_iso_datetime(strategy.get("created_at") or log_row.get("created_at"))
         if created_at is None:
             return
         future_rows = result.dataframe[result.dataframe.index.date > created_at.date()]
@@ -552,6 +554,32 @@ class ReportService:
             }
         )
 
+    def _append_news_context_note(
+        self,
+        content: ReportContent,
+        news_context: dict[str, Any],
+    ) -> ReportContent:
+        articles = news_context.get("articles") or []
+        status = news_context.get("status")
+        macro_factors = list(content.market_summary.macro_factors)
+        key_risks = list(content.key_risks)
+        if status == "ok" and articles:
+            note = f"최근 뉴스/동향 컨텍스트(GDELT) {len(articles)}건을 분석 입력에 반영했습니다."
+            if note not in macro_factors:
+                macro_factors.append(note)
+        elif status in {"empty", "unavailable"}:
+            note = "최근 뉴스/동향 컨텍스트가 제한적이어서 기술·시장 데이터 비중을 높였습니다."
+            if note not in key_risks:
+                key_risks.append(note)
+        return content.model_copy(
+            update={
+                "market_summary": content.market_summary.model_copy(
+                    update={"macro_factors": macro_factors}
+                ),
+                "key_risks": key_risks,
+            }
+        )
+
     def _assets_for_report(
         self, assets: list[dict[str, Any]], report_type: str
     ) -> list[dict[str, Any]]:
@@ -598,13 +626,6 @@ class ReportService:
             }
             for candidate in CANDIDATE_UNIVERSE.get(report_type, [])
         ]
-
-    def _risk_profile(self) -> str:
-        settings = resolve_application_settings(
-            self.repository.get_settings(),
-            get_env_application_defaults(),
-        )
-        return settings.risk_profile
 
     def _build_ai_provider(self, app_settings: dict[str, Any]) -> AIProvider:
         if app_settings.get("ai_provider") != "openai":
@@ -730,11 +751,3 @@ class ReportService:
 
     def _normalize_ticker(self, ticker: str) -> str:
         return str(ticker).upper().replace(".KS", "").replace(".KQ", "").strip()
-
-    def _parse_datetime(self, value: Any) -> datetime | None:
-        if value is None:
-            return None
-        try:
-            return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        except ValueError:
-            return None

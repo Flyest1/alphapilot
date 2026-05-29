@@ -30,6 +30,7 @@ class MarketDataService:
         self.kr_provider = kr_provider
         self.yf_module = yf_module
         self.now_provider = now_provider or (lambda: datetime.now(timezone.utc))
+        self._price_cache: dict[tuple[str, str, int, int, str], MarketDataResult] = {}
 
     def fetch_price_history(
         self,
@@ -49,13 +50,28 @@ class MarketDataService:
                 current_price=None,
             )
 
-        provider = self._provider_name(normalized_market, ticker)
+        normalized_ticker = self.normalize_ticker(normalized_market, ticker)
+        cache_key = (
+            normalized_market,
+            normalized_ticker,
+            lookback_days,
+            stale_data_business_days,
+            self.now_provider().date().isoformat(),
+        )
+        if cache_key in self._price_cache:
+            return self._price_cache[cache_key]
+
+        provider = self._provider_name(normalized_market, normalized_ticker)
         try:
             if provider == "pykrx":
-                raw = self._fetch_kr_with_retry(ticker, lookback_days)
+                raw = self._fetch_kr_with_retry(normalized_ticker, lookback_days)
             else:
-                raw = self._fetch_us_with_retry(ticker, lookback_days)
-            return self._result_from_frame(raw, provider, stale_data_business_days, ticker)
+                raw = self._fetch_us_with_retry(normalized_ticker, lookback_days)
+            result = self._result_from_frame(
+                raw, provider, stale_data_business_days, normalized_ticker
+            )
+            self._price_cache[cache_key] = result
+            return result
         except Exception as exc:
             log_external_failure(
                 provider,
@@ -186,7 +202,7 @@ class MarketDataService:
         upper = ticker.strip().upper()
         if market.upper() == "KR":
             return upper.removesuffix(".KS").removesuffix(".KQ")
-        return upper
+        return upper.replace(".", "-")
 
     def _result_from_frame(
         self,
@@ -225,7 +241,8 @@ class MarketDataService:
             return pd.DataFrame()
 
         frame = raw.copy()
-        frame.index = pd.to_datetime(frame.index).tz_localize(None)
+        index = pd.to_datetime(frame.index)
+        frame.index = index.tz_convert(None) if getattr(index, "tz", None) is not None else index
         rename_map = {
             "Open": "open",
             "High": "high",

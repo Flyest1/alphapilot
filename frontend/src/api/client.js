@@ -21,14 +21,27 @@ function cacheKey(path) {
   return `${API_CACHE_PREFIX}${API_BASE_URL}${normalizedPath}`;
 }
 
-export function readApiCache(path) {
+function readApiCacheEntry(path) {
   try {
     const cached = window.localStorage.getItem(cacheKey(path));
     if (!cached) return null;
-    return JSON.parse(cached).data ?? null;
+    return JSON.parse(cached);
   } catch (_error) {
     return null;
   }
+}
+
+export function readApiCache(path, options = {}) {
+  const entry = readApiCacheEntry(path);
+  if (!entry) return null;
+  if (options.maxAgeMs && !isApiCacheFresh(path, options.maxAgeMs)) return null;
+  return entry.data ?? null;
+}
+
+export function isApiCacheFresh(path, maxAgeMs) {
+  const entry = readApiCacheEntry(path);
+  if (!entry?.cached_at) return false;
+  return Date.now() - new Date(entry.cached_at).getTime() <= maxAgeMs;
 }
 
 function writeApiCache(path, data) {

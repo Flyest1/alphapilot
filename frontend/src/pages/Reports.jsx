@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { api, readApiCache } from "../api/client.js";
+import { api, isApiCacheFresh, readApiCache } from "../api/client.js";
 import {
   actionLabel,
   dataLimitedCount,
@@ -33,17 +33,20 @@ const horizonLabels = {
   medium: "중기 20거래일",
   long: "장기 60거래일",
 };
+const REPORTS_CACHE_MS = 5 * 60 * 1000;
+const INITIAL_HISTORY_COUNT = 8;
 
 function firstReportForType(latest, reports, type) {
   return latest[type] || reports.find((report) => report.report_type === type) || null;
 }
 
 export default function Reports() {
-  const cachedLatest = readApiCache("/api/reports/latest") || {};
-  const cachedReports = readApiCache("/api/reports") || [];
-  const cachedAssets = readApiCache("/api/assets") || [];
-  const cachedPerformanceLogs = readApiCache("/api/performance-logs") || [];
-  const cachedSettings = readApiCache("/api/settings");
+  const cachedLatest = readApiCache("/api/reports/latest", { maxAgeMs: REPORTS_CACHE_MS }) || {};
+  const cachedReports = readApiCache("/api/reports", { maxAgeMs: REPORTS_CACHE_MS }) || [];
+  const cachedAssets = readApiCache("/api/assets", { maxAgeMs: REPORTS_CACHE_MS }) || [];
+  const cachedPerformanceLogs =
+    readApiCache("/api/performance-logs", { maxAgeMs: REPORTS_CACHE_MS }) || [];
+  const cachedSettings = readApiCache("/api/settings", { maxAgeMs: REPORTS_CACHE_MS });
   const cachedSelected = pickReportWithStrategies(cachedLatest) || cachedReports[0] || null;
   const hasCachedData = Boolean(cachedSelected || cachedReports.length || cachedAssets.length);
   const [latest, setLatest] = useState(cachedLatest);
@@ -59,8 +62,11 @@ export default function Reports() {
   const [generatingType, setGeneratingType] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const [error, setError] = useState("");
+  const [historyCount, setHistoryCount] = useState(INITIAL_HISTORY_COUNT);
+  const lastRefreshAt = useRef(0);
 
   function loadReports({ background = false } = {}) {
+    lastRefreshAt.current = Date.now();
     if (background) {
       setIsRefreshing(true);
     } else {
@@ -94,10 +100,19 @@ export default function Reports() {
   }
 
   useEffect(() => {
-    loadReports({ background: hasCachedData });
+    const cacheFresh =
+      isApiCacheFresh("/api/reports/latest", REPORTS_CACHE_MS) &&
+      isApiCacheFresh("/api/reports", REPORTS_CACHE_MS) &&
+      isApiCacheFresh("/api/assets", REPORTS_CACHE_MS) &&
+      isApiCacheFresh("/api/settings", REPORTS_CACHE_MS);
+    if (!cacheFresh) {
+      loadReports({ background: hasCachedData });
+    }
 
     function refreshOnReturn() {
-      if (!document.hidden) loadReports({ background: true });
+      if (!document.hidden && Date.now() - lastRefreshAt.current > REPORTS_CACHE_MS) {
+        loadReports({ background: true });
+      }
     }
 
     window.addEventListener("focus", refreshOnReturn);
@@ -110,6 +125,7 @@ export default function Reports() {
 
   const content = selected?.content || {};
   const filteredReports = reports.filter((report) => report.report_type === activeType);
+  const visibleReports = filteredReports.slice(0, historyCount);
   const candidateHorizonLabel = horizonLabels[settings?.candidate_horizon] || "중기 20거래일";
   const latestForActiveType = latest[activeType];
   const selectedDataLimitedCount = dataLimitedCount(selected);
@@ -129,10 +145,15 @@ export default function Reports() {
 
   function selectType(type) {
     setActiveType(type);
+    setHistoryCount(INITIAL_HISTORY_COUNT);
     setSelected(firstReportForType(latest, reports, type));
   }
 
   async function generateManualReport(type) {
+    const confirmed = window.confirm(
+      `${reportTypeLabel(type)} 리포트를 생성할까요? 외부 시세, 뉴스, OpenAI 호출 때문에 시간이 걸릴 수 있습니다.`,
+    );
+    if (!confirmed) return;
     setError("");
     setStatusMessage("");
     setGeneratingType(type);
@@ -223,7 +244,7 @@ export default function Reports() {
             {!isLoading && filteredReports.length === 0 && (
               <p className="empty-state">아직 생성된 리포트가 없습니다.</p>
             )}
-            {filteredReports.map((report) => (
+            {visibleReports.map((report) => (
               <button
                 className={selected?.id === report.id ? "active" : ""}
                 key={report.id}
@@ -236,6 +257,17 @@ export default function Reports() {
                 </span>
               </button>
             ))}
+            {filteredReports.length > visibleReports.length && (
+              <button
+                type="button"
+                onClick={() => setHistoryCount((current) => current + INITIAL_HISTORY_COUNT)}
+              >
+                <strong>이전 리포트 더 보기</strong>
+                <span>
+                  {visibleReports.length} / {filteredReports.length}개 표시 중
+                </span>
+              </button>
+            )}
           </div>
         </section>
       </div>
@@ -254,6 +286,16 @@ export default function Reports() {
           </div>
         </div>
         <p>{displayText(content.market_summary?.summary) || "표시할 리포트 내용이 없습니다."}</p>
+        {!!content.market_summary?.macro_factors?.length && (
+          <>
+            <h3>시장·뉴스 동향</h3>
+            <ul>
+              {content.market_summary.macro_factors.map((item) => (
+                <li key={item}>{displayText(item)}</li>
+              ))}
+            </ul>
+          </>
+        )}
         {!!content.market_summary?.key_indices?.length && (
           <div className="index-list">
             {content.market_summary.key_indices.map((index) => (

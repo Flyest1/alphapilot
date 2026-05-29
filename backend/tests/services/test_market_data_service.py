@@ -108,6 +108,27 @@ def test_routes_us_market_to_yfinance():
     assert yf.tickers == ["AAPL"]
 
 
+def test_normalizes_us_ticker_dot_to_dash_for_yfinance():
+    yf = FakeYFinance(history())
+    service = MarketDataService(yf_module=yf)
+
+    service.fetch_price_history("US", "BRK.B")
+
+    assert yf.tickers == ["BRK-B"]
+
+
+def test_standardizes_timezone_aware_yfinance_index():
+    frame = history()
+    frame.index = frame.index.tz_localize("America/New_York")
+    yf = FakeYFinance(frame)
+    service = MarketDataService(yf_module=yf)
+
+    result = service.fetch_price_history("US", "AAPL")
+
+    assert result.current_price == 14
+    assert result.dataframe.index.tz is None
+
+
 def test_fetches_usd_krw_rate_from_yfinance():
     yf = FakeYFinance(history())
     service = MarketDataService(yf_module=yf)

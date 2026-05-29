@@ -231,6 +231,23 @@ def test_report_passes_news_context_to_openai():
     )
 
 
+def test_report_marks_news_context_in_macro_factors():
+    repo = seeded_repo()
+    ai = RetryAI()
+    service = ReportService(
+        repo,
+        market_data_service=FakeMarketData(),
+        technical_analysis_service=FakeTechnical(),
+        ai_provider=ai,
+        news_service=FakeNews(),
+    )
+
+    report = service.generate_report("domestic")
+    content = ReportContent.model_validate(report["content"])
+
+    assert any("GDELT" in factor for factor in content.market_summary.macro_factors)
+
+
 def test_report_generation_refreshes_usd_krw_rate_setting():
     repo = seeded_repo()
     service = ReportService(

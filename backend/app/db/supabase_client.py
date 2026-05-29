@@ -51,7 +51,7 @@ class Repository(Protocol):
 
     def create_performance_log(self, data: dict[str, Any]) -> dict[str, Any]: ...
 
-    def list_performance_logs(self) -> list[dict[str, Any]]: ...
+    def list_performance_logs(self, limit: int | None = None) -> list[dict[str, Any]]: ...
 
     def update_performance_log(
         self, log_id: str, data: dict[str, Any]
@@ -187,8 +187,10 @@ class InMemoryRepository:
         self.performance_logs[row["id"]] = row
         return deepcopy(row)
 
-    def list_performance_logs(self) -> list[dict[str, Any]]:
-        return _copy_rows(self.performance_logs.values())
+    def list_performance_logs(self, limit: int | None = None) -> list[dict[str, Any]]:
+        rows = _copy_rows(self.performance_logs.values())
+        rows = sorted(rows, key=lambda row: row.get("created_at") or "", reverse=True)
+        return rows[:limit] if limit is not None else rows
 
     def update_performance_log(self, log_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
         if log_id not in self.performance_logs:
@@ -339,8 +341,10 @@ class SupabaseRepository:
         rows = self._run(builder, {"operation": "create_performance_log"})
         return rows[0]
 
-    def list_performance_logs(self) -> list[dict[str, Any]]:
-        builder = self.client.table("performance_logs").select("*")
+    def list_performance_logs(self, limit: int | None = None) -> list[dict[str, Any]]:
+        builder = self.client.table("performance_logs").select("*").order("created_at", desc=True)
+        if limit is not None:
+            builder = builder.limit(limit)
         return self._run(builder, {"operation": "list_performance_logs"})
 
     def update_performance_log(self, log_id: str, data: dict[str, Any]) -> dict[str, Any] | None:

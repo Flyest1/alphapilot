@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pandas as pd
+
 from app.db.supabase_client import InMemoryRepository
 from app.services.portfolio_service import PortfolioService
 
@@ -7,7 +9,15 @@ from app.services.portfolio_service import PortfolioService
 class FakeMarketData:
     def fetch_price_history(self, market, ticker):
         prices = {"005930": 120, "AAPL": 80}
-        return SimpleNamespace(is_stale=False, current_price=prices[ticker])
+        previous = {"005930": 110, "AAPL": 75}
+        return SimpleNamespace(
+            is_stale=False,
+            current_price=prices[ticker],
+            dataframe=pd.DataFrame(
+                {"close": [previous[ticker], prices[ticker]]},
+                index=pd.date_range("2026-05-20", periods=2, freq="B"),
+            ),
+        )
 
 
 def test_portfolio_summary_calculates_values_and_returns():
@@ -59,6 +69,8 @@ def test_portfolio_summary_calculates_values_and_returns():
     assert summary.total_market_value == 183240
     assert summary.total_cost == 211200
     assert summary.total_profit_loss == -27960
+    assert summary.daily_profit_loss == 7020
+    assert summary.daily_return_rate == 3.98
     assert summary.domestic_value == 240
     assert summary.global_value == 112000
     assert summary.cash_value == 71000
@@ -67,4 +79,10 @@ def test_portfolio_summary_calculates_values_and_returns():
     assert (
         next(row for row in summary.asset_returns if row["ticker"] == "AAPL")["market_value"]
         == 112000
+    )
+    assert (
+        next(row for row in summary.daily_asset_changes if row["ticker"] == "AAPL")[
+            "daily_profit_loss"
+        ]
+        == 7000
     )

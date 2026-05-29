@@ -12,7 +12,7 @@ router = APIRouter(prefix="/api/performance-logs", tags=["performance"])
 def list_performance_logs(repository: Repository = Depends(get_repository)) -> list[dict[str, Any]]:
     strategies = {row["id"]: row for row in repository.list_strategies()}
     rows = []
-    for log_row in repository.list_performance_logs():
+    for log_row in repository.list_performance_logs(limit=500):
         strategy = strategies.get(log_row.get("strategy_id"), {})
         rows.append(
             {

@@ -50,3 +50,4 @@ def test_system_status_endpoint_reports_operational_counts():
     assert body["reports"]["latest_global_created_at"]
     assert body["scheduler"]["domestic"]["status"] in {"ok", "pending", "late"}
     assert body["scheduler"]["global"]["last_expected_at"]
+    assert body["security"]["tokens_distinct"] is True

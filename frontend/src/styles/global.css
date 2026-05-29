@@ -286,6 +286,55 @@ td span,
   background: #0f766e;
 }
 
+.daily-change-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.daily-change-row {
+  display: grid;
+  grid-template-columns: 150px minmax(100px, 1fr) minmax(150px, auto);
+  gap: 12px;
+  align-items: center;
+}
+
+.daily-change-row > div:first-child {
+  display: grid;
+}
+
+.daily-change-row span {
+  color: #64748b;
+}
+
+.daily-change-track {
+  overflow: hidden;
+  height: 12px;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.daily-change-track span {
+  display: block;
+  height: 100%;
+}
+
+.daily-change-track .positive {
+  background: #10b981;
+}
+
+.daily-change-track .negative {
+  background: #ef4444;
+}
+
+.positive-text {
+  color: #047857;
+}
+
+.negative-text {
+  color: #b42318;
+}
+
 .table-wrap {
   overflow-x: auto;
 }
@@ -916,6 +965,11 @@ form button,
   }
 
   .bar-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .daily-change-row {
     grid-template-columns: 1fr;
     gap: 6px;
   }

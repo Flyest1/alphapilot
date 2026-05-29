@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { api, readApiCache } from "../api/client.js";
+import { api, isApiCacheFresh, readApiCache } from "../api/client.js";
 import { formatReportTime } from "../api/reports.js";
 
 function statusText(value) {
@@ -8,13 +8,16 @@ function statusText(value) {
 }
 
 export default function Status() {
-  const cachedStatus = readApiCache("/api/system/status");
+  const STATUS_CACHE_MS = 5 * 60 * 1000;
+  const cachedStatus = readApiCache("/api/system/status", { maxAgeMs: STATUS_CACHE_MS });
   const [status, setStatus] = useState(cachedStatus);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(!cachedStatus);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const lastRefreshAt = useRef(0);
 
   function loadStatus({ background = false } = {}) {
+    lastRefreshAt.current = Date.now();
     if (background) {
       setIsRefreshing(true);
     } else {
@@ -32,10 +35,12 @@ export default function Status() {
   }
 
   useEffect(() => {
-    loadStatus({ background: Boolean(cachedStatus) });
+    if (!isApiCacheFresh("/api/system/status", STATUS_CACHE_MS)) {
+      loadStatus({ background: Boolean(cachedStatus) });
+    }
   }, []);
 
-  const databaseOk = status?.database?.status === "ok";
+  const databaseOk = ["ok", "partial"].includes(status?.database?.status);
 
   return (
     <section className="page">
@@ -67,7 +72,7 @@ export default function Status() {
               </div>
               <div>
                 <span>데이터베이스</span>
-                <strong>{databaseOk ? "정상" : "오류"}</strong>
+                <strong>{status?.database?.status === "partial" ? "부분 확인" : databaseOk ? "정상" : "오류"}</strong>
               </div>
               <div>
                 <span>저장소</span>
@@ -129,6 +134,9 @@ export default function Status() {
               </div>
             </div>
             {status.database?.error && <p className="alert">{status.database.error}</p>}
+            {!!status.security?.warnings?.length && (
+              <p className="alert">{status.security.warnings.join(" ")}</p>
+            )}
           </section>
         </>
       )}

@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlencode
@@ -29,16 +30,19 @@ class NewsService:
         articles: list[dict[str, Any]] = []
         failures = 0
 
-        for query in queries:
-            try:
-                articles.extend(self._fetch_articles(query))
-            except Exception as exc:
-                failures += 1
-                log_external_failure(
-                    "gdelt",
-                    exc,
-                    {"operation": "fetch_news", "query": query},
-                )
+        with ThreadPoolExecutor(max_workers=min(4, max(1, len(queries)))) as executor:
+            futures = {executor.submit(self._fetch_articles, query): query for query in queries}
+            for future in as_completed(futures):
+                query = futures[future]
+                try:
+                    articles.extend(future.result())
+                except Exception as exc:
+                    failures += 1
+                    log_external_failure(
+                        "gdelt",
+                        exc,
+                        {"operation": "fetch_news", "query": query},
+                    )
 
         deduped_articles = self._dedupe_articles(articles)[:MAX_CONTEXT_ARTICLES]
         status = "ok" if deduped_articles else "empty"

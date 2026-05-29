@@ -31,6 +31,10 @@ News/Trend Context: GDELT DOC 2.0 API
 
 CASH 자산은 `수량 × 평균 매입가`로 계산됩니다. 현금 총액을 한 번에 넣으려면 수량은 `1`, 평균 매입가는 현금 총액으로 입력하세요. 수량을 `0`으로 입력하면 평가금액도 `0`으로 계산됩니다.
 
+미국 주식 티커에 점이 들어가는 경우(예: `BRK.B`)는 그대로 입력해도 됩니다. 백엔드는 yfinance 조회 시 필요한 `BRK-B` 형식으로 자동 변환합니다.
+
+대시보드는 최신 종가와 직전 거래일 종가 차이로 1일 자산 변동을 계산합니다. 별도의 일자별 포트폴리오 스냅샷 테이블은 아직 없으므로, 과거 장기 추이는 성과 추적 로그와 최신 시세 기준으로만 표시됩니다.
+
 추가 매수 후보 목표 기간은 다음 기준으로 동작합니다.
 
 ```text
@@ -102,6 +106,8 @@ VITE_API_BASE_URL=https://alphapilot-backend.onrender.com
 ```
 
 `API_ACCESS_TOKEN`은 프론트엔드 번들에 넣지 않습니다. 접속자가 화면에서 직접 입력하고 브라우저 `localStorage`에 저장합니다.
+
+주의: `localStorage` 저장 방식은 개인용 MVP 편의 기능입니다. XSS에 취약할 수 있으므로 다중 사용자 또는 공개 서비스 수준의 인증으로 간주하지 마세요.
 
 ## Supabase 설정
 
@@ -241,6 +247,7 @@ curl -X POST "$env:BACKEND_URL/api/reports/domestic/generate" `
 - 모든 `/api/*` 요청은 토큰이 필요합니다.
 - 정기 리포트 생성 엔드포인트는 `SCHEDULER_SECRET`을 사용합니다.
 - 일반 API와 수동 리포트 생성은 `API_ACCESS_TOKEN`을 사용합니다.
+- 두 값은 반드시 서로 다르게 설정하세요. 같게 설정하면 스케줄러 시크릿으로 일반 API까지 호출할 수 있습니다.
 - GitHub Pages 정적 URL 자체는 public일 수 있지만, 토큰 없이는 백엔드 데이터 API를 호출할 수 없습니다.
 
 주의: `API_ACCESS_TOKEN`이 유출되면 해당 토큰을 가진 사람이 자산과 리포트 데이터에 접근할 수 있습니다. 이 방식은 production-grade 인증이 아니라 단일 사용자 MVP용 접근 게이트입니다.
