@@ -1,162 +1,115 @@
 # AGENTS.md
 
+## Purpose
+
+This file is the single source of truth for AlphaPilot after MVP completion.
+
+AlphaPilot is a single-user personal AI investment decision-support system. The MVP is implemented and deployed with free infrastructure. Future work must improve reliability, data quality, portfolio intelligence, and user experience without adding automatic trading or broker execution.
+
+The product should act like a personal CIO / investment strategist:
+
+```text
+Return optimization = expected return * probability of success - downside risk - volatility risk - concentration risk - liquidity risk
+```
+
+All recommendations are decision-support information only. They must never imply guaranteed profit or execute trades.
+
+---
+
 ## Meta Rules for Coding Agents
 
-These rules override any conflicting instructions elsewhere in this document.
+1. **This document is the single source of truth.** Do not infer, extrapolate, or add product requirements not stated here.
+2. **Ask only when ambiguity blocks implementation.** If ambiguity affects architecture, security, external services, database schema, Pydantic models, or public API contracts, stop and ask the user.
+3. **Whitelist enforcement.** Do not introduce libraries, external services, hosting providers, API providers, scraping methods, schedulers, or UI frameworks that are not explicitly allowed here.
+4. **No silent omission.** If a documented requirement cannot be implemented in the current environment, state it clearly and keep the implementation locally testable with mocks where appropriate.
+5. **Code-as-spec wins over prose.** Pydantic models, SQL schemas, public API contracts, and JSON examples in this document are authoritative.
+6. **No trading code.** Do not create functions, classes, modules, routes, buttons, placeholders, or stubs for broker APIs, order placement, trade execution, or automatic trading.
+7. **Commit discipline.** Use Conventional Commits. Keep commits scoped to the current roadmap step.
+8. **Test before commit.** Code changes must pass:
 
-1. **This document is the single source of truth.** Do not infer, extrapolate, or add requirements not stated here.
-2. **Ask only when ambiguity blocks implementation.** If ambiguity affects architecture, security, external services, database schema, Pydantic models, or public API contracts, STOP and ask the user. If ambiguity is minor and does not affect those areas, choose the simplest implementation, document the assumption in README or a TODO, and continue.
-3. **Whitelist enforcement.** Do not introduce libraries, services, hosting platforms, or external APIs that are not listed in "Required Technology Stack" or "Allowed External Services" without explicit user approval.
-4. **No silent omission.** Every requirement in this document is mandatory. The instruction "Do not over-design" (later in this document) means do not add anything not listed here. It never means skip a listed requirement.
-5. **Code-as-spec wins over prose.** When a Pydantic model, SQL schema, or JSON example is provided in this document, implement it exactly. Do not rename fields, change types, or "improve" the structure.
-6. **Single Source of Truth for defaults.** Separate infrastructure secrets from application defaults. Infrastructure values live in `.env` only. Application defaults may appear in `.env.example`, the `settings` SQL table, and Pydantic models. At runtime, the `settings` table is authoritative; `.env` is only a fallback when the row is missing.
-7. **Test, do not just run.** Generate pytest unit tests for every service module. Mock all external calls (OpenAI, Supabase, market data). Manual testing alone is not acceptable.
-8. **Commit discipline.** Use Conventional Commits when git commit is available. Each step in "Development Order" should map to at least one commit. If commits are unavailable in the execution environment, do not stop; group changes by step and write a CHANGELOG-style implementation summary instead.
-9. **No scope creep on failure.** If a required external service (OpenAI, Supabase, yfinance, pykrx) fails, follow the documented fallback. Do not introduce alternative services, scraping workarounds, or new API providers to "make it work."
-10. **No trading code stubs.** Do not generate any function, class, or module related to placing orders, broker APIs, or trade execution — not even as a stub or placeholder. This is non-negotiable for the MVP.
+```powershell
+pytest backend/tests -v
+ruff check .
+black --check .
+```
+
+Frontend changes must also pass:
+
+```powershell
+cd frontend
+npm run build
+```
+
+9. **Protect existing user data.** Supabase migrations must be additive unless the user explicitly approves destructive migration.
+10. **README language.** User-facing README content must remain Korean unless the user requests otherwise.
 
 ---
 
-## Project Name
+## Current Product Phase
 
-**AlphaPilot - Personal AI Investment Expert MVP**
+```text
+Phase: Post-MVP
+Status: MVP complete, deployed, and usable
+Primary goal now: turn the MVP into a reliable personal investment operating system
+```
 
-## Project Purpose
+The MVP already includes:
 
-Build a personal AI-powered stock investment expert web application.
+- GitHub Pages React frontend
+- Render Free FastAPI backend
+- Supabase PostgreSQL persistence
+- GitHub Actions scheduled report calls
+- OpenAI structured report generation
+- technical-only report fallback
+- pykrx and yfinance market data
+- GDELT DOC 2.0 news/trend context
+- asset CRUD
+- candidate asset management
+- settings management
+- portfolio summary
+- dashboard charts
+- manual report generation
+- scheduled domestic/global reports
+- strategy table and candidate strategy view
+- performance log backfill
+- lightweight single-user token access gate
 
-The system allows the user to register personal assets, analyze domestic and global markets, generate AI-assisted investment strategy reports twice per day, and provide asset-level buy/hold/reduce/sell guidance with price ranges, target prices, stop-loss levels, risk factors, and invalidation conditions.
-
-The first-stage goal is a **free-infrastructure MVP**.
-
-The MVP is **single-user only**. Do not add `user_id`, authentication tables, profiles, Supabase Auth flows, login/signup pages, multi-user access control, or tenant separation unless explicitly requested by the user.
-
-The system must not execute trades automatically. It provides investment decision support only.
+Future work must preserve these capabilities while improving reliability and investment usefulness.
 
 ---
 
-## Core Objective
+## Non-Negotiable Product Boundaries
 
-The highest-level objective is to help the user improve investment returns by combining:
+AlphaPilot must not:
 
-- Personal portfolio data
-- Domestic and global market data
-- Technical analysis
-- Macro context from available market/index data
-- News/trend context from the approved GDELT DOC 2.0 API
-- AI-based reasoning
-- Risk management
-- Strategy performance tracking
+- place orders
+- connect to broker APIs
+- implement paper trading as if it were execution
+- create trade execution stubs
+- promise guaranteed profit
+- imply risk-free returns
+- expose OpenAI keys, Supabase keys, scheduler secrets, or database credentials to the frontend
+- add unapproved external services
+- scrape websites with browsers or HTML scraping
 
-The system should act like a personal CIO / investment strategist.
+Allowed recommendation language:
 
-However, every strategy must include risk controls. Return maximization must never mean ignoring downside risk.
+- consider
+- candidate
+- watch
+- risk-managed entry
+- partial buy
+- reduce exposure
+- stop-loss
+- invalidation condition
 
-Use this internal principle:
+Forbidden recommendation language:
 
-```text
-Return optimization = expected return × probability of success - downside risk - volatility risk - concentration risk - liquidity risk
-```
-
----
-
-## MVP Deployment Architecture
-
-Use exactly the following architecture for the first-stage MVP. Do not substitute components.
-
-```text
-Frontend:
-GitHub Pages
-
-Backend:
-FastAPI deployed on Render Free
-
-Database:
-Supabase Free PostgreSQL
-
-Scheduler:
-GitHub Actions scheduled workflows
-
-AI:
-OpenAI API (default)
-
-Market Data:
-pykrx for KR market (primary)
-yfinance for US market (primary)
-```
-
-### Allowed External Services (Whitelist)
-
-The agent MUST NOT add any external service outside this list without explicit user approval.
-
-```text
-- OpenAI API                  (LLM)
-- Supabase                    (database, auth-disabled for MVP)
-- Render                      (backend hosting, Free tier)
-- GitHub Pages                (frontend hosting)
-- GitHub Actions              (scheduler)
-- pykrx                       (KR market data)
-- yfinance                    (US market data)
-- GDELT DOC 2.0 API           (news/trend context)
-```
-
-Explicitly forbidden additions (examples, not exhaustive):
-- Other hosting platforms (Railway, Fly.io, Vercel functions, AWS Lambda, etc.)
-- Other market data providers (Alpha Vantage, Polygon, Finnhub, Naver/Daum scraping, etc.)
-- External cron / ping services (cron-job.org, UptimeRobot, EasyCron, etc.)
-- Selenium, Playwright, or any headless-browser scraping
-
-### News Data Scope for MVP
-
-News/trend context is approved for the MVP through **GDELT DOC 2.0 API** only. Use it as contextual input to AI report generation and strategy reasoning. Do not add a separate `news_factors` field to `ReportContent`; fold relevant signals into existing allowed fields such as `market_summary.macro_factors`, `key_risks`, `opportunities`, `reasoning`, and `risk`.
-
-Do not add `NEWS_API_KEY`, paid news APIs, RSS ingestion, browser automation, search providers, or scraping unless the user explicitly approves the specific provider and this document is updated again. GDELT failures must not block report generation.
-
-High-level architecture:
-
-```text
-[User Browser]
-      ↓
-[GitHub Pages Frontend]
-Dashboard / Assets / Reports / Settings
-
-      ↓ HTTPS API
-
-[FastAPI Backend on Render]
-Asset CRUD
-Portfolio summary
-Market data collection
-Technical analysis
-AI report generation
-Strategy generation
-Scheduler-protected report endpoints
-
-      ↓
-
-[Supabase PostgreSQL]
-assets
-reports
-strategies
-settings
-performance_logs
-
-      ↑
-
-[GitHub Actions]
-Calls backend twice per day
-Domestic market report
-Global market report
-```
-
----
-
-## Important Hosting Rules
-
-GitHub Pages is only for the frontend.
-
-Do not place backend logic, API keys, database secrets, OpenAI keys, or private user asset data inside GitHub Pages.
-
-The backend MUST be hosted on Render Free for the MVP. Do not propose or implement alternatives.
+- guaranteed profit
+- certain return
+- risk-free
+- must buy
+- must sell
 
 ---
 
@@ -166,160 +119,122 @@ The backend MUST be hosted on Render Free for the MVP. Do not propose or impleme
 
 - React 18.x
 - Vite 5.x
+- plain CSS / CSS modules only
 - GitHub Pages deployment
-- API base URL managed via `VITE_API_BASE_URL` environment variable
-- Do not add UI frameworks beyond plain CSS / CSS modules for MVP (no Tailwind, MUI, Chakra, etc.) unless the user requests them
+- `VITE_API_BASE_URL` for backend URL
+
+Do not add Tailwind, MUI, Chakra, Bootstrap, Next.js, or other UI frameworks unless the user explicitly approves an AGENTS.md update.
 
 ### Backend
 
 - Python 3.10
 - FastAPI
 - Uvicorn
-- supabase-py (official Supabase Python client)
-- openai (official OpenAI Python SDK, v1.x)
-- Pandas / NumPy
-- pykrx (KR market data)
-- yfinance (US market data)
+- supabase-py
+- openai Python SDK v1.x
+- pandas
+- numpy
+- pykrx
+- yfinance
 - pydantic v2.x
-- tenacity (for retry logic, see Error Handling Standard)
+- tenacity
 - python-dotenv
-
-**Forbidden libraries for TA:** Do not use `ta`, `pandas-ta`, `TA-Lib`, `finta`, or any other technical analysis library. All technical indicators (SMA, EMA, RSI, MACD, Bollinger Bands, etc.) MUST be implemented from scratch using only pandas and numpy. Place implementations in `backend/app/services/technical_analysis_service.py`.
-
-### Database
-
-- Supabase PostgreSQL
-
-### Scheduler
-
-- GitHub Actions scheduled workflows
-
-### AI Provider
-
-- OpenAI API as default
-- Default model: `gpt-5.4-mini` for cost/performance balance
-- Recommended high-quality manual upgrade option: `gpt-5.5` when the user prioritizes reasoning quality over cost
-- Recommended low-cost manual downgrade option: `gpt-5.4-nano` when the user prioritizes cost and latency
-- Design `ai_provider.py` interface so that Claude, Gemini, or local LLM can be added later
-- The selected model MUST be read from `settings.ai_model` first, then `OPENAI_MODEL` as fallback
-- MVP must implement at least one fallback path: if OpenAI fails after retries, generate a "technical-only" report (no LLM reasoning, only structured TA output). See "AI Provider Fallback" section.
 
 ### Code Quality
 
-- `ruff` for linting (config in `pyproject.toml`)
-- `black` for formatting (line length 100)
-- `pytest` for testing
-- All code MUST pass `ruff check` and `black --check` before commit
+- ruff
+- black, line length 100
+- pytest
+
+### Forbidden Technical Analysis Libraries
+
+Do not use:
+
+- `ta`
+- `pandas-ta`
+- `TA-Lib`
+- `finta`
+- any other technical-analysis library
+
+All technical indicators must be implemented from scratch using pandas and numpy in `backend/app/services/technical_analysis_service.py`.
 
 ---
 
-## Repository Structure
+## Allowed External Services
 
-Create or maintain the following structure:
+Only these external services are allowed:
 
 ```text
-alphapilot/
-│
-├─ frontend/
-│  ├─ index.html
-│  ├─ package.json
-│  ├─ vite.config.js
-│  └─ src/
-│     ├─ main.jsx
-│     ├─ App.jsx
-│     ├─ api/
-│     ├─ components/
-│     ├─ pages/
-│     │  ├─ Dashboard.jsx
-│     │  ├─ Assets.jsx
-│     │  ├─ Reports.jsx
-│     │  └─ Settings.jsx
-│     └─ styles/
-│
-├─ backend/
-│  ├─ app/
-│  │  ├─ main.py
-│  │  ├─ config.py
-│  │  ├─ api/
-│  │  │  ├─ assets.py
-│  │  │  ├─ portfolio.py
-│  │  │  ├─ reports.py
-│  │  │  └─ settings.py
-│  │  ├─ db/
-│  │  │  ├─ supabase_client.py
-│  │  │  └─ migrations/
-│  │  ├─ models/
-│  │  ├─ services/
-│  │  │  ├─ market_data_service.py
-│  │  │  ├─ technical_analysis_service.py
-│  │  │  ├─ ai_provider.py
-│  │  │  ├─ openai_provider.py
-│  │  │  ├─ strategy_service.py
-│  │  │  └─ report_service.py
-│  │  └─ utils/
-│  │
-│  ├─ requirements.txt
-│  ├─ render.yaml
-│  ├─ .env.example
-│  └─ README.md
-│
-├─ .github/
-│  └─ workflows/
-│     ├─ domestic_report.yml
-│     └─ global_report.yml
-│
-├─ AGENTS.md
-├─ README.md
-└─ .gitignore
+- OpenAI API                  (LLM)
+- Supabase                    (database, auth-disabled unless explicitly approved later)
+- Render                      (backend hosting, Free tier for current deployment)
+- GitHub Pages                (frontend hosting)
+- GitHub Actions              (scheduler)
+- pykrx                       (KR market data)
+- yfinance                    (US/ETF/FX market data)
+- GDELT DOC 2.0 API           (news/trend context)
 ```
+
+Any new service requires explicit user approval and an AGENTS.md update before implementation.
+
+Examples requiring approval:
+
+- paid market data APIs
+- email providers
+- push notification providers
+- Telegram/Discord/Slack bots
+- external cron/ping services
+- vector databases
+- alternative LLM providers
+- Supabase Auth login flow
+- file-storage services
+
+---
+
+## Security Model
+
+### Current Security
+
+AlphaPilot remains single-user.
+
+Current access control:
+
+- Scheduler endpoints use `SCHEDULER_SECRET`.
+- Normal API endpoints use `API_ACCESS_TOKEN`.
+- The frontend asks the user to enter `API_ACCESS_TOKEN` and stores it in browser `localStorage`.
+- `API_ACCESS_TOKEN` is not embedded in the frontend bundle.
+- Supabase service role key is server-side only.
+
+This is an MVP access gate, not production-grade authentication.
+
+### Security Rules
+
+1. Never commit `.env`.
+2. Keep `.env` ignored by Git.
+3. Never expose OpenAI keys, Supabase keys, or `SCHEDULER_SECRET` to frontend code.
+4. CORS must allow only configured frontend origins.
+5. API token and scheduler secret must be different values.
+6. Do not add login/signup, user tables, `user_id`, or multi-user permissions unless the user explicitly approves the security model change.
+
+### Future Security Decision
+
+Before implementing stronger authentication, stop and ask the user to choose one:
+
+```text
+A. Keep single-user token gate
+B. Add server-side password/session gate
+C. Use Supabase Auth
+```
+
+Choice C requires AGENTS.md update because MVP explicitly avoided Supabase Auth and multi-user flows.
 
 ---
 
 ## Environment Variables
 
-Never commit real secrets.
+### Backend Infrastructure Secrets
 
-Create `.env.example` with placeholders only.
-
-### Single Source of Truth for Defaults
-
-Separate configuration into two categories.
-
-**Infrastructure secrets and deployment values** live in `.env` / hosting environment variables only. These MUST NOT appear in the `settings` SQL table or Pydantic model defaults:
-
-```text
-APP_ENV
-SUPABASE_URL
-SUPABASE_SERVICE_ROLE_KEY
-SUPABASE_ANON_KEY
-OPENAI_API_KEY
-SCHEDULER_SECRET
-API_ACCESS_TOKEN
-FRONTEND_ORIGIN
-```
-
-**Application defaults** may appear in three places: `.env.example`, the `settings` SQL table DEFAULT clause, and the Pydantic `Settings` model:
-
-```text
-domestic_report_time
-global_report_time
-ai_provider
-ai_model
-risk_profile
-candidate_horizon
-frontend_timezone
-stale_data_business_days
-usd_krw_rate
-```
-
-**Runtime resolution order for application defaults:**
-1. The `settings` table row (authoritative)
-2. If the row is missing or a field is NULL: `.env` value
-3. If neither: hard-coded default in the Pydantic model
-
-When changing an application default, the agent MUST update all relevant locations in the same commit and verify consistency. A unit test SHOULD verify this consistency. Do not try to make secrets textually identical across SQL/Pydantic because secrets do not belong there.
-
-Backend environment variables:
+These live only in `.env` or hosting environment variables:
 
 ```env
 APP_ENV=development
@@ -330,14 +245,19 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 SUPABASE_ANON_KEY=your-anon-key
 
 OPENAI_API_KEY=your-openai-api-key
-OPENAI_MODEL=gpt-5.4-mini
-
 SCHEDULER_SECRET=change-this-secret
 API_ACCESS_TOKEN=change-this-user-token
+```
 
+### Application Defaults
+
+These may exist in `.env.example`, SQL defaults, and Pydantic settings models:
+
+```env
 DOMESTIC_REPORT_TIME=08:30
 GLOBAL_REPORT_TIME=22:30
 AI_PROVIDER=openai
+OPENAI_MODEL=gpt-5.4-mini
 RISK_PROFILE=balanced
 CANDIDATE_HORIZON=medium
 FRONTEND_TIMEZONE=Asia/Seoul
@@ -345,65 +265,27 @@ MARKET_DATA_PROVIDER_KR=pykrx
 MARKET_DATA_PROVIDER_US=yfinance
 STALE_DATA_BUSINESS_DAYS=2
 USD_KRW_RATE=1400
-
 ```
 
-**Notes:**
-- `OPENAI_MODEL` default is `gpt-5.4-mini` for a cost/performance balance. The model is intentionally configurable through environment variables and the `settings.ai_model` field.
-- Before implementation, the agent SHOULD verify the configured model name against the current OpenAI model list. If the model is confirmed unavailable or renamed, STOP and ask the user to choose a replacement.
-- If model-name verification cannot be completed because of network, documentation, or environment access limitations, do not stop implementation. Keep the model configurable, document the verification issue in README/TODO, and continue.
-- For later upgrades, the user may change only `OPENAI_MODEL` / `settings.ai_model` without changing the report schema or service architecture.
-- `SUPABASE_ANON_KEY` is included only if required by the Supabase Python client initialization or future server-side usage. It must remain server-side only and must never be exposed to the frontend. If the implementation does not need it, leave it unused but documented.
-- `API_ACCESS_TOKEN` protects all `/api/*` endpoints (see Security Rules). Distinct from `SCHEDULER_SECRET`.
-- `STALE_DATA_BUSINESS_DAYS` defines the data-limited threshold (see Market Data Rules). It is an application default, so the runtime resolution order applies: `settings.stale_data_business_days` first, then `STALE_DATA_BUSINESS_DAYS` from `.env`, then the Pydantic model default (`2`).
-- `USD_KRW_RATE` defines the portfolio conversion rate for USD assets and USD cash. The runtime resolution order applies: `settings.usd_krw_rate` first, then `USD_KRW_RATE` from `.env`, then the Pydantic model default (`1400`). Report generation may refresh this setting from yfinance `KRW=X`; if that fails, the previous configured value remains editable in Settings.
+Runtime resolution order:
 
-Frontend environment variables:
+1. Supabase `settings` table row
+2. `.env` value
+3. Pydantic default
+
+When changing an application default, update all relevant locations and add/update tests for consistency.
+
+### Frontend
 
 ```env
 VITE_API_BASE_URL=http://localhost:8000
-VITE_API_ACCESS_TOKEN=change-this-user-token
 ```
 
-Frontend must only know the backend API URL and the user access token (this is a single-user MVP; the token is acceptable in the frontend bundle for this scope, but the user must be warned in the README).
-
-Important: `VITE_API_ACCESS_TOKEN` is a lightweight single-user access gate, not production-grade authentication. Because it is embedded in the frontend bundle, it can be inspected by anyone who can access the deployed frontend. This is acceptable only for the single-user MVP. The README MUST warn the user not to treat this MVP as multi-user or production-secure.
-
-Frontend must not contain:
-
-- OpenAI API key
-- Supabase service role key
-- Supabase anon key
-- Market data API key
-- `SCHEDULER_SECRET`
-- Any database connection string
+Do not use `VITE_API_ACCESS_TOKEN` in the current implementation. The access token is entered by the user at runtime.
 
 ---
 
-## Security Rules
-
-This MVP is single-user only. Do not implement Supabase Auth, login/signup flows, user tables, `user_id` ownership checks, multi-user roles, or tenant separation unless explicitly requested.
-
-1. Never expose secrets in frontend code (except `VITE_API_BASE_URL` and `VITE_API_ACCESS_TOKEN` per Environment Variables section). `VITE_API_ACCESS_TOKEN` is not a secret-grade control; it is only a lightweight MVP access gate.
-2. Never commit `.env`.
-3. Commit only `.env.example`.
-4. Add `.env` to `.gitignore`.
-5. Scheduler endpoints (`POST /api/reports/*/generate`) MUST require `Authorization: Bearer {SCHEDULER_SECRET}`.
-6. All other `/api/*` endpoints MUST require `Authorization: Bearer {API_ACCESS_TOKEN}`. CORS alone is insufficient because direct backend calls bypass CORS.
-7. CORS must allow only the configured `FRONTEND_ORIGIN`.
-8. User asset data must be stored only in the database, not in static frontend files.
-9. AI-generated investment reports must be saved with timestamp and input snapshot.
-10. Do not implement automatic trading. Do not create function stubs, classes, or modules related to order placement, broker APIs, or trade execution.
-11. **Rate limiting:** Apply per-endpoint limits to protect OpenAI cost:
-    - Report generation endpoints: max 10 calls per day per endpoint (enforced in app, not infra)
-    - On exceeding the limit, return HTTP 429 without calling OpenAI
-12. The Supabase service role key bypasses RLS. The agent MUST document this risk in the README and MUST NOT expose any Supabase URL or key to the frontend code or to error responses.
-
----
-
-## Required Backend APIs
-
-Implement the following FastAPI endpoints.
+## Current Public API Contracts
 
 ### Health
 
@@ -411,44 +293,32 @@ Implement the following FastAPI endpoints.
 GET /health
 ```
 
-Returns server status.
-
----
-
 ### Assets
 
 ```text
-GET /api/assets
-POST /api/assets
-PUT /api/assets/{asset_id}
+GET    /api/assets
+POST   /api/assets
+PUT    /api/assets/{asset_id}
 DELETE /api/assets/{asset_id}
 ```
 
-Asset fields:
-
-```text
-id
-market
-ticker
-name
-quantity
-avg_price
-currency
-memo
-created_at
-updated_at
-```
-
-Supported markets for MVP:
+Supported markets:
 
 ```text
 KR
 US
-CASH
 ETF
+CASH
 ```
 
----
+### Candidate Assets
+
+```text
+GET    /api/candidates
+POST   /api/candidates
+PUT    /api/candidates/{candidate_id}
+DELETE /api/candidates/{candidate_id}
+```
 
 ### Portfolio
 
@@ -456,7 +326,7 @@ ETF
 GET /api/portfolio/summary
 ```
 
-Must return:
+Must include:
 
 ```text
 total_market_value
@@ -470,251 +340,63 @@ base_currency
 usd_krw_rate
 asset_allocation
 asset_returns
+value_history
 latest_report_summary
 ```
 
----
-
 ### Reports
+
+Scheduler-protected:
 
 ```text
 POST /api/reports/domestic/generate
 POST /api/reports/global/generate
-GET /api/reports/latest
-GET /api/reports
-GET /api/reports/{report_id}
 ```
 
-The generate endpoints must require:
+User-token protected:
 
-```http
-Authorization: Bearer {SCHEDULER_SECRET}
+```text
+POST /api/reports/domestic/manual-generate
+POST /api/reports/global/manual-generate
+GET  /api/reports/manual-jobs/{job_id}
+GET  /api/reports/latest
+GET  /api/reports
+GET  /api/reports/{report_id}
 ```
 
-Manual testing may also use the same token.
+Manual report generation must be asynchronous from the frontend perspective:
 
----
+- return a job id quickly
+- keep existing reports visible
+- poll job status
+- refresh latest report after completion
+
+The current job store is in process memory. Future work should persist report jobs in Supabase.
+
+### Performance
+
+```text
+GET /api/performance-logs
+```
 
 ### Settings
 
 ```text
-GET /api/settings
+GET  /api/settings
 POST /api/settings
 ```
 
-Settings fields:
+### System Status
 
 ```text
-domestic_report_time
-global_report_time
-ai_provider
-ai_model
-risk_profile
-candidate_horizon
-frontend_timezone
-stale_data_business_days
-usd_krw_rate
-created_at
-updated_at
-```
-
-Default settings (must match `.env.example` and SQL DEFAULT clauses exactly — see Single Source of Truth):
-
-```text
-domestic_report_time     = 08:30
-global_report_time       = 22:30
-ai_provider              = openai
-ai_model                 = gpt-5.4-mini
-risk_profile             = balanced
-candidate_horizon        = medium
-frontend_timezone        = Asia/Seoul
-stale_data_business_days = 2
-usd_krw_rate             = 1400
+GET /api/system/status
 ```
 
 ---
 
-## Supabase Database Schema
+## Authoritative Report Models
 
-Create SQL migration files under:
-
-```text
-backend/app/db/migrations/
-```
-
-Minimum tables:
-
-### assets
-
-```sql
-create table if not exists assets (
-  id uuid primary key default gen_random_uuid(),
-  market text not null,
-  ticker text not null,
-  name text not null,
-  quantity numeric not null,
-  avg_price numeric not null,
-  currency text default 'KRW',
-  memo text,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
-);
-```
-
-### reports
-
-```sql
-create table if not exists reports (
-  id uuid primary key default gen_random_uuid(),
-  report_type text not null,
-  title text not null,
-  summary text,
-  content jsonb not null,
-  created_at timestamptz default now()
-);
-```
-
-### strategies
-
-```sql
-create table if not exists strategies (
-  id uuid primary key default gen_random_uuid(),
-  report_id uuid references reports(id) on delete cascade,
-  asset_id uuid references assets(id) on delete set null,
-  ticker text not null,
-  name text,
-  action text not null,
-  confidence numeric,
-  current_price numeric,
-  buy_range_low numeric,
-  buy_range_high numeric,
-  sell_range_low numeric,
-  sell_range_high numeric,
-  target_price numeric,
-  stop_loss numeric,
-  reasoning text,
-  risk text,
-  invalidation_condition text,
-  created_at timestamptz default now()
-);
-```
-
-### settings
-
-```sql
-create table if not exists settings (
-  id uuid primary key default gen_random_uuid(),
-  domestic_report_time text default '08:30',
-  global_report_time text default '22:30',
-  ai_provider text default 'openai',
-  ai_model text default 'gpt-5.4-mini',
-  risk_profile text default 'balanced',
-  candidate_horizon text default 'medium',
-  frontend_timezone text default 'Asia/Seoul',
-  stale_data_business_days int default 2,
-  usd_krw_rate numeric default 1400,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
-);
-```
-
-### performance_logs
-
-```sql
-create table if not exists performance_logs (
-  id uuid primary key default gen_random_uuid(),
-  strategy_id uuid references strategies(id) on delete cascade,
-  ticker text not null,
-  action text not null,
-  price_at_recommendation numeric,
-  price_after_1d numeric,
-  price_after_5d numeric,
-  price_after_20d numeric,
-  return_after_1d numeric,
-  return_after_5d numeric,
-  return_after_20d numeric,
-  evaluated_at timestamptz,
-  created_at timestamptz default now()
-);
-```
-
----
-
-## Technical Analysis Requirements
-
-For MVP, implement these indicators exactly. All formulas are standard (Wilder's RSI, 20-period BB with 2σ, MACD 12/26/9, etc.):
-
-```text
-SMA 5
-SMA 20
-SMA 60
-SMA 120
-EMA 12
-EMA 26
-RSI 14
-MACD (12, 26, 9)
-MACD signal
-Bollinger Band 20 (2 sigma)
-Volume change rate (5-day MA of volume vs 20-day MA)
-20-day high/low
-Trend score (defined below)
-```
-
-Implement all indicators from scratch using pandas/numpy only (see Forbidden libraries in Required Technology Stack).
-
-### Technical Score (0–100)
-
-Use exactly this weighting. Do not adjust weights without user approval.
-
-```text
-Trend:          30
-Momentum:       25
-Volume:         15
-Volatility:     15
-Price position: 15
-```
-
-Score interpretation (used by `strategy_service.py` as one input among several):
-
-```text
-80-100: strong bullish setup
-65-79:  bullish but needs confirmation
-50-64:  neutral / watch
-35-49:  weak / reduce risk
-0-34:   bearish / sell or avoid
-```
-
-Do not blindly recommend buying based only on technical indicators. Combine technical score with portfolio context, market context, and risk profile.
-
----
-
-## Strategy Actions
-
-Use only these action values:
-
-```text
-BUY
-HOLD
-REDUCE
-SELL
-WATCH
-```
-
-If data is insufficient (see Market Data Rules → Stale Data Threshold), the strategy MUST use:
-
-```text
-action     = WATCH
-confidence = 0
-reasoning  = "data-limited"
-```
-
-Do not fabricate prices. If real market data is unavailable, the strategy MUST be marked data-limited per the rule above.
-
----
-
-## Pydantic Models (Authoritative Schema)
-
-These Pydantic v2 models are the authoritative schema for the report JSON and all strategy objects. The agent MUST place them in `backend/app/models/report.py` exactly as written below (you may add imports, but do not change field names, types, or constraints). The JSON returned by the AI provider and the JSON stored in `reports.content` MUST pass validation against `ReportContent`.
+The stored report JSON must validate against `ReportContent`.
 
 ```python
 from typing import Literal, Optional
@@ -728,7 +410,7 @@ class AssetStrategy(BaseModel):
     name: str
     current_price: Optional[float] = None
     action: Literal["BUY", "HOLD", "REDUCE", "SELL", "WATCH"]
-    confidence: int = Field(ge=0, le=100)  # integer 0..100
+    confidence: int = Field(ge=0, le=100)
     buy_range_low: Optional[float] = None
     buy_range_high: Optional[float] = None
     sell_range_low: Optional[float] = None
@@ -746,9 +428,6 @@ class MarketSummary(BaseModel):
     summary: str
     key_indices: list[dict] = Field(default_factory=list)
     macro_factors: list[str] = Field(default_factory=list)
-    # news_factors intentionally omitted. Approved news/trend context may be folded into
-    # macro_factors, key_risks, opportunities, reasoning, and risk, but the schema must
-    # not add a separate news_factors field.
 
 
 class PortfolioSummary(BaseModel):
@@ -764,7 +443,7 @@ class ReportContent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     report_type: Literal["domestic", "global"]
-    generated_at: str  # ISO 8601 with timezone
+    generated_at: str
     market_summary: MarketSummary
     portfolio_summary: PortfolioSummary
     key_risks: list[str] = Field(default_factory=list)
@@ -773,825 +452,494 @@ class ReportContent(BaseModel):
     disclaimer: str
 ```
 
-**Validation policy in `report_service.py`:**
-1. Call OpenAI with JSON mode / structured output enabled.
-2. Parse the response and validate against `ReportContent`.
-3. On `ValidationError`, retry the OpenAI call up to 1 more time with the validation error message appended to the prompt.
-4. If validation still fails, fall back to the technical-only report path (see AI Provider Fallback) and log the failure.
+Do not add fields to this schema without explicit approval. If news/trend information is used, fold it into `summary`, `macro_factors`, `key_risks`, `opportunities`, `reasoning`, or `risk`.
+
+---
+
+## Current Database Baseline
+
+Existing Supabase tables:
+
+- `assets`
+- `reports`
+- `strategies`
+- `settings`
+- `performance_logs`
+- `candidate_assets`
+
+Existing additive settings columns:
+
+- `candidate_horizon`
+- `usd_krw_rate`
+
+Do not alter or remove existing columns without explicit approval. New tables must be introduced through migration files under:
+
+```text
+backend/app/db/migrations/
+```
 
 ---
 
 ## Market Data Rules
 
-Do not assume pykrx or yfinance data is always available, complete, or real-time. Every market data result MUST include `provider`, `last_trading_date`, `is_stale`, and `data_quality_note`.
+Provider routing:
 
-### Provider Routing
+- `KR`: pykrx
+- `US`: yfinance
+- `ETF`: yfinance unless it is a KR ticker explicitly handled as KR
+- `CASH`: no market data fetch
 
-- KR market (`market = "KR"` or ticker ending in `.KS` / `.KQ` semantics): use **pykrx**.
-- US market (`market = "US"` or `market = "ETF"` with US ticker): use **yfinance**.
-- `CASH` market: no market data fetch.
+Market data result must include:
 
-Wrap both providers behind a single `MarketDataService` interface so callers do not branch on provider.
+```text
+provider
+last_trading_date
+is_stale
+data_quality_note
+```
 
-### Stale Data Threshold
-
-A ticker's data is considered **stale** (data-limited) when:
+Stale data threshold:
 
 ```text
 business_days_since(last_trading_close, now_in_market_timezone) > stale_data_business_days
 ```
 
-The threshold value is resolved at runtime via the application-defaults order: `settings.stale_data_business_days` → `STALE_DATA_BUSINESS_DAYS` env var → Pydantic default (`2`). The check uses each market's local calendar:
-- KR: KRX trading calendar (use pykrx's business-day functions)
-- US: infer trading days from yfinance history dates only. Do not add pandas_market_calendars or any other calendar library for MVP.
-
-When a ticker is stale:
-- The strategy MUST be `action=WATCH`, `confidence=0`, `reasoning="data-limited"`.
-- Do not call the LLM for per-ticker reasoning on stale tickers.
-- The report MUST still be generated; stale tickers are skipped for strategy generation but listed in `key_risks` as "stale market data for: {tickers}".
-
-### Failure Handling
-
-If a provider fails entirely (network error, exception):
-- Retry up to 3 times with exponential backoff (tenacity).
-- On final failure, mark ALL tickers of that market as data-limited for this report run.
-- Log the failure to `performance_logs` is NOT correct; log to application logs only. Do not crash the report.
-
----
-
-## AI Provider Fallback
-
-If the OpenAI call fails after retries (tenacity, 3 attempts, exponential backoff), OR if the response fails Pydantic validation twice:
-
-1. The report MUST still be generated using a **technical-only path**:
-   - `market_summary.summary` = a templated string from technical indicators of major indices (KOSPI/KOSDAQ for domestic; S&P 500/NASDAQ for global)
-   - `asset_strategies` = generated by `strategy_service.py` using only the technical score, with `reasoning="technical-only fallback (LLM unavailable)"`
-   - `confidence` for each strategy = `min(technical_score, 60)` (cap confidence in fallback mode)
-2. The fallback report MUST set `key_risks` to include `"AI reasoning unavailable for this report"`.
-3. The fallback path MUST NOT call any AI provider other than the one configured in `settings.ai_provider`.
-
----
-
-## AI Report Generation Rules
-
-The AI report must synthesize:
-
-- Portfolio status
-- Market data
-- Technical indicators
-- Macro factors if available
-- News/trend context from the approved GDELT DOC 2.0 API
-- Risk profile
-- Existing asset allocation
-
-The report must not promise guaranteed profit.
-
-Avoid wording such as:
+If data is stale or unavailable:
 
 ```text
-guaranteed profit
-certain return
-risk-free
-must buy
-must sell
+action = WATCH
+confidence = 0
+reasoning = "data-limited"
 ```
 
-Use decision-support wording:
+Do not fabricate current prices.
+
+---
+
+## Technical Analysis Requirements
+
+Maintain these indicators:
 
 ```text
-consider
-candidate
-watch
-risk-managed entry
-partial buy
-reduce exposure
-stop-loss
-invalidation condition
+SMA 5
+SMA 20
+SMA 60
+SMA 120
+EMA 12
+EMA 26
+RSI 14
+MACD 12/26/9
+MACD signal
+Bollinger Band 20, 2 sigma
+Volume change rate, 5-day MA vs 20-day MA
+20-day high/low
+Trend score
+```
+
+Technical score must remain 0-100 with this weighting unless explicitly approved:
+
+```text
+Trend:          30
+Momentum:       25
+Volume:         15
+Volatility:     15
+Price position: 15
+```
+
+Score interpretation:
+
+```text
+80-100: strong bullish setup
+65-79:  bullish but needs confirmation
+50-64:  neutral / watch
+35-49:  weak / reduce risk
+0-34:   bearish / sell or avoid
 ```
 
 ---
 
-## Report Format
+## Strategy Actions
 
-Each report must be stored as JSON in the `reports.content` column.
+Only these action values are allowed:
 
-This JSON example is illustrative. The **authoritative schema is the `ReportContent` Pydantic model** defined above; if this example and the Pydantic model disagree, the Pydantic model wins.
-
-```json
-{
-  "report_type": "domestic",
-  "generated_at": "<ISO-8601 with timezone, e.g. 2026-01-15T08:30:00+09:00>",
-  "market_summary": {
-    "summary": "",
-    "key_indices": [],
-    "macro_factors": []
-  },
-  "portfolio_summary": {
-    "total_market_value": 0,
-    "total_return_rate": 0,
-    "risk_level": "medium",
-    "allocation_comment": ""
-  },
-  "key_risks": [],
-  "opportunities": [],
-  "asset_strategies": [
-    {
-      "ticker": "",
-      "name": "",
-      "current_price": 0,
-      "action": "HOLD",
-      "confidence": 50,
-      "buy_range_low": null,
-      "buy_range_high": null,
-      "sell_range_low": null,
-      "sell_range_high": null,
-      "target_price": null,
-      "stop_loss": null,
-      "reasoning": "",
-      "risk": "",
-      "invalidation_condition": ""
-    }
-  ],
-  "disclaimer": "This report is for investment decision support only and does not execute trades automatically."
-}
+```text
+BUY
+HOLD
+REDUCE
+SELL
+WATCH
 ```
+
+For non-owned candidate ideas:
+
+- `BUY` means risk-managed new entry candidate.
+- `WATCH` means attractive enough to monitor but not yet an entry.
+- Avoid `HOLD` for non-owned candidates in user-facing output.
+
+Each strategy must include:
+
+- action
+- confidence
+- entry or watch range
+- target price
+- stop-loss
+- reasoning
+- risk
+- invalidation condition
 
 ---
 
-## Domestic and Global Report Schedule
+## AI Report Generation
 
-Use Korea Standard Time as the user timezone.
+OpenAI is the default AI provider.
 
-### Domestic Market Report
+Model selection:
 
-Default target time:
+1. `settings.ai_model`
+2. `OPENAI_MODEL`
+3. Pydantic default
+
+Current default:
 
 ```text
-08:30 KST
+gpt-5.4-mini
 ```
 
-GitHub Actions uses UTC.
+Fallback:
+
+- If OpenAI fails after retries, generate a technical-only report.
+- If OpenAI output fails Pydantic validation twice, generate a technical-only report.
+- Technical-only confidence is capped at 60.
+- Add `"AI reasoning unavailable for this report"` to `key_risks`.
+
+Do not call a different AI provider unless explicitly approved and added to this file.
+
+---
+
+## Scheduler Requirements
+
+Use GitHub Actions only.
+
+Domestic report:
 
 ```text
 08:30 KST = 23:30 UTC previous day
-```
-
-Workflow schedule:
-
-```yaml
 cron: "30 23 * * 0-4"
 ```
 
-### Global Market Report
-
-The global report target is **before the US regular market open**, not after market close.
-
-Default target time:
-
-```text
-22:30 KST
-```
-
-GitHub Actions UTC:
+Global report:
 
 ```text
 22:30 KST = 13:30 UTC
-```
-
-Workflow schedule:
-
-```yaml
 cron: "30 13 * * 1-5"
 ```
 
-**Day-of-week mapping (why `1-5` is correct):**
+Workflows must:
 
-The cron runs in UTC. The mapping to US market sessions is as follows.
+- support `workflow_dispatch`
+- use `BACKEND_URL` and `SCHEDULER_SECRET` GitHub Secrets
+- warm up Render via `/health` before calling the report endpoint
 
-| Cron fire (UTC) | KST          | US Eastern (EST/EDT)        | US market that day      |
-|-----------------|--------------|-----------------------------|-------------------------|
-| Mon 13:30       | Mon 22:30    | Mon 08:30 EST / 09:30 EDT   | Open (pre-open report)  |
-| Tue 13:30       | Tue 22:30    | Tue 08:30 EST / 09:30 EDT   | Open (pre-open report)  |
-| Wed 13:30       | Wed 22:30    | Wed 08:30 EST / 09:30 EDT   | Open (pre-open report)  |
-| Thu 13:30       | Thu 22:30    | Thu 08:30 EST / 09:30 EDT   | Open (pre-open report)  |
-| Fri 13:30       | Fri 22:30    | Fri 08:30 EST / 09:30 EDT   | Open (pre-open report)  |
-| Sat 13:30       | Sat 22:30    | Sat                         | Closed — excluded       |
-| Sun 13:30       | Sun 22:30    | Sun                         | Closed — excluded       |
+Known limitations to keep documented:
 
-Do not change `1-5` to `0-6` or any other pattern. The pattern is intentionally aligned to US trading days, not KST weekdays.
+- GitHub Actions cron can drift or be skipped.
+- Render Free can cold start.
+- Global report cron does not auto-adjust for US daylight saving time.
 
-This fixed MVP schedule is a practical default. During US Daylight Saving Time it is closer to the US market open; during US Standard Time it may be roughly one hour earlier relative to the US market open. The README must document this and tell the user they can manually adjust the cron if desired.
-
-Allow manual execution with `workflow_dispatch`.
-
-### Known Limitations (MUST be documented in README)
-
-1. **GitHub Actions cron drift:** Scheduled workflows may be delayed by GitHub's load. Do not rely on second-level or even minute-level precision. The README must state that report timing is best-effort and may run several minutes to tens of minutes late.
-2. **US Daylight Saving Time:** The MVP uses a fixed `13:30 UTC` global-report cron. It does NOT automatically adjust for US DST. The README must state that the report is intended as a pre-open global-market report and that the user may manually adjust the cron twice per year if desired.
-3. **Render Free cold start:** Render Free sleeps after ~15 minutes idle. To mitigate, the GitHub Actions workflows MUST send a warm-up ping to `/health` at least 60 seconds before calling the report-generation endpoint:
-
-```yaml
-- name: Warm up backend
-  run: |
-    for i in 1 2 3 4 5; do
-      curl -fsS --max-time 30 "${{ secrets.BACKEND_URL }}/health" && exit 0
-      sleep 30
-    done
-    true
-- name: Call report API
-  run: |
-    curl -X POST "${{ secrets.BACKEND_URL }}/api/reports/domestic/generate" \
-      -H "Authorization: Bearer ${{ secrets.SCHEDULER_SECRET }}"
-```
-
-Do NOT introduce external ping services (cron-job.org, UptimeRobot, etc.) to keep the backend awake — this violates the Allowed External Services whitelist.
+Do not add external ping or cron services without explicit approval.
 
 ---
 
-## GitHub Actions Requirements
+## Frontend Product Requirements
 
-Create:
+Maintain these pages:
 
-```text
-.github/workflows/domestic_report.yml
-.github/workflows/global_report.yml
-```
+- Dashboard
+- Assets
+- Reports
+- Settings
+- Status
 
-Both workflows must use GitHub Secrets:
+Frontend priorities:
 
-```text
-BACKEND_URL
-SCHEDULER_SECRET
-```
+- mobile-friendly layout
+- readable Korean UI
+- compact strategy summaries
+- expandable details
+- visible risk controls
+- clear loading, background refresh, and generation status
+- no decorative UI frameworks
 
-Example domestic workflow:
+Dashboard must show:
 
-```yaml
-name: Generate Domestic Market Report
+- total portfolio value in KRW
+- total profit/loss
+- total return rate
+- domestic/global/cash allocation
+- asset allocation
+- 1-day change
+- daily value/profit chart
+- latest report summary
+- top opportunities
+- key risks
 
-on:
-  schedule:
-    - cron: "30 23 * * 0-4"
-  workflow_dispatch:
+Reports must show:
 
-jobs:
-  call-api:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Warm up backend (Render Free cold start)
-        run: |
-          for i in 1 2 3 4 5; do
-            curl -fsS --max-time 30 "${{ secrets.BACKEND_URL }}/health" && exit 0
-            sleep 30
-          done
-          true
-      - name: Call domestic report API
-        run: |
-          curl -fsS --max-time 120 -X POST \
-            "${{ secrets.BACKEND_URL }}/api/reports/domestic/generate" \
-            -H "Authorization: Bearer ${{ secrets.SCHEDULER_SECRET }}"
-```
-
-Example global workflow:
-
-```yaml
-name: Generate Global Market Report
-
-on:
-  schedule:
-    - cron: "30 13 * * 1-5"
-  workflow_dispatch:
-
-jobs:
-  call-api:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Warm up backend (Render Free cold start)
-        run: |
-          for i in 1 2 3 4 5; do
-            curl -fsS --max-time 30 "${{ secrets.BACKEND_URL }}/health" && exit 0
-            sleep 30
-          done
-          true
-      - name: Call global report API
-        run: |
-          curl -fsS --max-time 120 -X POST \
-            "${{ secrets.BACKEND_URL }}/api/reports/global/generate" \
-            -H "Authorization: Bearer ${{ secrets.SCHEDULER_SECRET }}"
-```
+- latest domestic/global report
+- historical report list with pagination or collapsed list
+- owned strategies
+- additional candidate strategies
+- strategy action
+- confidence
+- buy/watch range
+- target price
+- stop loss
+- period returns when available
+- performance tracking
 
 ---
 
-## Frontend Pages
+## Post-MVP Roadmap
 
-### Dashboard
+### Phase 1: Operational Reliability
 
-Must show:
+Goal: Make report generation observable and reliable.
 
-- Total portfolio value
-- Total profit/loss
-- Total return rate
-- Domestic/global allocation
-- Asset allocation
-- Latest report summary
-- Top opportunities
-- Key risks
+Implement:
 
-### Assets
+- `report_jobs` Supabase table
+- persisted manual report job status
+- report generation step timing
+- failure reason categories safe for UI
+- retry visibility in Status page
+- latest GitHub Actions schedule guidance in Status page
 
-Must support:
+Do not add a separate worker, queue service, or external scheduler. Keep jobs in the Render/FastAPI process unless the user explicitly approves a new architecture.
 
-- Add asset
-- Edit asset
-- Delete asset
-- View asset list
-- Market selector: KR / US / ETF / CASH
-- Quantity
-- Average price
-- Currency
-- Memo
+### Phase 2: Portfolio Snapshots
 
-### Reports
+Goal: Make dashboard history real, not inferred only from current price history.
 
-Must show:
+Implement:
 
-- Latest domestic/global report
-- Historical report list
-- Asset-level strategy table
-- Action badge
-- Confidence
-- Buy range
-- Target price
-- Stop loss
-- Risk
-- Invalidation condition
+- `portfolio_snapshots` table
+- daily portfolio total value
+- daily cost basis
+- cash value
+- domestic/global/ETF allocation
+- per-asset snapshot rows if needed
+- dashboard chart backed by snapshots
 
-### Settings
+Open question before implementation:
 
-Must support:
+- Should snapshots be created only when reports run, or also when the user opens the dashboard?
 
-- Domestic report time
-- Global report time
-- AI provider
-- AI model
-- Risk profile
-- API base URL display
-- Save settings
+Ask before implementing if this affects schema or schedule.
 
----
+### Phase 3: Recommendation Lifecycle Tracking
 
-## Frontend Design Direction
+Goal: Track whether recommendations are useful over time.
 
-Use a clean investment dashboard style.
+Implement:
 
-Prioritize:
+- recommendation lifecycle table, tentatively `recommendation_cycles`
+- start date
+- ticker
+- report type
+- action
+- target horizon
+- entry/reference price
+- target price
+- stop loss
+- status: active, hit_target, hit_stop, expired, superseded
+- 1d/5d/20d/60d returns
 
-- Readability
-- Clear action labels
-- Risk visibility
-- Tables for asset strategies
-- Cards for portfolio summary
-- Simple charts for allocation and returns
+Rules:
 
-Do not over-design the MVP.
+- Repeated same ticker/action must not reset an active cycle.
+- A new cycle starts only when the recommendation materially changes or prior cycle is closed.
+- Preserve current `performance_logs` until migration path is explicitly implemented.
 
-Suggested visual hierarchy:
+Ask before implementing final schema.
 
-```text
-Top: Portfolio summary cards
-Middle: Allocation and latest report summary
-Bottom: Asset-level strategy table
-```
+### Phase 4: Analysis Quality
 
----
+Goal: Improve the usefulness and transparency of recommendations.
 
-## Backend Service Design
+Implement:
 
-### market_data_service.py
+- clearer confidence explanation
+- technical/news/portfolio contribution breakdown
+- candidate horizon-specific scoring display
+- sector/country/currency exposure summary
+- concentration risk warnings
+- data-quality badges
+- input snapshot stored with each report if schema is approved
 
-Responsibilities:
+Do not add new data providers without approval.
 
-- Route requests to pykrx (KR) or yfinance (US) based on market.
-- Fetch price history (default lookback: 180 trading days).
-- Fetch current price (most recent close; intraday is out of scope for MVP).
-- Normalize KR/US tickers.
-- Return a typed dataclass or Pydantic model containing: `dataframe`, `last_trading_date`, `is_stale` (bool), `provider`.
-- Apply the Stale Data Threshold (see Market Data Rules).
-- Apply tenacity-based retry (see Error Handling Standard).
+### Phase 5: Portfolio Decision Support
 
-If market data is unavailable, return a `is_stale=True` result rather than raising.
+Goal: Move from reports to actionable portfolio management without execution.
 
----
+Potential features:
 
-### technical_analysis_service.py
+- target allocation settings
+- rebalance suggestions
+- cash deployment suggestions
+- sell/reduce watchlist
+- position sizing guidance as decision support only
+- condition-based checklist
 
-Responsibilities:
+Forbidden:
 
-- Calculate indicators
-- Calculate technical score
-- Return structured analysis per ticker
+- order tickets
+- order preview
+- broker linking
+- trade execution
+- automatic rebalance
 
----
+### Phase 6: UX and Mobile Polish
 
-### ai_provider.py
+Goal: Make daily use comfortable on mobile.
 
-Responsibilities:
+Implement:
 
-- Define common interface
+- mobile-first report cards
+- dashboard quick summary
+- faster cached first paint
+- improved empty/loading/error states
+- PWA install support if it does not require new services
 
-Example:
+Notifications require approval because they may introduce external services.
 
-```python
-class AIProvider:
-    def generate_report(self, prompt: str, context: dict) -> dict:
-        raise NotImplementedError
-```
+### Phase 7: Security Upgrade
 
----
+Goal: Improve access control if the user decides AlphaPilot should be less exposed.
 
-### openai_provider.py
+Requires user decision:
 
-Responsibilities:
+- token gate
+- server-side password/session
+- Supabase Auth
 
-- Implement OpenAI provider
-- Read model name from environment or settings
-- Return structured JSON when possible
+Do not implement until selected.
 
 ---
 
-### strategy_service.py
+## Post-MVP Development Order
 
-Responsibilities:
+Follow this order unless the user explicitly changes priority:
 
-- Convert market data + technical analysis + AI reasoning into asset strategies
-- Enforce action values
-- Ensure stop-loss and invalidation condition exist
-- Apply risk profile
+1. Update AGENTS.md and roadmap document.
+2. Persist manual report jobs in Supabase.
+3. Add report generation step timing and status UI.
+4. Add portfolio snapshots.
+5. Replace dashboard history with snapshot-backed history.
+6. Design and implement recommendation lifecycle tracking.
+7. Migrate or bridge existing `performance_logs`.
+8. Add confidence explanation and data-quality transparency.
+9. Add portfolio decision-support features.
+10. Improve mobile UX.
+11. Decide and implement stronger security if approved.
 
----
+Each step must include:
 
-### report_service.py
-
-Responsibilities:
-
-- Generate domestic/global report
-- Save report to Supabase
-- Save strategies to Supabase
-- Return report response
-- **On each report run, also backfill `performance_logs` for previously saved strategies:**
-  - For strategies created 1 / 5 / 20 trading days ago, fetch the close price for that date and update the corresponding `performance_logs` row.
-  - This backfill is best-effort: if data is unavailable, leave the row unchanged and retry on the next run.
-  - Implement the backfill in the same endpoint that generates the report, after the new report is saved.
-  - For MVP, keep `performance_logs` backfill simple and best-effort. Do not build a separate job queue, worker, cache, background service, or additional scheduler for this feature.
-
----
-
-## Error Handling Standard
-
-All services MUST follow this pattern for external calls (OpenAI, Supabase, pykrx, yfinance):
-
-```python
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception_type((ConnectionError, TimeoutError)),
-    reraise=True,
-)
-def call_external_api(...):
-    ...
-```
-
-- Retries: max 3 attempts, exponential backoff (2s, 4s, 8s cap 10s).
-- On final failure, follow the documented fallback for that service (Market Data Rules / AI Provider Fallback).
-- All external-call failures MUST be logged with structured JSON: `{"service": "openai", "error": "...", "context": {...}}`.
-- The agent MUST NOT swallow exceptions silently. Every `except` block must either log or re-raise.
-
-FastAPI exception handling:
-- Register a global exception handler that returns `{"detail": "..."}` for `HTTPException` and `{"detail": "internal server error"}` for unhandled exceptions.
-- Never expose stack traces or library-internal messages to API responses (security: avoid leaking Supabase URLs, OpenAI error structure, etc.).
+- focused implementation
+- tests for service/API changes
+- README update when setup, behavior, or limitations change
+- Conventional Commit
+- push after successful checks if deployment is expected
 
 ---
 
 ## Testing Requirements
 
-Generate `pytest` tests for every service module. Place tests in `backend/tests/` mirroring the module path.
+Backend service modules must have pytest coverage with external calls mocked.
 
-Minimum coverage:
+Minimum coverage to preserve:
 
-1. **technical_analysis_service:** Test each indicator against known-good values (e.g., RSI of a known input series). Test the 0–100 score calculation.
-2. **market_data_service:** Mock pykrx and yfinance. Test routing (KR → pykrx, US → yfinance), stale detection at exactly 2 business days, and failure → `is_stale=True`.
-3. **strategy_service:** Mock the AI provider and market data. Test that `WATCH` is produced for stale data, that all `AssetStrategy` fields are populated, and that risk profile affects output.
-4. **report_service:** Mock all dependencies. Test that the OpenAI failure path produces a technical-only report with capped confidence. Test that Pydantic validation failure triggers exactly one retry.
-5. **API endpoints:** Use `fastapi.testclient.TestClient`. Test that `/api/*` rejects missing/invalid bearer tokens with 401. Test that scheduler endpoints reject the wrong token.
+- auth middleware
+- asset CRUD
+- candidate asset CRUD
+- settings defaults
+- portfolio summary
+- market data routing and stale handling
+- technical indicators
+- OpenAI structured output
+- AI validation retry
+- technical-only fallback
+- strategy generation
+- report generation
+- manual report job status
+- performance tracking/backfill
+- system status
+- rate limiting
 
-Configuration:
-- Add `pytest.ini` or `[tool.pytest.ini_options]` in `pyproject.toml`.
-- All external clients MUST be injectable (constructor parameter or dependency-injection) so they can be mocked without monkeypatching at import time.
-- The CI/local test command MUST be: `pytest backend/tests -v`.
-
----
-
-## Risk Profiles
-
-Support these MVP risk profiles:
-
-```text
-conservative
-balanced
-aggressive
-```
-
-Behavior:
-
-### conservative
-
-- Prefer HOLD/WATCH
-- Smaller buy ranges
-- Tighter risk controls
-- Avoid high-volatility entries
-
-### balanced
-
-- Moderate risk
-- Allow partial BUY
-- Require confirmation
-
-### aggressive
-
-- Allow stronger BUY signals
-- Wider volatility tolerance
-- Still requires stop-loss
-
-Even aggressive mode must include risk controls.
+New post-MVP modules must add tests in `backend/tests/`.
 
 ---
 
-## Development Order
+## Deployment Rules
 
-Follow this order. Create at least one commit per step using Conventional Commits format (`feat:`, `chore:`, `test:`, etc.) when git commit is available. If git commit is unavailable, continue implementation and write a step-by-step implementation summary instead.
+Frontend:
 
-1. Create repository structure.
-2. Add `pyproject.toml` with ruff + black + pytest configuration.
-3. Create backend FastAPI skeleton.
-4. Add `/health`.
-5. Add environment config (Pydantic Settings, with SoT enforcement per Environment Variables section).
-6. Add Supabase connection.
-7. Add SQL migration files.
-8. Add API access token middleware (per Security Rules #6).
-9. Implement asset CRUD + tests.
-10. Implement portfolio summary + tests.
-11. Create frontend React + Vite skeleton.
-12. Connect frontend to backend.
-13. Implement Assets page.
-14. Implement Dashboard summary.
-15. Implement Pydantic models for reports (per Pydantic Models section).
-16. Implement market data service (pykrx + yfinance) + tests.
-17. Implement technical analysis service + tests (indicator-level tests against known values).
-18. Implement AI provider interface.
-19. Implement OpenAI provider with retry + JSON-mode + Pydantic validation.
-20. Implement strategy service + tests.
-21. Implement report generation service with AI Provider Fallback + tests.
-22. Implement performance_logs backfill in report service.
-23. Implement Reports page.
-24. Implement Settings page.
-25. Add scheduler secret auth (per Security Rules #5).
-26. Add rate limiting for report endpoints (per Security Rules #11).
-27. Add GitHub Actions workflows (with warm-up step per Schedule section).
-28. Add Render deployment config (`render.yaml`).
-29. Add GitHub Pages deployment config.
-30. Update README with setup, deployment, and Known Limitations.
-31. Run full pytest suite (`pytest backend/tests -v`) — must pass.
-32. Run lint (`ruff check . && black --check .`) — must pass.
-33. Test report generation manually with `workflow_dispatch`.
+- GitHub Pages
+- GitHub Actions Pages workflow
+- `VITE_API_BASE_URL` secret points to Render backend
 
----
+Backend:
 
-## Local Development Commands
+- Render Free unless the user approves a hosting change
+- `render.yaml` remains the deployment config
+- required secrets must be set in Render environment variables
 
-### Backend (Windows, PowerShell)
+Database:
 
-```powershell
-cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-```
+- Supabase Free PostgreSQL
+- migrations are run manually through SQL Editor for MVP/post-MVP unless a migration runner is explicitly approved
 
-### Backend (Linux/macOS)
+Scheduler:
 
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-### Optional convenience BAT (Windows user preference)
-
-The user prefers a BAT file with an explicit Python path for one-click local launch. Place it at `backend/run_local.bat` as a **separate convenience script**. The main project code MUST NOT depend on this BAT file or on absolute paths.
-
-```bat
-@echo off
-set PYTHON_EXE=C:\venvs\py310\Scripts\python.exe
-cd /d %~dp0
-%PYTHON_EXE% -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-pause
-```
-
-Do NOT hard-code absolute Python paths anywhere else (not in `requirements.txt`, not in `render.yaml`, not in test code, not in CI workflows).
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
----
-
-## Deployment Notes
-
-### Frontend
-
-Deploy to GitHub Pages.
-
-Ensure `VITE_API_BASE_URL` points to the deployed backend URL.
-
-### Backend
-
-Deploy to Render.
-
-Render environment variables must include:
-
-**Infrastructure secrets (required, no defaults — must be set per-environment):**
-
-```text
-APP_ENV
-SUPABASE_URL
-SUPABASE_SERVICE_ROLE_KEY
-SUPABASE_ANON_KEY
-OPENAI_API_KEY
-SCHEDULER_SECRET
-API_ACCESS_TOKEN
-FRONTEND_ORIGIN
-```
-
-**Application defaults (optional in `.env`; resolved at runtime per "Single Source of Truth"):**
-
-```text
-OPENAI_MODEL
-CANDIDATE_HORIZON
-MARKET_DATA_PROVIDER_KR
-MARKET_DATA_PROVIDER_US
-STALE_DATA_BUSINESS_DAYS
-USD_KRW_RATE
-```
-
-### Database
-
-Create Supabase project.
-
-Run SQL migration files manually in Supabase SQL editor for MVP.
+- GitHub Actions scheduled workflows
+- no external cron/ping service
 
 ---
 
 ## README Requirements
 
-The root README must include:
+README must document:
 
-- Project overview
-- Architecture diagram
-- Local setup
-- **Backend environment variables, presented as two groups:**
-  - Infrastructure secrets (required, no defaults)
-  - Application defaults (optional in `.env`; resolved via the runtime order in "Single Source of Truth")
-- Frontend environment variables, with an explicit warning that `VITE_API_ACCESS_TOKEN` is a lightweight MVP gate and is visible in the frontend bundle
-- Supabase setup, including a note that the service role key bypasses RLS
+- Korean usage instructions
+- architecture
+- local setup
+- backend environment variables
+- frontend environment variables
+- Supabase setup and service-role risk
 - Render deployment
 - GitHub Pages deployment
-- GitHub Actions secrets setup
-- Manual report generation test
-- Security warnings, including the frontend token limitation
-- Single-user MVP scope warning: no login, no multi-user security, no Supabase Auth
-- MVP limitations (including: no automatic trading, GitHub Actions cron drift, US DST drift, Render Free cold start, approved GDELT news context limits, free market data quality)
+- GitHub Actions scheduler setup
+- manual report generation behavior
+- security scope
+- single-user limitation
+- no automatic trading
+- GitHub Actions cron drift
+- Render cold start
+- GDELT limitations
+- free market data limitations
+- any new migration files
 
 ---
 
-## MVP Limitations
+## Completion Definition for Post-MVP Steps
 
-Document these limitations clearly:
+A post-MVP step is complete when:
 
-- No automatic trading
-- No guaranteed profit
-- Free market data may be delayed or incomplete
-- AI report quality depends on input data quality
-- Render Free may sleep when idle
-- GitHub Actions schedule may not run exactly at the target second
-- News/trend context is limited to the approved GDELT DOC 2.0 API and may be incomplete
-- Single-user only: no login, no multi-user separation, no production-grade authentication
-- Backtesting is basic or deferred unless explicitly implemented
-
----
-
-## Completion Criteria
-
-The MVP is complete when:
-
-1. Backend runs locally.
-2. Frontend runs locally.
-3. Supabase connection works.
-4. Asset CRUD works.
-5. Portfolio summary works.
-6. Manual domestic report generation works.
-7. Manual global report generation works.
-8. Reports are saved in Supabase and pass `ReportContent` validation.
-9. Latest report is visible in frontend.
-10. GitHub Actions workflow files exist with warm-up steps.
-11. Scheduler endpoints require `SCHEDULER_SECRET` bearer token authentication.
-12. All other `/api/*` endpoints require `API_ACCESS_TOKEN` bearer token authentication.
-13. Rate limiting is enforced on report generation endpoints.
-14. AI Provider Fallback path is implemented and tested.
-15. `performance_logs` backfill runs as part of report generation.
-16. `.env.example` exists with all required keys.
-17. `.env` is ignored by Git.
-18. Render deployment configuration (`render.yaml`) exists.
-19. GitHub Pages deployment configuration exists.
-20. README explains how to run, deploy, and the documented Known Limitations.
-21. `pytest backend/tests -v` passes with all required test coverage from Testing Requirements.
-22. `ruff check .` and `black --check .` pass with no errors.
-23. README clearly states that the MVP is single-user only and not production-grade authentication.
-
----
-
-## Investment Safety Requirement
-
-All generated recommendations must be framed as decision-support information.
-
-Do not use language that implies certainty.
-
-Each recommendation must include:
-
-- Action
-- Confidence
-- Entry or watch range
-- Target price
-- Stop-loss
-- Reasoning
-- Risk
-- Invalidation condition
-
-If the system lacks enough data, it must say so and recommend WATCH rather than fabricating a strategy.
-
----
-
-## Long-Term Expansion Ideas
-
-Do not implement these in the MVP unless explicitly requested.
-
-Potential future phases:
-
-- Backtesting engine
-- Paper trading
-- Strategy performance scoring
-- Strategy weight adjustment
-- News sentiment analysis
-- SEC/DART filing analysis
-- Sector rotation model
-- Macro regime detection
-- Portfolio optimization
-- Broker API integration
-- Push notification
-- Mobile UI
-- Vector DB for investment knowledge base
-- Multi-agent investment committee structure
-- Local LLM support
-- User authentication
-- Multi-user support
-
----
-
-## Final Instruction for Coding Agents
-
-Prioritize a working MVP over over-engineering, but never at the cost of omitting documented requirements.
-
-"Avoid over-engineering" means: do not add features, libraries, services, or abstractions that are not listed in this document. It does NOT mean: skip any requirement that appears in this document, including tests, fallbacks, validation, rate limiting, and security middleware.
-
-Build the smallest useful system that can:
-
-1. Store the user's assets.
-2. Fetch market data from pykrx (KR) and yfinance (US), with stale detection.
-3. Calculate basic technical indicators from scratch (pandas/numpy only).
-4. Generate AI-assisted strategy reports validated against `ReportContent`.
-5. Fall back to a technical-only report when the LLM is unavailable.
-6. Save reports and backfill `performance_logs` with a simple best-effort in-process implementation.
-7. Show reports in a web dashboard.
-8. Run scheduled report generation through GitHub Actions with cold-start warm-up.
-
-Keep code modular so later phases can improve data quality, AI reasoning, backtesting, and portfolio optimization.
-
-When in doubt: re-read Meta Rules for Coding Agents at the top of this document, and ask the user.
+1. The requested behavior works locally or is mocked if external setup is required.
+2. Tests are added or updated.
+3. Required commands pass.
+4. README or setup instructions are updated if needed.
+5. No unapproved external services or libraries were added.
+6. No trading/execution code was introduced.
+7. Changes are committed with a Conventional Commit.
+8. Deployment changes are pushed when the user expects the hosted site to update.
