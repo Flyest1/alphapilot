@@ -327,6 +327,44 @@ td span,
   background: #ef4444;
 }
 
+.portfolio-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 12px 0 16px;
+}
+
+.change-chart,
+.value-chart {
+  display: flex;
+  align-items: end;
+  gap: 4px;
+  height: 140px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: linear-gradient(to top, #f8fafc, #fff);
+  padding: 10px;
+}
+
+.change-chart span,
+.value-chart span {
+  flex: 1;
+  min-width: 4px;
+  border-radius: 4px 4px 0 0;
+}
+
+.change-chart .positive {
+  background: #10b981;
+}
+
+.change-chart .negative {
+  background: #ef4444;
+}
+
+.value-chart span {
+  background: #0f766e;
+}
+
 .positive-text {
   color: #047857;
 }
@@ -757,6 +795,71 @@ form button,
   display: none;
 }
 
+.strategy-accordion {
+  display: grid;
+  gap: 8px;
+}
+
+.strategy-detail {
+  border: 1px solid #d7dee8;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.strategy-detail.data-limited {
+  border-color: #fed7aa;
+}
+
+.strategy-detail summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 54px;
+  padding: 10px 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.strategy-detail summary::-webkit-details-marker {
+  display: none;
+}
+
+.strategy-detail summary > span:first-child {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.strategy-detail summary em {
+  overflow: hidden;
+  color: #64748b;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.strategy-detail dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  border-top: 1px solid #e2e8f0;
+  padding: 12px;
+}
+
+.strategy-detail dt {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.strategy-detail dd {
+  margin: 2px 0 0;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
 .wide-definition {
   grid-column: 1 / -1;
 }
@@ -795,6 +898,7 @@ form button,
   .content-grid,
   .risk-grid,
   .metric-grid,
+  .portfolio-chart-grid,
   .asset-form,
   .settings-form,
   .asset-guide {
@@ -994,7 +1098,17 @@ form button,
 
   .asset-card dl,
   .strategy-card dl,
-  .performance-card dl {
+  .performance-card dl,
+  .strategy-detail dl {
     grid-template-columns: 1fr;
+  }
+
+  .strategy-detail summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .strategy-detail summary .status-pill {
+    grid-column: 1 / -1;
+    justify-self: start;
   }
 }

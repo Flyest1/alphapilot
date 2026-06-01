@@ -178,7 +178,7 @@ def test_report_adds_screened_non_owned_candidates_with_null_asset_id():
     ]
 
     assert candidate_tickers
-    assert len(content.asset_strategies) <= 1 + 5
+    assert len(content.asset_strategies) <= 1 + 10
     assert saved_candidate_rows
 
 
@@ -261,6 +261,23 @@ def test_report_generation_refreshes_usd_krw_rate_setting():
     service.generate_report("domestic")
 
     assert repo.get_settings()["usd_krw_rate"] == 1450
+
+
+def test_repeated_same_signal_does_not_restart_active_performance_log():
+    repo = seeded_repo()
+    service = ReportService(
+        repo,
+        market_data_service=FakeMarketData(),
+        technical_analysis_service=FakeTechnical(),
+        ai_provider=FailingAI(),
+        news_service=FakeNews(),
+    )
+
+    service.generate_report("domestic")
+    first_count = len(repo.list_performance_logs())
+    service.generate_report("domestic")
+
+    assert len(repo.list_performance_logs()) == first_count
 
 
 def test_validation_failure_retries_openai_once():

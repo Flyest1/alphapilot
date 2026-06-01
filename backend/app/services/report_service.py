@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -25,22 +26,33 @@ from app.utils.datetime import parse_iso_datetime
 from app.utils.logging import log_external_failure
 
 DISCLAIMER = "이 리포트는 투자 의사결정 지원용이며 자동 매매를 실행하지 않습니다."
-MAX_RECOMMENDED_CANDIDATES = 5
+MAX_RECOMMENDED_CANDIDATES = 10
 CANDIDATE_HORIZON_RULES = {
-    "short": {"min_score": 80, "label": "단기 5거래일", "target_days": 5},
-    "medium": {"min_score": 75, "label": "중기 20거래일", "target_days": 20},
-    "long": {"min_score": 70, "label": "장기 60거래일", "target_days": 60},
+    "short": {"min_score": 68, "label": "단기 5거래일", "target_days": 5},
+    "medium": {"min_score": 64, "label": "중기 20거래일", "target_days": 20},
+    "long": {"min_score": 60, "label": "장기 60거래일", "target_days": 60},
 }
 CANDIDATE_UNIVERSE: dict[str, list[dict[str, str]]] = {
     "domestic": [
         {"market": "KR", "ticker": "005930", "name": "삼성전자", "currency": "KRW"},
         {"market": "KR", "ticker": "000660", "name": "SK하이닉스", "currency": "KRW"},
         {"market": "KR", "ticker": "005380", "name": "현대차", "currency": "KRW"},
+        {"market": "KR", "ticker": "000270", "name": "Kia", "currency": "KRW"},
         {"market": "KR", "ticker": "035420", "name": "NAVER", "currency": "KRW"},
+        {"market": "KR", "ticker": "035720", "name": "Kakao", "currency": "KRW"},
         {"market": "KR", "ticker": "068270", "name": "셀트리온", "currency": "KRW"},
         {"market": "KR", "ticker": "105560", "name": "KB금융", "currency": "KRW"},
+        {"market": "KR", "ticker": "055550", "name": "Shinhan Financial", "currency": "KRW"},
+        {"market": "KR", "ticker": "006400", "name": "Samsung SDI", "currency": "KRW"},
+        {"market": "KR", "ticker": "051910", "name": "LG Chem", "currency": "KRW"},
+        {"market": "KR", "ticker": "012450", "name": "Hanwha Aerospace", "currency": "KRW"},
+        {"market": "KR", "ticker": "064350", "name": "Hyundai Rotem", "currency": "KRW"},
+        {"market": "KR", "ticker": "034020", "name": "Doosan Enerbility", "currency": "KRW"},
         {"market": "KR", "ticker": "069500", "name": "KODEX 200", "currency": "KRW"},
         {"market": "KR", "ticker": "091160", "name": "KODEX 반도체", "currency": "KRW"},
+        {"market": "KR", "ticker": "305720", "name": "KODEX Battery", "currency": "KRW"},
+        {"market": "KR", "ticker": "360750", "name": "TIGER US S&P500", "currency": "KRW"},
+        {"market": "KR", "ticker": "133690", "name": "TIGER NASDAQ100", "currency": "KRW"},
     ],
     "global": [
         {"market": "US", "ticker": "NVDA", "name": "NVIDIA", "currency": "USD"},
@@ -49,10 +61,40 @@ CANDIDATE_UNIVERSE: dict[str, list[dict[str, str]]] = {
         {"market": "US", "ticker": "AMZN", "name": "Amazon", "currency": "USD"},
         {"market": "US", "ticker": "GOOGL", "name": "Alphabet", "currency": "USD"},
         {"market": "US", "ticker": "META", "name": "Meta Platforms", "currency": "USD"},
+        {"market": "US", "ticker": "TSLA", "name": "Tesla", "currency": "USD"},
+        {"market": "US", "ticker": "AVGO", "name": "Broadcom", "currency": "USD"},
+        {"market": "US", "ticker": "AMD", "name": "AMD", "currency": "USD"},
+        {"market": "US", "ticker": "NFLX", "name": "Netflix", "currency": "USD"},
+        {"market": "US", "ticker": "COST", "name": "Costco", "currency": "USD"},
+        {"market": "US", "ticker": "JPM", "name": "JPMorgan Chase", "currency": "USD"},
+        {"market": "US", "ticker": "LLY", "name": "Eli Lilly", "currency": "USD"},
+        {"market": "US", "ticker": "V", "name": "Visa", "currency": "USD"},
+        {"market": "US", "ticker": "BRK.B", "name": "Berkshire Hathaway", "currency": "USD"},
         {"market": "ETF", "ticker": "VOO", "name": "Vanguard S&P 500 ETF", "currency": "USD"},
+        {"market": "ETF", "ticker": "SPY", "name": "SPDR S&P 500 ETF", "currency": "USD"},
         {"market": "ETF", "ticker": "QQQ", "name": "Invesco QQQ Trust", "currency": "USD"},
         {"market": "ETF", "ticker": "SMH", "name": "VanEck Semiconductor ETF", "currency": "USD"},
         {"market": "ETF", "ticker": "SCHD", "name": "Schwab US Dividend ETF", "currency": "USD"},
+        {
+            "market": "ETF",
+            "ticker": "VTI",
+            "name": "Vanguard Total Stock Market ETF",
+            "currency": "USD",
+        },
+        {"market": "ETF", "ticker": "IWM", "name": "iShares Russell 2000 ETF", "currency": "USD"},
+        {
+            "market": "ETF",
+            "ticker": "XLK",
+            "name": "Technology Select Sector SPDR",
+            "currency": "USD",
+        },
+        {"market": "ETF", "ticker": "GLD", "name": "SPDR Gold Shares", "currency": "USD"},
+        {
+            "market": "ETF",
+            "ticker": "TLT",
+            "name": "iShares 20+ Year Treasury Bond ETF",
+            "currency": "USD",
+        },
     ],
 }
 
@@ -325,32 +367,7 @@ class ReportService:
         stale_data_business_days: int,
         risk_profile: str,
     ) -> list[dict[str, Any]]:
-        rows = []
-        for asset in assets:
-            market_data = self.market_data_service.fetch_price_history(
-                asset["market"],
-                asset["ticker"],
-                stale_data_business_days=stale_data_business_days,
-            )
-            technical_analysis = self.technical_analysis_service.analyze(
-                asset["ticker"],
-                market_data.dataframe,
-            )
-            strategy = self.strategy_service.generate_strategy(
-                asset,
-                market_data,
-                technical_analysis,
-                risk_profile,
-            )
-            rows.append(
-                {
-                    "asset": asset,
-                    "market_data": market_data,
-                    "technical_analysis": technical_analysis,
-                    "strategy": strategy,
-                }
-            )
-        return rows
+        return self._build_analysis_rows(assets, stale_data_business_days, risk_profile)
 
     def _build_candidate_analysis(
         self,
@@ -364,32 +381,30 @@ class ReportService:
         horizon_rule = CANDIDATE_HORIZON_RULES.get(
             candidate_horizon, CANDIDATE_HORIZON_RULES["medium"]
         )
+        candidate_assets = [
+            asset
+            for asset in self._candidate_assets(report_type)
+            if self._normalize_ticker(asset["ticker"]) not in owned_tickers
+        ]
         rows = []
-        for asset in self._candidate_assets(report_type):
+        for row in self._build_analysis_rows(
+            candidate_assets,
+            stale_data_business_days,
+            risk_profile,
+        ):
+            asset = row["asset"]
+            market_data = row["market_data"]
+            technical_analysis = row["technical_analysis"]
+            strategy = row["strategy"]
             if self._normalize_ticker(asset["ticker"]) in owned_tickers:
                 continue
-            market_data = self.market_data_service.fetch_price_history(
-                asset["market"],
-                asset["ticker"],
-                stale_data_business_days=stale_data_business_days,
-            )
             if market_data.is_stale:
                 continue
-            technical_analysis = self.technical_analysis_service.analyze(
-                asset["ticker"],
-                market_data.dataframe,
-            )
             if technical_analysis.technical_score < horizon_rule["min_score"]:
                 continue
             horizon_score = self._candidate_horizon_score(technical_analysis, candidate_horizon)
             if horizon_score < horizon_rule["min_score"]:
                 continue
-            strategy = self.strategy_service.generate_strategy(
-                asset,
-                market_data,
-                technical_analysis,
-                risk_profile,
-            )
             if strategy.action not in {"BUY", "HOLD"} or strategy.reasoning == "data-limited":
                 continue
             action_update = {}
@@ -430,6 +445,66 @@ class ReportService:
             ),
             reverse=True,
         )[:MAX_RECOMMENDED_CANDIDATES]
+
+    def _build_analysis_rows(
+        self,
+        assets: list[dict[str, Any]],
+        stale_data_business_days: int,
+        risk_profile: str,
+    ) -> list[dict[str, Any]]:
+        if not assets:
+            return []
+        rows = []
+        with ThreadPoolExecutor(max_workers=min(5, len(assets))) as executor:
+            futures = {
+                executor.submit(
+                    self._build_single_analysis_row,
+                    asset,
+                    stale_data_business_days,
+                    risk_profile,
+                ): asset
+                for asset in assets
+            }
+            for future in as_completed(futures):
+                try:
+                    rows.append(future.result())
+                except Exception as exc:
+                    asset = futures[future]
+                    log_external_failure(
+                        "market_data",
+                        exc,
+                        {"operation": "build_analysis_row", "ticker": asset.get("ticker")},
+                    )
+        order = {id(asset): index for index, asset in enumerate(assets)}
+        return sorted(rows, key=lambda row: order.get(id(row["asset"]), 0))
+
+    def _build_single_analysis_row(
+        self,
+        asset: dict[str, Any],
+        stale_data_business_days: int,
+        risk_profile: str,
+    ) -> dict[str, Any]:
+        market_data = self.market_data_service.fetch_price_history(
+            asset["market"],
+            asset["ticker"],
+            stale_data_business_days=stale_data_business_days,
+        )
+        technical_analysis = self.technical_analysis_service.analyze(
+            asset["ticker"],
+            market_data.dataframe,
+        )
+        strategy = self.strategy_service.generate_strategy(
+            asset,
+            market_data,
+            technical_analysis,
+            risk_profile,
+        )
+        return {
+            "asset": asset,
+            "market_data": market_data,
+            "technical_analysis": technical_analysis,
+            "strategy": strategy,
+        }
 
     def _candidate_horizon_score(
         self,
@@ -499,6 +574,8 @@ class ReportService:
             }
         )
         assets_by_ticker = {asset["ticker"]: asset for asset in assets}
+        existing_logs = self.repository.list_performance_logs(limit=500)
+        existing_strategies = {row["id"]: row for row in self.repository.list_strategies()}
         for strategy in content.asset_strategies:
             asset = assets_by_ticker.get(strategy.ticker)
             strategy_row = self.repository.create_strategy(
@@ -521,15 +598,42 @@ class ReportService:
                     "invalidation_condition": strategy.invalidation_condition,
                 }
             )
-            self.repository.create_performance_log(
-                {
-                    "strategy_id": strategy_row["id"],
-                    "ticker": strategy.ticker,
-                    "action": strategy.action,
-                    "price_at_recommendation": strategy.current_price,
-                }
-            )
+            if self._should_start_performance_log(strategy, existing_logs, existing_strategies):
+                self.repository.create_performance_log(
+                    {
+                        "strategy_id": strategy_row["id"],
+                        "ticker": strategy.ticker,
+                        "action": strategy.action,
+                        "price_at_recommendation": strategy.current_price,
+                    }
+                )
         return report
+
+    def _should_start_performance_log(
+        self,
+        strategy: AssetStrategy,
+        existing_logs: list[dict[str, Any]],
+        existing_strategies: dict[str, dict[str, Any]],
+    ) -> bool:
+        if strategy.current_price is None or strategy.reasoning == "data-limited":
+            return False
+        for log_row in existing_logs:
+            if log_row.get("ticker") != strategy.ticker or log_row.get("action") != strategy.action:
+                continue
+            existing_strategy = existing_strategies.get(log_row.get("strategy_id"), {})
+            created_at = parse_iso_datetime(
+                existing_strategy.get("created_at") or log_row.get("created_at")
+            )
+            if created_at is None:
+                return False
+            age_days = (datetime.now(timezone.utc) - created_at.astimezone(timezone.utc)).days
+            if age_days <= 1:
+                return False
+            if log_row.get("price_after_20d") is not None:
+                continue
+            if age_days <= 35:
+                return False
+        return True
 
     def _enforce_stale_rules(
         self,

@@ -16,6 +16,7 @@ class PortfolioSummaryResponse(BaseModel):
     base_currency: str = "KRW"
     usd_krw_rate: float = 1400
     daily_asset_changes: list[dict] = Field(default_factory=list)
+    value_history: list[dict] = Field(default_factory=list)
     asset_allocation: list[dict] = Field(default_factory=list)
     asset_returns: list[dict] = Field(default_factory=list)
     latest_report_summary: str | None = None

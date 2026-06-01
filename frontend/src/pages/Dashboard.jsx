@@ -31,6 +31,7 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(!hasCachedData);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [chartRange, setChartRange] = useState("7d");
   const lastRefreshAt = useRef(0);
 
   function loadDashboard({ background = false } = {}) {
@@ -91,6 +92,7 @@ export default function Dashboard() {
     .sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
     .slice(0, 5);
   const dailyChanges = (summary?.daily_asset_changes || []).slice(0, 8);
+  const chartPoints = (summary?.value_history || []).slice(chartRange === "7d" ? -7 : -30);
 
   return (
     <section className="page">
@@ -143,6 +145,23 @@ export default function Dashboard() {
             <span>현금 {money(summary?.cash_value)} KRW</span>
           </div>
         </div>
+        <div className="filter-row">
+          <button
+            className={chartRange === "7d" ? "active" : ""}
+            type="button"
+            onClick={() => setChartRange("7d")}
+          >
+            7일
+          </button>
+          <button
+            className={chartRange === "30d" ? "active" : ""}
+            type="button"
+            onClick={() => setChartRange("30d")}
+          >
+            1달
+          </button>
+        </div>
+        <PortfolioCharts points={chartPoints} />
         <div className="daily-change-list">
           {dailyChanges.length === 0 && (
             <p className="empty-state">표시할 일별 변동 데이터가 아직 없습니다.</p>
@@ -292,5 +311,55 @@ export default function Dashboard() {
         )}
       </section>
     </section>
+  );
+}
+
+function PortfolioCharts({ points = [] }) {
+  if (points.length < 2) {
+    return <p className="empty-state">차트로 표시할 기간 데이터가 아직 부족합니다.</p>;
+  }
+  const maxAbsChange = Math.max(
+    ...points.map((point) => Math.abs(Number(point.daily_profit_loss || 0))),
+    1,
+  );
+  const values = points.map((point) => Number(point.total_market_value || 0));
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  const valueRange = Math.max(maxValue - minValue, 1);
+
+  return (
+    <div className="portfolio-chart-grid">
+      <div>
+        <h3>일간 변동 금액</h3>
+        <div className="change-chart">
+          {points.map((point) => {
+            const change = Number(point.daily_profit_loss || 0);
+            return (
+              <span
+                className={change >= 0 ? "positive" : "negative"}
+                key={`change-${point.date}`}
+                style={{ height: `${Math.max(4, (Math.abs(change) / maxAbsChange) * 100)}%` }}
+                title={`${point.date}: ${change.toLocaleString()} KRW`}
+              />
+            );
+          })}
+        </div>
+      </div>
+      <div>
+        <h3>총 평가금액</h3>
+        <div className="value-chart">
+          {points.map((point) => {
+            const value = Number(point.total_market_value || 0);
+            return (
+              <span
+                key={`value-${point.date}`}
+                style={{ height: `${Math.max(8, ((value - minValue) / valueRange) * 92 + 8)}%` }}
+                title={`${point.date}: ${value.toLocaleString()} KRW`}
+              />
+            );
+          })}
+        </div>
+      </div>
+    </div>
   );
 }

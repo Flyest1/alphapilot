@@ -20,6 +20,7 @@ class PortfolioService:
         )
         usd_krw_rate = float(app_settings.usd_krw_rate)
         rows = []
+        value_history_sources = []
         totals = {
             "total_market_value": 0.0,
             "total_cost": 0.0,
@@ -36,14 +37,15 @@ class PortfolioService:
             currency = self._asset_currency(asset)
             fx_rate = self._fx_rate(asset, currency, usd_krw_rate)
             cost_native = quantity * avg_price
-            current_price_native = self._current_price(asset, avg_price)
+            price_result = self._price_result(asset)
+            current_price_native = self._current_price(asset, avg_price, price_result)
             value_native = quantity * current_price_native
             cost = cost_native * fx_rate
             current_price = current_price_native * fx_rate
             value = value_native * fx_rate
             profit_loss = value - cost
             return_rate = (profit_loss / cost * 100) if cost else 0.0
-            daily_change = self._daily_change(asset, quantity, fx_rate)
+            daily_change = self._daily_change(asset, quantity, fx_rate, price_result)
             daily_profit_loss = daily_change["profit_loss"]
             previous_value = value - daily_profit_loss
             market = asset.get("market")
@@ -80,6 +82,16 @@ class PortfolioService:
                     "daily_return_rate": daily_change["return_rate"],
                     "previous_close_native": daily_change["previous_close_native"],
                 }
+            )
+            value_history_sources.append(
+                self._value_history_source(
+                    asset,
+                    quantity,
+                    avg_price,
+                    fx_rate,
+                    value,
+                    price_result,
+                )
             )
 
         total_value = totals["total_market_value"]
@@ -128,18 +140,37 @@ class PortfolioService:
                 key=lambda row: abs(row["daily_profit_loss"]),
                 reverse=True,
             ),
+            value_history=self._portfolio_value_history(value_history_sources),
             asset_allocation=allocation,
             asset_returns=rows,
             latest_report_summary=latest_summary,
         )
 
-    def _current_price(self, asset: dict[str, Any], fallback: float) -> float:
+    def _price_result(self, asset: dict[str, Any]) -> Any | None:
+        if asset.get("market") == "CASH" or self.market_data_service is None:
+            return None
+        try:
+            return self.market_data_service.fetch_price_history(asset["market"], asset["ticker"])
+        except Exception as exc:
+            log_external_failure(
+                "market_data",
+                exc,
+                {"operation": "portfolio_price_result", "ticker": asset.get("ticker")},
+            )
+            return None
+
+    def _current_price(
+        self, asset: dict[str, Any], fallback: float, price_result: Any | None
+    ) -> float:
         if asset.get("market") == "CASH" or self.market_data_service is None:
             return fallback
         try:
-            result = self.market_data_service.fetch_price_history(asset["market"], asset["ticker"])
-            if result.current_price is not None and not result.is_stale:
-                return float(result.current_price)
+            if (
+                price_result
+                and price_result.current_price is not None
+                and not price_result.is_stale
+            ):
+                return float(price_result.current_price)
         except Exception as exc:
             log_external_failure(
                 "market_data",
@@ -149,7 +180,11 @@ class PortfolioService:
         return fallback
 
     def _daily_change(
-        self, asset: dict[str, Any], quantity: float, fx_rate: float
+        self,
+        asset: dict[str, Any],
+        quantity: float,
+        fx_rate: float,
+        price_result: Any | None,
     ) -> dict[str, Any]:
         if asset.get("market") == "CASH" or self.market_data_service is None:
             return {
@@ -158,9 +193,15 @@ class PortfolioService:
                 "previous_close_native": None,
             }
         try:
-            result = self.market_data_service.fetch_price_history(asset["market"], asset["ticker"])
-            frame = result.dataframe
-            if result.is_stale or frame.empty or "close" not in frame or len(frame) < 2:
+            frame = price_result.dataframe if price_result else None
+            if (
+                price_result is None
+                or price_result.is_stale
+                or frame is None
+                or frame.empty
+                or "close" not in frame
+                or len(frame) < 2
+            ):
                 return {
                     "profit_loss": 0.0,
                     "return_rate": 0.0,
@@ -187,6 +228,78 @@ class PortfolioService:
                 "return_rate": 0.0,
                 "previous_close_native": None,
             }
+
+    def _value_history_source(
+        self,
+        asset: dict[str, Any],
+        quantity: float,
+        avg_price: float,
+        fx_rate: float,
+        current_value: float,
+        price_result: Any | None,
+    ) -> dict[str, Any]:
+        if asset.get("market") == "CASH":
+            return {"kind": "cash", "current_value": current_value}
+        if (
+            price_result is None
+            or price_result.dataframe.empty
+            or "close" not in price_result.dataframe
+        ):
+            fallback_value = quantity * avg_price * fx_rate
+            return {"kind": "cash", "current_value": fallback_value}
+        frame = price_result.dataframe.tail(35)
+        values = {
+            index.date().isoformat(): round(float(row["close"]) * quantity * fx_rate, 2)
+            for index, row in frame.iterrows()
+        }
+        return {"kind": "market", "values": values, "current_value": current_value}
+
+    def _portfolio_value_history(self, sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        market_dates = sorted(
+            {
+                date
+                for source in sources
+                if source.get("kind") == "market"
+                for date in source.get("values", {})
+            }
+        )[-30:]
+        if not market_dates:
+            total_value = sum(float(source.get("current_value") or 0) for source in sources)
+            return [
+                {
+                    "date": "",
+                    "total_market_value": round(total_value, 2),
+                    "daily_profit_loss": 0.0,
+                    "daily_return_rate": 0.0,
+                }
+            ]
+
+        history = []
+        previous_total = None
+        for date in market_dates:
+            total = 0.0
+            for source in sources:
+                if source.get("kind") == "cash":
+                    total += float(source.get("current_value") or 0)
+                    continue
+                values = source.get("values", {})
+                available_dates = [candidate for candidate in values if candidate <= date]
+                if available_dates:
+                    total += float(values[max(available_dates)])
+            daily_profit_loss = 0.0 if previous_total is None else total - previous_total
+            daily_return_rate = (
+                (daily_profit_loss / previous_total * 100) if previous_total else 0.0
+            )
+            history.append(
+                {
+                    "date": date,
+                    "total_market_value": round(total, 2),
+                    "daily_profit_loss": round(daily_profit_loss, 2),
+                    "daily_return_rate": round(daily_return_rate, 2),
+                }
+            )
+            previous_total = total
+        return history
 
     def _asset_currency(self, asset: dict[str, Any]) -> str:
         currency = str(asset.get("currency") or "").strip().upper()

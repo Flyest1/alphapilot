@@ -86,3 +86,6 @@ def test_portfolio_summary_calculates_values_and_returns():
         ]
         == 7000
     )
+    assert len(summary.value_history) == 2
+    assert summary.value_history[-1]["total_market_value"] == summary.total_market_value
+    assert summary.value_history[-1]["daily_profit_loss"] == summary.daily_profit_loss

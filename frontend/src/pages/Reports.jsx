@@ -56,6 +56,7 @@ export default function Reports() {
   const [settings, setSettings] = useState(cachedSettings);
   const [selected, setSelected] = useState(cachedSelected);
   const [activeType, setActiveType] = useState("domestic");
+  const [strategyGroup, setStrategyGroup] = useState("owned");
   const [strategyFilter, setStrategyFilter] = useState("ALL");
   const [isLoading, setIsLoading] = useState(!hasCachedData);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -136,12 +137,15 @@ export default function Reports() {
     latestForActiveType?.content?.asset_strategies || [],
     assets,
   );
-  const filteredStrategies = ownedStrategies.filter((strategy) => {
+  const selectedStrategyGroup =
+    strategyGroup === "candidates" ? candidateStrategies : ownedStrategies;
+  const filteredStrategies = selectedStrategyGroup.filter((strategy) => {
     if (strategyFilter === "ALL") return true;
     if (strategyFilter === "DATA_LIMITED") return strategy.reasoning === "data-limited";
     return strategy.action === strategyFilter;
   });
-  const selectedPerformanceLogs = performanceLogs.filter((row) => row.report_id === selected?.id);
+  const selectedTickers = new Set(strategies.map((strategy) => strategy.ticker));
+  const selectedPerformanceLogs = performanceLogs.filter((row) => selectedTickers.has(row.ticker));
 
   function selectType(type) {
     setActiveType(type);
@@ -326,11 +330,36 @@ export default function Reports() {
       </section>
 
       <section className="panel">
-        <h2>자산별 전략</h2>
+        <div className="section-heading">
+          <div>
+            <h2>자산별 전략</h2>
+            <p>추가 후보는 {candidateHorizonLabel} 목표 기준으로 선별합니다.</p>
+          </div>
+          <div className="inline-metrics">
+            <span>{ownedStrategies.length}개 보유</span>
+            <span>{candidateStrategies.length}개 후보</span>
+          </div>
+        </div>
         {isLoading ? (
           <p className="empty-state">전략을 불러오는 중입니다.</p>
         ) : (
           <>
+            <div className="filter-row">
+              <button
+                className={strategyGroup === "owned" ? "active" : ""}
+                type="button"
+                onClick={() => setStrategyGroup("owned")}
+              >
+                보유 자산
+              </button>
+              <button
+                className={strategyGroup === "candidates" ? "active" : ""}
+                type="button"
+                onClick={() => setStrategyGroup("candidates")}
+              >
+                추가 후보
+              </button>
+            </div>
             <div className="filter-row">
               {strategyFilters.map((filter) => (
                 <button
@@ -343,30 +372,9 @@ export default function Reports() {
                 </button>
               ))}
             </div>
-            <StrategyTable strategies={filteredStrategies} />
+            <StrategyTable strategies={filteredStrategies} performanceLogs={performanceLogs} />
           </>
         )}
-      </section>
-
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <h2>추가 매수 후보</h2>
-            <p>
-              보유 자산이 아닌 후보군을 현재 설정의 {candidateHorizonLabel} 목표 기준으로
-              선별한 결과입니다.
-            </p>
-          </div>
-          <div className="inline-metrics">
-            <span>목표 {candidateHorizonLabel}</span>
-            <span>{candidateStrategies.length}개 후보</span>
-          </div>
-        </div>
-        <p className="form-hint">
-          비보유 후보에서 관찰은 보유하라는 뜻이 아니라 신규 매수를 기다리라는 의미입니다. 신뢰도는
-          수익 확률이 아니라 데이터 품질과 기술 점수 기반의 추천 강도입니다.
-        </p>
-        <StrategyTable strategies={candidateStrategies} />
       </section>
 
       <section className="panel">

@@ -35,6 +35,8 @@ CASH 자산은 `수량 × 평균 매입가`로 계산됩니다. 현금 총액을
 
 대시보드는 최신 종가와 직전 거래일 종가 차이로 1일 자산 변동을 계산합니다. 별도의 일자별 포트폴리오 스냅샷 테이블은 아직 없으므로, 과거 장기 추이는 성과 추적 로그와 최신 시세 기준으로만 표시됩니다.
 
+대시보드 차트는 보유 자산의 최근 가격 이력으로 7일/1달 기준 일간 변동금액과 총 평가금액을 계산합니다. 현금은 기간 내 고정 금액으로 반영됩니다.
+
 추가 매수 후보 목표 기간은 다음 기준으로 동작합니다.
 
 ```text
@@ -42,6 +44,8 @@ short  = 약 5거래일 목표
 medium = 약 20거래일 목표
 long   = 약 60거래일 목표
 ```
+
+리포트의 `자산별 전략`은 요약 행을 먼저 보여주고, 행을 누르면 가격 구간과 1일/5일/20일 성과 추적 값이 펼쳐집니다. 보유 자산과 추가 후보는 같은 영역의 탭으로 전환합니다.
 
 ## 로컬 실행
 
@@ -203,6 +207,8 @@ BACKEND_URL=https://alphapilot-backend.onrender.com
 SCHEDULER_SECRET=Render에 설정한 SCHEDULER_SECRET과 같은 값
 ```
 
+자동 리포트는 사용자가 사이트에 접속해 있어야 생성되는 방식이 아닙니다. GitHub Actions가 지정된 시간에 Render 백엔드를 직접 호출합니다. 자동 생성이 되지 않으면 GitHub 저장소의 `Actions` 탭에서 `Generate Domestic Market Report`, `Generate Global Market Report` 워크플로가 비활성화되어 있지 않은지, scheduled run이 생성되는지, `BACKEND_URL`과 `SCHEDULER_SECRET` secret이 현재 Render 값과 일치하는지 확인하세요.
+
 국내 리포트:
 
 ```text
@@ -262,6 +268,7 @@ curl -X POST "$env:BACKEND_URL/api/reports/domestic/generate" `
 - GitHub Actions 예약 실행 지연 가능
 - 글로벌 리포트 cron은 미국 서머타임 자동 보정 없음
 - 추가 매수 후보군은 직접 등록한 후보군 또는 MVP용 기본 후보군을 사용하며, 외부 스크리닝 API를 사용하지 않음
+- 성과 추적은 같은 티커와 같은 액션의 20일 평가가 끝나기 전에는 새 추적 로그를 다시 시작하지 않습니다. 액션이 바뀌거나 기존 20일 평가가 끝나면 새 추적이 시작될 수 있습니다.
 
 ## 검증 명령
 
