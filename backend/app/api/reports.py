@@ -39,6 +39,8 @@ def _run_manual_report_job(
         report = ReportService(
             repository=repository,
             market_data_service=app_state.market_data_service,
+            report_job_store=app_state.report_jobs,
+            report_job_id=job_id,
         ).generate_report(report_type)
         app_state.report_jobs.mark_completed(job_id, report.get("id"))
     except Exception as exc:
@@ -47,7 +49,7 @@ def _run_manual_report_job(
             exc,
             {"operation": "generate_report", "report_type": report_type, "job_id": job_id},
         )
-        app_state.report_jobs.mark_failed(job_id)
+        app_state.report_jobs.mark_failed(job_id, error_category="internal_error")
 
 
 def _start_manual_report_job(

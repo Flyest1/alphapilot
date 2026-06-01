@@ -169,6 +169,16 @@ alter table settings
 add column if not exists usd_krw_rate numeric default 1400;
 ```
 
+Post-MVP Phase 1~3 기능을 사용하려면 아래 파일도 순서대로 실행합니다.
+
+```text
+backend/app/db/migrations/005_create_report_jobs.sql
+backend/app/db/migrations/006_create_portfolio_snapshots.sql
+backend/app/db/migrations/007_create_recommendation_cycles.sql
+```
+
+이 세 마이그레이션은 각각 수동 리포트 생성 작업 상태, 포트폴리오 일별 스냅샷, 추천 생애주기 추적을 저장합니다. 모두 새 테이블을 추가하는 방식이라 기존 자산/리포트 데이터는 삭제하지 않습니다.
+
 Supabase service role key는 RLS를 우회합니다. 반드시 백엔드 서버 환경변수에만 보관하고, 프론트엔드나 에러 메시지에 노출하지 마세요.
 
 ## Render 배포
@@ -229,7 +239,11 @@ GitHub Actions 예약 실행은 best-effort입니다. GitHub 부하에 따라 �
 
 수동 생성은 비동기 방식입니다. 버튼을 누르면 백엔드가 즉시 작업 ID를 반환하고, 실제 시세 조회, 뉴스/동향 조회, OpenAI 호출, DB 저장은 Render 백엔드 안에서 계속 진행됩니다. 화면은 기존 리포트를 계속 보여주면서 작업 상태를 확인하고, 완료되면 최신 리포트 목록을 자동으로 갱신합니다.
 
-작업 상태는 Render 프로세스 메모리에만 저장됩니다. Render가 재시작되면 진행 상태 표시는 사라질 수 있지만, 이미 Supabase에 저장된 리포트는 유지됩니다.
+작업 상태는 `report_jobs` 테이블에 저장됩니다. 각 단계별 소요 시간은 `상태` 화면의 최근 리포트 생성 단계에서 확인할 수 있습니다.
+
+리포트가 저장되면 현재 포트폴리오 상태도 `portfolio_snapshots` 테이블에 함께 저장됩니다. 대시보드의 자산 변동 차트는 스냅샷이 2개 이상 있으면 스냅샷 기반으로 표시하고, 부족하면 기존처럼 최신 시세 이력 기반으로 표시합니다.
+
+추천 전략은 `recommendation_cycles` 테이블에 생애주기로 저장됩니다. 같은 티커, 같은 목표 기간, 같은 액션이 이미 진행 중이면 새 cycle을 만들지 않고 기존 cycle을 유지합니다. 액션이 바뀌거나 목표가/손절가가 5% 이상 바뀌면 기존 cycle을 `superseded`로 닫고 새 cycle을 시작합니다.
 
 보유 외 추가 매수 후보는 `설정` 화면의 후보군 목록을 우선 사용합니다. 직접 등록한 활성 후보가 없으면 앱에 포함된 기본 후보군을 사용합니다.
 

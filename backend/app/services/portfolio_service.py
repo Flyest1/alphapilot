@@ -113,6 +113,13 @@ class PortfolioService:
             if not latest_summary and isinstance(latest_report.get("content"), dict):
                 latest_summary = latest_report["content"].get("market_summary", {}).get("summary")
 
+        snapshot_history = self._snapshot_value_history()
+        value_history = (
+            snapshot_history
+            if len(snapshot_history) >= 2
+            else self._portfolio_value_history(value_history_sources)
+        )
+
         return PortfolioSummaryResponse(
             total_market_value=round(total_value, 2),
             total_cost=round(total_cost, 2),
@@ -140,7 +147,7 @@ class PortfolioService:
                 key=lambda row: abs(row["daily_profit_loss"]),
                 reverse=True,
             ),
-            value_history=self._portfolio_value_history(value_history_sources),
+            value_history=value_history,
             asset_allocation=allocation,
             asset_returns=rows,
             latest_report_summary=latest_summary,
@@ -300,6 +307,49 @@ class PortfolioService:
             )
             previous_total = total
         return history
+
+    def _snapshot_value_history(self) -> list[dict[str, Any]]:
+        try:
+            snapshots = self.repository.list_portfolio_snapshots(limit=90)
+        except Exception as exc:
+            log_external_failure(
+                "portfolio_snapshots",
+                exc,
+                {"operation": "list_portfolio_snapshots"},
+            )
+            return []
+        rows = sorted(
+            snapshots,
+            key=lambda row: (
+                row.get("snapshot_date") or self._date_from_iso(row.get("created_at")),
+                row.get("created_at") or "",
+            ),
+        )[-60:]
+        history = []
+        previous_total = None
+        for row in rows:
+            total = float(row.get("total_market_value") or 0)
+            daily_profit_loss = 0.0 if previous_total is None else total - previous_total
+            daily_return_rate = (
+                (daily_profit_loss / previous_total * 100) if previous_total else 0.0
+            )
+            history.append(
+                {
+                    "date": row.get("snapshot_date") or self._date_from_iso(row.get("created_at")),
+                    "created_at": row.get("created_at"),
+                    "report_type": row.get("report_type"),
+                    "source": "snapshot",
+                    "total_market_value": round(total, 2),
+                    "daily_profit_loss": round(daily_profit_loss, 2),
+                    "daily_return_rate": round(daily_return_rate, 2),
+                }
+            )
+            previous_total = total
+        return history
+
+    def _date_from_iso(self, value: Any) -> str:
+        text = str(value or "")
+        return text[:10] if len(text) >= 10 else ""
 
     def _asset_currency(self, asset: dict[str, Any]) -> str:
         currency = str(asset.get("currency") or "").strip().upper()

@@ -143,6 +143,9 @@ export const api = {
   performanceLogs: {
     list: () => apiRequest("/api/performance-logs"),
   },
+  recommendationCycles: {
+    list: () => apiRequest("/api/recommendation-cycles"),
+  },
   settings: {
     get: () => apiRequest("/api/settings"),
     save: (payload) =>

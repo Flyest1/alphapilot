@@ -88,6 +88,8 @@ export default function Reports() {
   const cachedAssets = readApiCache("/api/assets", { maxAgeMs: REPORTS_CACHE_MS }) || [];
   const cachedPerformanceLogs =
     readApiCache("/api/performance-logs", { maxAgeMs: REPORTS_CACHE_MS }) || [];
+  const cachedRecommendationCycles =
+    readApiCache("/api/recommendation-cycles", { maxAgeMs: REPORTS_CACHE_MS }) || [];
   const cachedSettings = readApiCache("/api/settings", { maxAgeMs: REPORTS_CACHE_MS });
   const cachedSelected = pickReportWithStrategies(cachedLatest) || cachedReports[0] || null;
   const hasCachedData = Boolean(cachedSelected || cachedReports.length || cachedAssets.length);
@@ -95,6 +97,7 @@ export default function Reports() {
   const [reports, setReports] = useState(cachedReports);
   const [assets, setAssets] = useState(cachedAssets);
   const [performanceLogs, setPerformanceLogs] = useState(cachedPerformanceLogs);
+  const [recommendationCycles, setRecommendationCycles] = useState(cachedRecommendationCycles);
   const [settings, setSettings] = useState(cachedSettings);
   const [selected, setSelected] = useState(cachedSelected);
   const [activeType, setActiveType] = useState("domestic");
@@ -120,14 +123,23 @@ export default function Reports() {
       api.reports.latest(),
       api.reports.list(),
       api.performanceLogs.list(),
+      api.recommendationCycles.list(),
       api.assets.list(),
       api.settings.get(),
-    ])
-      .then(([latestReports, reportList, performanceLogList, assetList, appSettings]) => {
+    ]).then(
+      ([
+        latestReports,
+        reportList,
+        performanceLogList,
+        recommendationCycleList,
+        assetList,
+        appSettings,
+      ]) => {
         const initialReport = pickReportWithStrategies(latestReports) || reportList[0] || null;
         setLatest(latestReports);
         setReports(reportList);
         setPerformanceLogs(performanceLogList);
+        setRecommendationCycles(recommendationCycleList);
         setAssets(assetList);
         setSettings(appSettings);
         const preferredReport =
@@ -138,7 +150,8 @@ export default function Reports() {
           initialReport;
         setSelected(nextReport);
         if (nextReport) setActiveType(nextReport.report_type);
-      })
+      },
+    )
       .catch((err) => setError(err.message))
       .finally(() => {
         setIsLoading(false);
@@ -150,6 +163,7 @@ export default function Reports() {
     const cacheFresh =
       isApiCacheFresh("/api/reports/latest", REPORTS_CACHE_MS) &&
       isApiCacheFresh("/api/reports", REPORTS_CACHE_MS) &&
+      isApiCacheFresh("/api/recommendation-cycles", REPORTS_CACHE_MS) &&
       isApiCacheFresh("/api/assets", REPORTS_CACHE_MS) &&
       isApiCacheFresh("/api/settings", REPORTS_CACHE_MS);
     if (!cacheFresh) {
@@ -227,6 +241,9 @@ export default function Reports() {
   });
   const selectedTickers = new Set(strategies.map((strategy) => strategy.ticker));
   const selectedPerformanceLogs = performanceLogs.filter((row) => selectedTickers.has(row.ticker));
+  const selectedRecommendationCycles = recommendationCycles.filter((row) =>
+    selectedTickers.has(row.ticker),
+  );
 
   function selectType(type) {
     setActiveType(type);
@@ -456,7 +473,16 @@ export default function Reports() {
       </section>
 
       <section className="panel">
-        <h2>성과 추적</h2>
+        <h2>추천 생애주기</h2>
+        {isLoading ? (
+          <p className="empty-state">추천 cycle을 불러오는 중입니다.</p>
+        ) : (
+          <RecommendationCycleTable cycles={selectedRecommendationCycles} />
+        )}
+      </section>
+
+      <section className="panel">
+        <h2>기존 성과 로그</h2>
         {isLoading ? (
           <p className="empty-state">성과 로그를 불러오는 중입니다.</p>
         ) : (
@@ -464,6 +490,129 @@ export default function Reports() {
         )}
       </section>
     </section>
+  );
+}
+
+function statusLabel(status) {
+  return (
+    {
+      active: "진행 중",
+      hit_target: "목표 도달",
+      hit_stop: "손절 도달",
+      expired: "기간 만료",
+      superseded: "대체됨",
+    }[status] || status
+  );
+}
+
+function horizonLabel(horizon) {
+  return horizonLabels[horizon] || horizon || "-";
+}
+
+function RecommendationCycleTable({ cycles = [] }) {
+  if (!cycles.length) {
+    return <p className="empty-state">이 리포트 종목에 연결된 추천 cycle이 아직 없습니다.</p>;
+  }
+  const activeCount = cycles.filter((row) => row.status === "active").length;
+  return (
+    <>
+      <div className="metric-grid compact performance-summary">
+        <div>
+          <span>전체 cycle</span>
+          <strong>{cycles.length}</strong>
+        </div>
+        <div>
+          <span>진행 중</span>
+          <strong>{activeCount}</strong>
+        </div>
+        <div>
+          <span>목표 도달</span>
+          <strong>{cycles.filter((row) => row.status === "hit_target").length}</strong>
+        </div>
+        <div>
+          <span>손절 도달</span>
+          <strong>{cycles.filter((row) => row.status === "hit_stop").length}</strong>
+        </div>
+      </div>
+      <div className="performance-card-list">
+        {cycles.map((row) => (
+          <article className="performance-card" key={row.id}>
+            <div className="asset-card-header">
+              <div>
+                <strong>{row.ticker}</strong>
+                <span>
+                  {horizonLabel(row.horizon)} · {statusLabel(row.status)}
+                </span>
+              </div>
+              <span className={`badge ${String(row.action || "watch").toLowerCase()}`}>
+                {actionLabel(row.action)}
+              </span>
+            </div>
+            <dl>
+              <div>
+                <dt>기준 가격</dt>
+                <dd>{formatValue(row.reference_price)}</dd>
+              </div>
+              <div>
+                <dt>목표가</dt>
+                <dd>{formatValue(row.target_price)}</dd>
+              </div>
+              <div>
+                <dt>손절가</dt>
+                <dd>{formatValue(row.stop_loss)}</dd>
+              </div>
+              <div>
+                <dt>60일</dt>
+                <dd>{formatReturn(row.return_after_60d)}</dd>
+              </div>
+            </dl>
+          </article>
+        ))}
+      </div>
+      <div className="table-wrap performance-table">
+        <table>
+          <thead>
+            <tr>
+              <th>티커</th>
+              <th>전략</th>
+              <th>기간</th>
+              <th>상태</th>
+              <th>기준 가격</th>
+              <th>목표가</th>
+              <th>손절가</th>
+              <th>1일</th>
+              <th>5일</th>
+              <th>20일</th>
+              <th>60일</th>
+            </tr>
+          </thead>
+          <tbody>
+            {cycles.map((row) => (
+              <tr key={row.id}>
+                <td>
+                  <strong>{row.ticker}</strong>
+                  <span>{row.name || "-"}</span>
+                </td>
+                <td>
+                  <span className={`badge ${String(row.action || "watch").toLowerCase()}`}>
+                    {actionLabel(row.action)}
+                  </span>
+                </td>
+                <td>{horizonLabel(row.horizon)}</td>
+                <td>{statusLabel(row.status)}</td>
+                <td>{formatValue(row.reference_price)}</td>
+                <td>{formatValue(row.target_price)}</td>
+                <td>{formatValue(row.stop_loss)}</td>
+                <td>{formatReturn(row.return_after_1d)}</td>
+                <td>{formatReturn(row.return_after_5d)}</td>
+                <td>{formatReturn(row.return_after_20d)}</td>
+                <td>{formatReturn(row.return_after_60d)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 

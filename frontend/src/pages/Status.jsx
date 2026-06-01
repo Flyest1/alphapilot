@@ -102,6 +102,18 @@ export default function Status() {
                 <span>글로벌 자동 리포트</span>
                 <strong>{status.scheduler?.global?.status_label || "-"}</strong>
               </div>
+              <div>
+                <span>리포트 작업</span>
+                <strong>{status.report_jobs?.active_count ?? 0}개 진행 중</strong>
+              </div>
+              <div>
+                <span>포트폴리오 스냅샷</span>
+                <strong>{status.portfolio_snapshots?.recent_count ?? 0}</strong>
+              </div>
+              <div>
+                <span>추천 cycle</span>
+                <strong>{status.recommendation_cycles?.active_count ?? 0}개 진행 중</strong>
+              </div>
             </div>
           </section>
 
@@ -132,7 +144,32 @@ export default function Status() {
                 <span>글로벌 예정 시간</span>
                 <strong>{formatReportTime(status.scheduler?.global?.last_expected_at)}</strong>
               </div>
+              <div>
+                <span>최근 작업 상태</span>
+                <strong>{status.report_jobs?.latest?.status || "-"}</strong>
+              </div>
+              <div>
+                <span>최근 작업 갱신</span>
+                <strong>{formatReportTime(status.report_jobs?.latest?.updated_at)}</strong>
+              </div>
+              <div>
+                <span>최근 스냅샷</span>
+                <strong>{formatReportTime(status.portfolio_snapshots?.latest_created_at)}</strong>
+              </div>
             </div>
+            {status.report_jobs?.latest?.step_timings && (
+              <>
+                <h3>최근 리포트 생성 단계</h3>
+                <div className="metric-grid compact">
+                  {Object.entries(status.report_jobs.latest.step_timings).map(([name, step]) => (
+                    <div key={name}>
+                      <span>{name}</span>
+                      <strong>{step.duration_ms ?? 0}ms</strong>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
             {status.database?.error && <p className="alert">{status.database.error}</p>}
             {!!status.security?.warnings?.length && (
               <p className="alert">{status.security.warnings.join(" ")}</p>

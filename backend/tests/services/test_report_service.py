@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from app.db.supabase_client import InMemoryRepository
-from app.models.report import ReportContent
+from app.models.report import AssetStrategy, ReportContent
 from app.services.market_data_service import MarketDataResult
 from app.services.report_service import DISCLAIMER, ReportService
 from app.services.technical_analysis_service import TechnicalAnalysisResult
@@ -280,6 +280,123 @@ def test_repeated_same_signal_does_not_restart_active_performance_log():
     assert len(repo.list_performance_logs()) == first_count
 
 
+def test_report_generation_saves_portfolio_snapshot():
+    repo = seeded_repo()
+    service = ReportService(
+        repo,
+        market_data_service=FakeMarketData(),
+        technical_analysis_service=FakeTechnical(),
+        ai_provider=FailingAI(),
+        news_service=FakeNews(),
+    )
+
+    report = service.generate_report("domestic")
+    snapshots = repo.list_portfolio_snapshots()
+
+    assert len(snapshots) == 1
+    assert snapshots[0]["report_id"] == report["id"]
+    assert snapshots[0]["report_type"] == "domestic"
+    assert snapshots[0]["total_market_value"] > 0
+
+
+def test_repeated_same_recommendation_reuses_active_cycle():
+    repo = seeded_repo()
+    service = ReportService(
+        repo,
+        market_data_service=FakeMarketData(),
+        technical_analysis_service=FakeTechnical(),
+        ai_provider=FailingAI(),
+        news_service=FakeNews(),
+    )
+
+    service.generate_report("domestic")
+    first_cycles = repo.list_recommendation_cycles()
+    service.generate_report("domestic")
+    second_cycles = repo.list_recommendation_cycles()
+
+    assert len(first_cycles) == len(second_cycles)
+    assert all(row["status"] == "active" for row in second_cycles)
+
+
+def test_changed_action_supersedes_existing_recommendation_cycle():
+    repo = seeded_repo()
+    service = ReportService(
+        repo,
+        market_data_service=FakeMarketData(),
+        technical_analysis_service=FakeTechnical(),
+        ai_provider=FailingAI(),
+        news_service=FakeNews(),
+    )
+    report = repo.create_report(
+        {
+            "report_type": "domestic",
+            "title": "domestic",
+            "summary": "summary",
+            "content": {},
+        }
+    )
+    buy_strategy = repo.create_strategy(
+        {
+            "report_id": report["id"],
+            "ticker": "005930",
+            "name": "Samsung",
+            "action": "BUY",
+            "current_price": 100,
+        }
+    )
+    service._sync_recommendation_cycle(
+        strategy=AssetStrategy(
+            ticker="005930",
+            name="Samsung",
+            current_price=100,
+            action="BUY",
+            confidence=80,
+            target_price=110,
+            stop_loss=95,
+            reasoning="test",
+            risk="test",
+            invalidation_condition="test",
+        ),
+        strategy_row=buy_strategy,
+        report=report,
+        horizon="medium",
+        existing_cycles=[],
+    )
+    sell_strategy = repo.create_strategy(
+        {
+            "report_id": report["id"],
+            "ticker": "005930",
+            "name": "Samsung",
+            "action": "SELL",
+            "current_price": 100,
+        }
+    )
+    existing = repo.list_recommendation_cycles()
+
+    service._sync_recommendation_cycle(
+        strategy=AssetStrategy(
+            ticker="005930",
+            name="Samsung",
+            current_price=100,
+            action="SELL",
+            confidence=80,
+            target_price=90,
+            stop_loss=105,
+            reasoning="test",
+            risk="test",
+            invalidation_condition="test",
+        ),
+        strategy_row=sell_strategy,
+        report=report,
+        horizon="medium",
+        existing_cycles=existing,
+    )
+
+    cycles = repo.list_recommendation_cycles()
+    assert len(cycles) == 2
+    assert {row["status"] for row in cycles} == {"active", "superseded"}
+
+
 def test_validation_failure_retries_openai_once():
     repo = seeded_repo()
     ai = RetryAI()
@@ -339,6 +456,39 @@ def test_backfill_performance_logs_updates_trading_day_returns():
     assert updated["price_after_20d"] == 70
     assert updated["return_after_20d"] == -30
     assert updated["evaluated_at"]
+
+
+def test_backfill_recommendation_cycles_updates_returns_and_status():
+    repo = InMemoryRepository()
+    cycle = repo.create_recommendation_cycle(
+        {
+            "report_type": "domestic",
+            "ticker": "005930",
+            "name": "Samsung",
+            "action": "BUY",
+            "horizon": "medium",
+            "status": "active",
+            "reference_price": 100,
+            "target_price": 70,
+            "stop_loss": 0,
+            "started_at": "2026-01-01T00:00:00+00:00",
+        }
+    )
+    service = ReportService(
+        repo,
+        market_data_service=FakeMarketData(),
+        technical_analysis_service=FakeTechnical(),
+        ai_provider=FailingAI(),
+        news_service=FakeNews(),
+    )
+
+    service.backfill_recommendation_cycles()
+
+    updated = next(row for row in repo.list_recommendation_cycles() if row["id"] == cycle["id"])
+    assert updated["price_after_1d"] == 51
+    assert updated["return_after_1d"] == -49
+    assert updated["status"] == "hit_target"
+    assert updated["closed_at"]
 
 
 def test_infer_market_treats_alphanumeric_six_character_codes_as_kr():

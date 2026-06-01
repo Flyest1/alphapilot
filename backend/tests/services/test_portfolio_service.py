@@ -89,3 +89,37 @@ def test_portfolio_summary_calculates_values_and_returns():
     assert len(summary.value_history) == 2
     assert summary.value_history[-1]["total_market_value"] == summary.total_market_value
     assert summary.value_history[-1]["daily_profit_loss"] == summary.daily_profit_loss
+
+
+def test_portfolio_summary_prefers_saved_snapshots_for_value_history():
+    repo = InMemoryRepository()
+    repo.create_asset(
+        {
+            "market": "CASH",
+            "ticker": "KRW",
+            "name": "Cash",
+            "quantity": 1000,
+            "avg_price": 1,
+            "currency": "KRW",
+        }
+    )
+    repo.create_portfolio_snapshot(
+        {
+            "report_type": "domestic",
+            "snapshot_date": "2026-05-20",
+            "total_market_value": 1000,
+        }
+    )
+    repo.create_portfolio_snapshot(
+        {
+            "report_type": "global",
+            "snapshot_date": "2026-05-21",
+            "total_market_value": 1200,
+        }
+    )
+
+    summary = PortfolioService(repo, None).get_summary()
+
+    assert len(summary.value_history) == 2
+    assert summary.value_history[-1]["source"] == "snapshot"
+    assert summary.value_history[-1]["daily_profit_loss"] == 200

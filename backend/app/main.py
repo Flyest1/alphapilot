@@ -5,7 +5,16 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import assets, candidates, performance, portfolio, reports, settings, system
+from app.api import (
+    assets,
+    candidates,
+    performance,
+    portfolio,
+    recommendations,
+    reports,
+    settings,
+    system,
+)
 from app.config import get_environment_settings
 from app.db.supabase_client import Repository, create_repository
 from app.services.market_data_service import MarketDataService
@@ -45,7 +54,7 @@ def create_app(repository: Repository | None = None) -> FastAPI:
     app.state.repository = repository or create_repository(env)
     app.state.rate_limiter = DailyEndpointRateLimiter(max_per_day=10)
     app.state.market_data_service = MarketDataService()
-    app.state.report_jobs = ReportJobStore()
+    app.state.report_jobs = ReportJobStore(app.state.repository)
 
     origins = [env.frontend_origin] if env.frontend_origin else []
     app.add_middleware(
@@ -103,6 +112,7 @@ def create_app(repository: Repository | None = None) -> FastAPI:
     app.include_router(candidates.router)
     app.include_router(performance.router)
     app.include_router(portfolio.router)
+    app.include_router(recommendations.router)
     app.include_router(reports.router)
     app.include_router(settings.router)
     app.include_router(system.router)

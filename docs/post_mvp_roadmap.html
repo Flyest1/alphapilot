@@ -343,8 +343,8 @@
           <article class="phase">
             <div class="phase-number">Phase 1</div>
             <div>
-              <h3>운영 안정화</h3>
-              <p>리포트 생성 상태와 실패 원인을 추적 가능하게 만듭니다.</p>
+              <h3>운영 안정화 · 완료</h3>
+              <p>리포트 생성 상태와 단계별 소요 시간을 추적 가능하게 만들었습니다.</p>
               <ul>
                 <li><code>report_jobs</code> Supabase 테이블</li>
                 <li>작업 단계별 소요시간 기록</li>
@@ -357,12 +357,12 @@
           <article class="phase">
             <div class="phase-number">Phase 2</div>
             <div>
-              <h3>포트폴리오 스냅샷</h3>
-              <p>대시보드 장기 차트를 실제 저장 이력 기반으로 바꿉니다.</p>
+              <h3>포트폴리오 스냅샷 · 완료</h3>
+              <p>리포트 생성 완료 시점의 포트폴리오 상태를 저장하도록 만들었습니다.</p>
               <ul>
                 <li><code>portfolio_snapshots</code> 테이블</li>
                 <li>일별 총 평가금액, 손익, 현금, 배분 저장</li>
-                <li>7일/1달/3달 추이 표시</li>
+                <li>스냅샷이 2개 이상이면 대시보드 차트에 우선 반영</li>
               </ul>
             </div>
           </article>
@@ -370,12 +370,13 @@
           <article class="phase">
             <div class="phase-number">Phase 3</div>
             <div>
-              <h3>추천 생애주기 추적</h3>
-              <p>추천이 반복되어도 성과가 초기화되지 않도록 추천 단위를 분리합니다.</p>
+              <h3>추천 생애주기 추적 · 완료</h3>
+              <p>추천이 반복되어도 성과가 초기화되지 않도록 추천 단위를 분리했습니다.</p>
               <ul>
-                <li><code>recommendation_cycles</code> 테이블 설계</li>
+                <li><code>recommendation_cycles</code> 테이블</li>
                 <li>목표가/손절가/만료/성공/실패 상태 추적</li>
                 <li>1일, 5일, 20일, 60일 성과 검증</li>
+                <li>같은 티커, 기간, 액션은 active cycle 재사용</li>
               </ul>
             </div>
           </article>
@@ -440,13 +441,12 @@
       <section class="panel">
         <h2>개발 순서</h2>
         <ol>
-          <li>AGENTS.md와 HTML 로드맵 문서 업데이트</li>
-          <li><code>report_jobs</code> DB 저장 방식으로 변경</li>
-          <li>리포트 생성 단계별 시간/상태 UI 추가</li>
-          <li><code>portfolio_snapshots</code> 추가</li>
-          <li>대시보드 히스토리를 스냅샷 기반으로 변경</li>
-          <li>추천 생애주기 테이블 설계 및 구현</li>
-          <li>기존 <code>performance_logs</code>와 연결 또는 이전</li>
+          <li>AGENTS.md와 HTML 로드맵 문서 업데이트 · 완료</li>
+          <li><code>report_jobs</code> DB 저장 방식으로 변경 · 완료</li>
+          <li>리포트 생성 단계별 시간/상태 UI 추가 · 완료</li>
+          <li><code>portfolio_snapshots</code> 추가 · 완료</li>
+          <li>대시보드 히스토리를 스냅샷 기반으로 변경 · 완료</li>
+          <li>추천 생애주기 테이블 설계 및 구현 · 완료</li>
           <li>신뢰도/데이터 품질 설명 강화</li>
           <li>포트폴리오 의사결정 지원 기능 추가</li>
           <li>모바일 UX 개선</li>
@@ -467,8 +467,8 @@
           <tbody>
             <tr>
               <td>DB 스키마</td>
-              <td><code>report_jobs</code>, <code>portfolio_snapshots</code>, <code>recommendation_cycles</code></td>
-              <td>새 테이블은 데이터 구조와 API 계약에 영향을 줍니다.</td>
+              <td>Phase 1~3 테이블은 결정 및 구현 완료</td>
+              <td>운영 DB에서는 005~007 마이그레이션 실행이 필요합니다.</td>
             </tr>
             <tr>
               <td>보안</td>

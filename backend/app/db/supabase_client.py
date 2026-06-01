@@ -57,6 +57,30 @@ class Repository(Protocol):
         self, log_id: str, data: dict[str, Any]
     ) -> dict[str, Any] | None: ...
 
+    def create_report_job(self, data: dict[str, Any]) -> dict[str, Any]: ...
+
+    def update_report_job(self, job_id: str, data: dict[str, Any]) -> dict[str, Any] | None: ...
+
+    def get_report_job(self, job_id: str) -> dict[str, Any] | None: ...
+
+    def list_report_jobs(
+        self, status: str | None = None, limit: int | None = None
+    ) -> list[dict[str, Any]]: ...
+
+    def create_portfolio_snapshot(self, data: dict[str, Any]) -> dict[str, Any]: ...
+
+    def list_portfolio_snapshots(self, limit: int | None = None) -> list[dict[str, Any]]: ...
+
+    def create_recommendation_cycle(self, data: dict[str, Any]) -> dict[str, Any]: ...
+
+    def update_recommendation_cycle(
+        self, cycle_id: str, data: dict[str, Any]
+    ) -> dict[str, Any] | None: ...
+
+    def list_recommendation_cycles(
+        self, status: str | None = None, limit: int | None = None
+    ) -> list[dict[str, Any]]: ...
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -74,6 +98,9 @@ class InMemoryRepository:
         self.reports: dict[str, dict[str, Any]] = {}
         self.strategies: dict[str, dict[str, Any]] = {}
         self.performance_logs: dict[str, dict[str, Any]] = {}
+        self.report_jobs: dict[str, dict[str, Any]] = {}
+        self.portfolio_snapshots: dict[str, dict[str, Any]] = {}
+        self.recommendation_cycles: dict[str, dict[str, Any]] = {}
 
     def list_assets(self) -> list[dict[str, Any]]:
         return sorted(_copy_rows(self.assets.values()), key=lambda row: row["created_at"])
@@ -199,6 +226,81 @@ class InMemoryRepository:
             {key: value for key, value in data.items() if value is not None}
         )
         return deepcopy(self.performance_logs[log_id])
+
+    def create_report_job(self, data: dict[str, Any]) -> dict[str, Any]:
+        row = deepcopy(data)
+        row["job_id"] = row.get("job_id") or str(uuid4())
+        now = _now_iso()
+        row["created_at"] = row.get("created_at") or now
+        row["updated_at"] = row.get("updated_at") or now
+        row["step_timings"] = row.get("step_timings") or {}
+        self.report_jobs[row["job_id"]] = row
+        return deepcopy(row)
+
+    def update_report_job(self, job_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
+        if job_id not in self.report_jobs:
+            return None
+        self.report_jobs[job_id].update(
+            {key: value for key, value in data.items() if value is not None}
+        )
+        self.report_jobs[job_id]["updated_at"] = _now_iso()
+        return deepcopy(self.report_jobs[job_id])
+
+    def get_report_job(self, job_id: str) -> dict[str, Any] | None:
+        row = self.report_jobs.get(job_id)
+        return deepcopy(row) if row else None
+
+    def list_report_jobs(
+        self, status: str | None = None, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        rows = _copy_rows(self.report_jobs.values())
+        if status is not None:
+            rows = [row for row in rows if row.get("status") == status]
+        rows = sorted(rows, key=lambda row: row.get("created_at") or "", reverse=True)
+        return rows[:limit] if limit is not None else rows
+
+    def create_portfolio_snapshot(self, data: dict[str, Any]) -> dict[str, Any]:
+        row = deepcopy(data)
+        row["id"] = row.get("id") or str(uuid4())
+        row["created_at"] = row.get("created_at") or _now_iso()
+        self.portfolio_snapshots[row["id"]] = row
+        return deepcopy(row)
+
+    def list_portfolio_snapshots(self, limit: int | None = None) -> list[dict[str, Any]]:
+        rows = _copy_rows(self.portfolio_snapshots.values())
+        rows = sorted(rows, key=lambda row: row.get("created_at") or "", reverse=True)
+        return rows[:limit] if limit is not None else rows
+
+    def create_recommendation_cycle(self, data: dict[str, Any]) -> dict[str, Any]:
+        row = deepcopy(data)
+        row["id"] = row.get("id") or str(uuid4())
+        now = _now_iso()
+        row["created_at"] = row.get("created_at") or now
+        row["updated_at"] = row.get("updated_at") or now
+        row["started_at"] = row.get("started_at") or now
+        row["metadata"] = row.get("metadata") or {}
+        self.recommendation_cycles[row["id"]] = row
+        return deepcopy(row)
+
+    def update_recommendation_cycle(
+        self, cycle_id: str, data: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        if cycle_id not in self.recommendation_cycles:
+            return None
+        self.recommendation_cycles[cycle_id].update(
+            {key: value for key, value in data.items() if value is not None}
+        )
+        self.recommendation_cycles[cycle_id]["updated_at"] = _now_iso()
+        return deepcopy(self.recommendation_cycles[cycle_id])
+
+    def list_recommendation_cycles(
+        self, status: str | None = None, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        rows = _copy_rows(self.recommendation_cycles.values())
+        if status is not None:
+            rows = [row for row in rows if row.get("status") == status]
+        rows = sorted(rows, key=lambda row: row.get("created_at") or "", reverse=True)
+        return rows[:limit] if limit is not None else rows
 
 
 class SupabaseRepository:
@@ -351,6 +453,72 @@ class SupabaseRepository:
         builder = self.client.table("performance_logs").update(data).eq("id", log_id)
         rows = self._run(builder, {"operation": "update_performance_log", "log_id": log_id})
         return rows[0] if rows else None
+
+    def create_report_job(self, data: dict[str, Any]) -> dict[str, Any]:
+        builder = self.client.table("report_jobs").insert(data)
+        rows = self._run(builder, {"operation": "create_report_job"})
+        return rows[0]
+
+    def update_report_job(self, job_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
+        clean_data = {key: value for key, value in data.items() if value is not None}
+        builder = self.client.table("report_jobs").update(clean_data).eq("job_id", job_id)
+        rows = self._run(builder, {"operation": "update_report_job", "job_id": job_id})
+        return rows[0] if rows else None
+
+    def get_report_job(self, job_id: str) -> dict[str, Any] | None:
+        builder = self.client.table("report_jobs").select("*").eq("job_id", job_id).limit(1)
+        rows = self._run(builder, {"operation": "get_report_job", "job_id": job_id})
+        return rows[0] if rows else None
+
+    def list_report_jobs(
+        self, status: str | None = None, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        builder = self.client.table("report_jobs").select("*").order("created_at", desc=True)
+        if status is not None:
+            builder = builder.eq("status", status)
+        if limit is not None:
+            builder = builder.limit(limit)
+        return self._run(builder, {"operation": "list_report_jobs", "status": status})
+
+    def create_portfolio_snapshot(self, data: dict[str, Any]) -> dict[str, Any]:
+        builder = self.client.table("portfolio_snapshots").insert(data)
+        rows = self._run(builder, {"operation": "create_portfolio_snapshot"})
+        return rows[0]
+
+    def list_portfolio_snapshots(self, limit: int | None = None) -> list[dict[str, Any]]:
+        builder = (
+            self.client.table("portfolio_snapshots").select("*").order("created_at", desc=True)
+        )
+        if limit is not None:
+            builder = builder.limit(limit)
+        return self._run(builder, {"operation": "list_portfolio_snapshots"})
+
+    def create_recommendation_cycle(self, data: dict[str, Any]) -> dict[str, Any]:
+        builder = self.client.table("recommendation_cycles").insert(data)
+        rows = self._run(builder, {"operation": "create_recommendation_cycle"})
+        return rows[0]
+
+    def update_recommendation_cycle(
+        self, cycle_id: str, data: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        clean_data = {key: value for key, value in data.items() if value is not None}
+        builder = self.client.table("recommendation_cycles").update(clean_data).eq("id", cycle_id)
+        rows = self._run(
+            builder, {"operation": "update_recommendation_cycle", "cycle_id": cycle_id}
+        )
+        return rows[0] if rows else None
+
+    def list_recommendation_cycles(
+        self, status: str | None = None, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        builder = (
+            self.client.table("recommendation_cycles").select("*").order("created_at", desc=True)
+        )
+        if status is not None:
+            builder = builder.eq("status", status)
+        if limit is not None:
+            builder = builder.limit(limit)
+        return self._run(builder, {"operation": "list_recommendation_cycles", "status": status})
 
 
 def create_repository(env: EnvironmentSettings | None = None) -> Repository:

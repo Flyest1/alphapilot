@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-from threading import Lock
+from time import perf_counter
 from uuid import uuid4
+
+from app.db.supabase_client import Repository
 
 ACTIVE_JOB_STATUSES = {"queued", "running"}
 
@@ -21,38 +23,50 @@ class ReportGenerationJob:
     updated_at: str
     report_id: str | None = None
     message: str | None = None
+    error_category: str | None = None
+    step_timings: dict | None = None
 
-    def to_dict(self) -> dict[str, str | None]:
+    @classmethod
+    def from_row(cls, row: dict) -> "ReportGenerationJob":
+        return cls(
+            job_id=str(row.get("job_id")),
+            report_type=str(row.get("report_type")),
+            status=str(row.get("status") or "queued"),
+            report_id=row.get("report_id"),
+            message=row.get("message"),
+            error_category=row.get("error_category"),
+            step_timings=row.get("step_timings") or {},
+            created_at=str(row.get("created_at") or _now_iso()),
+            updated_at=str(row.get("updated_at") or _now_iso()),
+        )
+
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
 class ReportJobStore:
-    def __init__(self) -> None:
-        self._jobs: dict[str, ReportGenerationJob] = {}
-        self._lock = Lock()
+    def __init__(self, repository: Repository) -> None:
+        self.repository = repository
 
     def create_or_get_active(self, report_type: str) -> tuple[ReportGenerationJob, bool]:
-        with self._lock:
-            for job in reversed(list(self._jobs.values())):
-                if job.report_type == report_type and job.status in ACTIVE_JOB_STATUSES:
-                    return job, False
+        for row in self.repository.list_report_jobs(limit=20):
+            if row.get("report_type") == report_type and row.get("status") in ACTIVE_JOB_STATUSES:
+                return ReportGenerationJob.from_row(row), False
 
-            now = _now_iso()
-            job = ReportGenerationJob(
-                job_id=str(uuid4()),
-                report_type=report_type,
-                status="queued",
-                created_at=now,
-                updated_at=now,
-                message="리포트 생성 요청을 접수했습니다.",
-            )
-            self._jobs[job.job_id] = job
-            self._prune_locked()
-            return job, True
+        row = self.repository.create_report_job(
+            {
+                "job_id": str(uuid4()),
+                "report_type": report_type,
+                "status": "queued",
+                "message": "리포트 생성 요청을 접수했습니다.",
+                "step_timings": {},
+            }
+        )
+        return ReportGenerationJob.from_row(row), True
 
     def get(self, job_id: str) -> ReportGenerationJob | None:
-        with self._lock:
-            return self._jobs.get(job_id)
+        row = self.repository.get_report_job(job_id)
+        return ReportGenerationJob.from_row(row) if row else None
 
     def mark_running(self, job_id: str) -> ReportGenerationJob | None:
         return self._update(
@@ -61,37 +75,66 @@ class ReportJobStore:
             message="리포트를 생성하는 중입니다.",
         )
 
-    def mark_completed(self, job_id: str, report_id: str | None) -> ReportGenerationJob | None:
+    def mark_completed(
+        self,
+        job_id: str,
+        report_id: str | None,
+        step_timings: dict | None = None,
+    ) -> ReportGenerationJob | None:
         return self._update(
             job_id,
             status="completed",
             report_id=report_id,
+            step_timings=step_timings,
             message="리포트 생성이 완료되었습니다.",
         )
 
-    def mark_failed(self, job_id: str) -> ReportGenerationJob | None:
+    def mark_failed(
+        self,
+        job_id: str,
+        error_category: str = "internal_error",
+        step_timings: dict | None = None,
+    ) -> ReportGenerationJob | None:
         return self._update(
             job_id,
             status="failed",
+            error_category=error_category,
+            step_timings=step_timings,
             message="리포트 생성에 실패했습니다. 잠시 후 다시 시도하세요.",
         )
 
-    def _update(self, job_id: str, **updates: str | None) -> ReportGenerationJob | None:
-        with self._lock:
-            job = self._jobs.get(job_id)
-            if job is None:
-                return None
-            for key, value in updates.items():
-                setattr(job, key, value)
-            job.updated_at = _now_iso()
-            return job
-
-    def _prune_locked(self) -> None:
-        max_jobs = 50
-        if len(self._jobs) <= max_jobs:
+    def mark_step(self, job_id: str, step_name: str, status: str, duration_ms: int) -> None:
+        row = self.repository.get_report_job(job_id)
+        if not row:
             return
-        removable = [
-            job_id for job_id, job in self._jobs.items() if job.status not in ACTIVE_JOB_STATUSES
-        ]
-        for job_id in removable[: len(self._jobs) - max_jobs]:
-            self._jobs.pop(job_id, None)
+        step_timings = dict(row.get("step_timings") or {})
+        step_timings[step_name] = {
+            "status": status,
+            "duration_ms": duration_ms,
+            "updated_at": _now_iso(),
+        }
+        self.repository.update_report_job(job_id, {"step_timings": step_timings})
+
+    def time_step(self, job_id: str, step_name: str) -> "ReportJobStepTimer":
+        return ReportJobStepTimer(self, job_id, step_name)
+
+    def _update(self, job_id: str, **updates: str | None | dict) -> ReportGenerationJob | None:
+        row = self.repository.update_report_job(job_id, updates)
+        return ReportGenerationJob.from_row(row) if row else None
+
+
+class ReportJobStepTimer:
+    def __init__(self, store: ReportJobStore, job_id: str, step_name: str) -> None:
+        self.store = store
+        self.job_id = job_id
+        self.step_name = step_name
+        self.started_at = 0.0
+
+    def __enter__(self) -> "ReportJobStepTimer":
+        self.started_at = perf_counter()
+        return self
+
+    def __exit__(self, exc_type: object, _exc: object, _traceback: object) -> None:
+        duration_ms = int((perf_counter() - self.started_at) * 1000)
+        status = "failed" if exc_type else "completed"
+        self.store.mark_step(self.job_id, self.step_name, status, duration_ms)

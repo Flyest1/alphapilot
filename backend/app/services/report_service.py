@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -17,6 +18,7 @@ from app.services.market_data_service import MarketDataService
 from app.services.news_service import NewsService
 from app.services.openai_provider import OpenAIProvider
 from app.services.portfolio_service import PortfolioService
+from app.services.report_job_service import ReportJobStore
 from app.services.strategy_service import StrategyService
 from app.services.technical_analysis_service import (
     TechnicalAnalysisResult,
@@ -27,6 +29,7 @@ from app.utils.logging import log_external_failure
 
 DISCLAIMER = "이 리포트는 투자 의사결정 지원용이며 자동 매매를 실행하지 않습니다."
 MAX_RECOMMENDED_CANDIDATES = 10
+RECOMMENDATION_PRICE_CHANGE_THRESHOLD = 0.05
 CANDIDATE_HORIZON_RULES = {
     "short": {"min_score": 68, "label": "단기 5거래일", "target_days": 5},
     "medium": {"min_score": 64, "label": "중기 20거래일", "target_days": 20},
@@ -108,6 +111,8 @@ class ReportService:
         strategy_service: StrategyService | None = None,
         ai_provider: AIProvider | None = None,
         news_service: NewsService | None = None,
+        report_job_store: ReportJobStore | None = None,
+        report_job_id: str | None = None,
     ) -> None:
         self.repository = repository
         self.market_data_service = market_data_service or MarketDataService()
@@ -115,54 +120,65 @@ class ReportService:
         self.strategy_service = strategy_service or StrategyService()
         self.ai_provider = ai_provider
         self.news_service = news_service or NewsService()
+        self.report_job_store = report_job_store
+        self.report_job_id = report_job_id
 
     def generate_report(self, report_type: str) -> dict[str, Any]:
-        app_settings = resolve_application_settings(
-            self.repository.get_settings(),
-            get_env_application_defaults(),
-        )
-        app_settings = self._refresh_usd_krw_rate(app_settings)
-        all_assets = self.repository.list_assets()
-        assets = self._assets_for_report(all_assets, report_type)
-        portfolio_summary = PortfolioService(
-            self.repository,
-            self.market_data_service,
-        ).get_summary()
-        analysis_rows = self._build_asset_analysis(
-            assets,
-            app_settings.stale_data_business_days,
-            app_settings.risk_profile,
-        )
-        candidate_rows = self._build_candidate_analysis(
-            report_type,
-            all_assets,
-            app_settings.stale_data_business_days,
-            app_settings.risk_profile,
-            app_settings.candidate_horizon,
-        )
+        with self._timed_step("settings"):
+            app_settings = resolve_application_settings(
+                self.repository.get_settings(),
+                get_env_application_defaults(),
+            )
+            app_settings = self._refresh_usd_krw_rate(app_settings)
+            all_assets = self.repository.list_assets()
+            assets = self._assets_for_report(all_assets, report_type)
+        with self._timed_step("portfolio"):
+            portfolio_summary = PortfolioService(
+                self.repository,
+                self.market_data_service,
+            ).get_summary()
+        with self._timed_step("owned_asset_analysis"):
+            analysis_rows = self._build_asset_analysis(
+                assets,
+                app_settings.stale_data_business_days,
+                app_settings.risk_profile,
+            )
+        with self._timed_step("candidate_analysis"):
+            candidate_rows = self._build_candidate_analysis(
+                report_type,
+                all_assets,
+                app_settings.stale_data_business_days,
+                app_settings.risk_profile,
+                app_settings.candidate_horizon,
+            )
         analysis_rows = analysis_rows + candidate_rows
-        index_rows = self._build_index_analysis(report_type, app_settings.stale_data_business_days)
+        with self._timed_step("market_indices"):
+            index_rows = self._build_index_analysis(
+                report_type, app_settings.stale_data_business_days
+            )
         stale_tickers = [
             row["asset"]["ticker"] for row in analysis_rows if row["market_data"].is_stale
         ]
         technical_strategies = [
             row["strategy"] for row in analysis_rows if row["strategy"].reasoning != "data-limited"
         ]
-        news_context = self._build_news_context(
-            report_type,
-            [row["asset"] for row in analysis_rows if not row["market_data"].is_stale],
-        )
+        with self._timed_step("news_context"):
+            news_context = self._build_news_context(
+                report_type,
+                [row["asset"] for row in analysis_rows if not row["market_data"].is_stale],
+            )
 
-        content = self._generate_ai_content(
-            report_type=report_type,
-            app_settings=app_settings.model_dump(),
-            portfolio_summary=portfolio_summary.model_dump(),
-            analysis_rows=analysis_rows,
-            index_rows=index_rows,
-            technical_strategies=technical_strategies,
-            stale_tickers=stale_tickers,
-            news_context=news_context,
-        )
+        with self._timed_step("ai_report"):
+            content = self._generate_ai_content(
+                report_type=report_type,
+                app_settings=app_settings.model_dump(),
+                portfolio_summary=portfolio_summary.model_dump(),
+                analysis_rows=analysis_rows,
+                index_rows=index_rows,
+                technical_strategies=technical_strategies,
+                stale_tickers=stale_tickers,
+                news_context=news_context,
+            )
         if content is None:
             content = self._technical_only_report(
                 report_type,
@@ -177,10 +193,25 @@ class ReportService:
             content = self._enforce_stale_rules(content, analysis_rows, stale_tickers)
         content = self._append_news_context_note(content, news_context)
 
-        saved = self._save_report(content, assets)
-        self.backfill_performance_logs()
+        with self._timed_step("save_report"):
+            saved = self._save_report(
+                content,
+                assets,
+                app_settings.candidate_horizon,
+                portfolio_summary.model_dump(mode="json"),
+                app_settings.frontend_timezone,
+            )
+        with self._timed_step("performance_backfill"):
+            self.backfill_performance_logs()
+        with self._timed_step("recommendation_backfill"):
+            self.backfill_recommendation_cycles()
         saved["content"] = content.model_dump(mode="json")
         return saved
+
+    def _timed_step(self, step_name: str) -> Any:
+        if self.report_job_store is None or not self.report_job_id:
+            return nullcontext()
+        return self.report_job_store.time_step(self.report_job_id, step_name)
 
     def backfill_performance_logs(self) -> None:
         try:
@@ -205,7 +236,11 @@ class ReportService:
         created_at = parse_iso_datetime(strategy.get("created_at") or log_row.get("created_at"))
         if created_at is None:
             return
-        future_rows = result.dataframe[result.dataframe.index.date > created_at.date()]
+        today = datetime.now(timezone.utc).date()
+        future_rows = result.dataframe[
+            (result.dataframe.index.date > created_at.date())
+            & (result.dataframe.index.date <= today)
+        ]
         updates: dict[str, Any] = {}
         base_price = log_row.get("price_at_recommendation") or strategy.get("current_price")
         if base_price is None:
@@ -223,6 +258,86 @@ class ReportService:
         if updates:
             updates["evaluated_at"] = datetime.now(timezone.utc).isoformat()
             self.repository.update_performance_log(log_row["id"], updates)
+
+    def backfill_recommendation_cycles(self) -> None:
+        try:
+            cycles = self.repository.list_recommendation_cycles(limit=500)
+            for cycle in cycles:
+                self._backfill_cycle_row(cycle)
+        except Exception as exc:
+            log_external_failure("recommendation_cycles", exc, {"operation": "backfill"})
+
+    def _backfill_cycle_row(self, cycle: dict[str, Any]) -> None:
+        ticker = cycle.get("ticker")
+        if not ticker:
+            return
+        market = self._infer_market(ticker)
+        result = self.market_data_service.fetch_price_history(market, ticker, lookback_days=160)
+        if result.dataframe.empty:
+            return
+        started_at = parse_iso_datetime(cycle.get("started_at") or cycle.get("created_at"))
+        if started_at is None:
+            return
+        today = datetime.now(timezone.utc).date()
+        future_rows = result.dataframe[
+            (result.dataframe.index.date > started_at.date())
+            & (result.dataframe.index.date <= today)
+        ]
+        if future_rows.empty:
+            return
+        reference_price = cycle.get("reference_price")
+        if reference_price is None:
+            return
+        reference_price = float(reference_price)
+        updates: dict[str, Any] = {}
+        for days in (1, 5, 20, 60):
+            price_field = f"price_after_{days}d"
+            return_field = f"return_after_{days}d"
+            if cycle.get(price_field) is not None or len(future_rows) < days:
+                continue
+            price = float(future_rows.iloc[days - 1]["close"])
+            updates[price_field] = round(price, 4)
+            updates[return_field] = round(((price - reference_price) / reference_price) * 100, 4)
+
+        if cycle.get("status") == "active":
+            terminal_status = self._cycle_terminal_status(cycle, future_rows)
+            if terminal_status:
+                updates["status"] = terminal_status
+                updates["closed_at"] = datetime.now(timezone.utc).isoformat()
+            elif len(future_rows) >= self._horizon_days(cycle.get("horizon")):
+                updates["status"] = "expired"
+                updates["closed_at"] = datetime.now(timezone.utc).isoformat()
+
+        if updates:
+            updates["evaluated_at"] = datetime.now(timezone.utc).isoformat()
+            self.repository.update_recommendation_cycle(cycle["id"], updates)
+
+    def _cycle_terminal_status(
+        self,
+        cycle: dict[str, Any],
+        future_rows: Any,
+    ) -> str | None:
+        target = cycle.get("target_price")
+        stop = cycle.get("stop_loss")
+        target_price = float(target) if target is not None else None
+        stop_loss = float(stop) if stop is not None else None
+        if target_price is None and stop_loss is None:
+            return None
+        for _, row in future_rows.iterrows():
+            high = float(row.get("high", row.get("close")))
+            low = float(row.get("low", row.get("close")))
+            if stop_loss is not None and low <= stop_loss:
+                return "hit_stop"
+            if target_price is not None and high >= target_price:
+                return "hit_target"
+        return None
+
+    def _horizon_days(self, horizon: Any) -> int:
+        return {
+            "short": 5,
+            "medium": 20,
+            "long": 60,
+        }.get(str(horizon or "medium"), 20)
 
     def _generate_ai_content(
         self,
@@ -564,7 +679,14 @@ class ReportService:
                 "queries": [],
             }
 
-    def _save_report(self, content: ReportContent, assets: list[dict[str, Any]]) -> dict[str, Any]:
+    def _save_report(
+        self,
+        content: ReportContent,
+        assets: list[dict[str, Any]],
+        candidate_horizon: str,
+        portfolio_summary: dict[str, Any],
+        frontend_timezone: str,
+    ) -> dict[str, Any]:
         report = self.repository.create_report(
             {
                 "report_type": content.report_type,
@@ -576,6 +698,7 @@ class ReportService:
         assets_by_ticker = {asset["ticker"]: asset for asset in assets}
         existing_logs = self.repository.list_performance_logs(limit=500)
         existing_strategies = {row["id"]: row for row in self.repository.list_strategies()}
+        existing_cycles = self.repository.list_recommendation_cycles(limit=500)
         for strategy in content.asset_strategies:
             asset = assets_by_ticker.get(strategy.ticker)
             strategy_row = self.repository.create_strategy(
@@ -607,7 +730,166 @@ class ReportService:
                         "price_at_recommendation": strategy.current_price,
                     }
                 )
+            self._sync_recommendation_cycle(
+                strategy=strategy,
+                strategy_row=strategy_row,
+                report=report,
+                horizon=candidate_horizon,
+                existing_cycles=existing_cycles,
+            )
+        self._save_portfolio_snapshot(
+            report=report,
+            report_type=content.report_type,
+            portfolio_summary=portfolio_summary,
+            frontend_timezone=frontend_timezone,
+        )
         return report
+
+    def _save_portfolio_snapshot(
+        self,
+        report: dict[str, Any],
+        report_type: str,
+        portfolio_summary: dict[str, Any],
+        frontend_timezone: str,
+    ) -> None:
+        try:
+            tz = ZoneInfo(frontend_timezone)
+        except Exception:
+            tz = timezone.utc
+        try:
+            self.repository.create_portfolio_snapshot(
+                {
+                    "report_id": report.get("id"),
+                    "report_type": report_type,
+                    "snapshot_date": datetime.now(tz).date().isoformat(),
+                    "total_market_value": portfolio_summary.get("total_market_value") or 0,
+                    "total_cost": portfolio_summary.get("total_cost") or 0,
+                    "total_profit_loss": portfolio_summary.get("total_profit_loss") or 0,
+                    "total_return_rate": portfolio_summary.get("total_return_rate") or 0,
+                    "daily_profit_loss": portfolio_summary.get("daily_profit_loss") or 0,
+                    "daily_return_rate": portfolio_summary.get("daily_return_rate") or 0,
+                    "domestic_value": portfolio_summary.get("domestic_value") or 0,
+                    "global_value": portfolio_summary.get("global_value") or 0,
+                    "cash_value": portfolio_summary.get("cash_value") or 0,
+                    "usd_krw_rate": portfolio_summary.get("usd_krw_rate") or 1400,
+                    "asset_allocation": portfolio_summary.get("asset_allocation") or [],
+                    "asset_returns": portfolio_summary.get("asset_returns") or [],
+                }
+            )
+        except Exception as exc:
+            log_external_failure(
+                "portfolio_snapshots",
+                exc,
+                {"operation": "create_portfolio_snapshot", "report_id": report.get("id")},
+            )
+
+    def _sync_recommendation_cycle(
+        self,
+        strategy: AssetStrategy,
+        strategy_row: dict[str, Any],
+        report: dict[str, Any],
+        horizon: str,
+        existing_cycles: list[dict[str, Any]],
+    ) -> None:
+        if strategy.current_price is None or strategy.reasoning == "data-limited":
+            return
+        active_cycles = [
+            row
+            for row in existing_cycles
+            if row.get("ticker") == strategy.ticker
+            and row.get("horizon") == horizon
+            and row.get("status") == "active"
+        ]
+        reusable_cycle = next(
+            (
+                row
+                for row in active_cycles
+                if row.get("action") == strategy.action
+                and not self._material_price_change(row, strategy)
+            ),
+            None,
+        )
+        now = datetime.now(timezone.utc).isoformat()
+        if reusable_cycle:
+            updated = self.repository.update_recommendation_cycle(
+                reusable_cycle["id"],
+                {
+                    "strategy_id": strategy_row["id"],
+                    "report_id": report["id"],
+                    "target_price": strategy.target_price,
+                    "stop_loss": strategy.stop_loss,
+                    "metadata": {
+                        **(reusable_cycle.get("metadata") or {}),
+                        "last_seen_at": now,
+                        "latest_confidence": strategy.confidence,
+                    },
+                },
+            )
+            if updated:
+                existing_cycles[:] = [
+                    updated if row.get("id") == updated.get("id") else row
+                    for row in existing_cycles
+                ]
+            return
+
+        for row in active_cycles:
+            closed = self.repository.update_recommendation_cycle(
+                row["id"],
+                {
+                    "status": "superseded",
+                    "closed_at": now,
+                    "metadata": {
+                        **(row.get("metadata") or {}),
+                        "superseded_by_strategy_id": strategy_row["id"],
+                    },
+                },
+            )
+            if closed:
+                existing_cycles[:] = [
+                    closed if item.get("id") == closed.get("id") else item
+                    for item in existing_cycles
+                ]
+
+        created = self.repository.create_recommendation_cycle(
+            {
+                "strategy_id": strategy_row["id"],
+                "report_id": report["id"],
+                "report_type": report["report_type"],
+                "ticker": strategy.ticker,
+                "name": strategy.name,
+                "action": strategy.action,
+                "horizon": horizon,
+                "status": "active",
+                "reference_price": strategy.current_price,
+                "target_price": strategy.target_price,
+                "stop_loss": strategy.stop_loss,
+                "metadata": {
+                    "confidence": strategy.confidence,
+                    "buy_range_low": strategy.buy_range_low,
+                    "buy_range_high": strategy.buy_range_high,
+                    "sell_range_low": strategy.sell_range_low,
+                    "sell_range_high": strategy.sell_range_high,
+                    "reasoning": strategy.reasoning,
+                },
+            }
+        )
+        existing_cycles.append(created)
+
+    def _material_price_change(self, cycle: dict[str, Any], strategy: AssetStrategy) -> bool:
+        return self._price_changed(cycle.get("target_price"), strategy.target_price) or (
+            self._price_changed(cycle.get("stop_loss"), strategy.stop_loss)
+        )
+
+    def _price_changed(self, old_value: Any, new_value: Any) -> bool:
+        if old_value is None and new_value is None:
+            return False
+        if old_value is None or new_value is None:
+            return True
+        old_float = float(old_value)
+        new_float = float(new_value)
+        if old_float == 0:
+            return new_float != 0
+        return abs(new_float - old_float) / abs(old_float) >= RECOMMENDATION_PRICE_CHANGE_THRESHOLD
 
     def _should_start_performance_log(
         self,

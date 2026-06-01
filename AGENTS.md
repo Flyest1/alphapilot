@@ -49,8 +49,8 @@ npm run build
 
 ```text
 Phase: Post-MVP
-Status: MVP complete, deployed, and usable
-Primary goal now: turn the MVP into a reliable personal investment operating system
+Status: MVP complete; Post-MVP Phases 1-3 implemented in code
+Primary goal now: improve analysis transparency, portfolio decision support, mobile UX, and security
 ```
 
 The MVP already includes:
@@ -69,9 +69,12 @@ The MVP already includes:
 - portfolio summary
 - dashboard charts
 - manual report generation
+- persisted manual report job status with step timings
 - scheduled domestic/global reports
 - strategy table and candidate strategy view
 - performance log backfill
+- portfolio snapshots saved after report generation
+- recommendation lifecycle tracking through `recommendation_cycles`
 - lightweight single-user token access gate
 
 Future work must preserve these capabilities while improving reliability and investment usefulness.
@@ -371,12 +374,18 @@ Manual report generation must be asynchronous from the frontend perspective:
 - poll job status
 - refresh latest report after completion
 
-The current job store is in process memory. Future work should persist report jobs in Supabase.
+Report jobs are persisted in Supabase `report_jobs`.
 
 ### Performance
 
 ```text
 GET /api/performance-logs
+```
+
+### Recommendation Cycles
+
+```text
+GET /api/recommendation-cycles
 ```
 
 ### Settings
@@ -466,6 +475,9 @@ Existing Supabase tables:
 - `settings`
 - `performance_logs`
 - `candidate_assets`
+- `report_jobs`
+- `portfolio_snapshots`
+- `recommendation_cycles`
 
 Existing additive settings columns:
 
@@ -703,46 +715,47 @@ Reports must show:
 
 ### Phase 1: Operational Reliability
 
+Status: implemented.
+
 Goal: Make report generation observable and reliable.
 
-Implement:
+Implemented baseline:
 
 - `report_jobs` Supabase table
 - persisted manual report job status
 - report generation step timing
 - failure reason categories safe for UI
-- retry visibility in Status page
+- recent job visibility in Status page
 - latest GitHub Actions schedule guidance in Status page
 
-Do not add a separate worker, queue service, or external scheduler. Keep jobs in the Render/FastAPI process unless the user explicitly approves a new architecture.
+Do not add a separate worker, queue service, or external scheduler unless the user explicitly approves a new architecture.
 
 ### Phase 2: Portfolio Snapshots
 
+Status: implemented.
+
 Goal: Make dashboard history real, not inferred only from current price history.
 
-Implement:
+Implemented baseline:
 
 - `portfolio_snapshots` table
 - daily portfolio total value
 - daily cost basis
 - cash value
 - domestic/global/ETF allocation
-- per-asset snapshot rows if needed
 - dashboard chart backed by snapshots
 
-Open question before implementation:
-
-- Should snapshots be created only when reports run, or also when the user opens the dashboard?
-
-Ask before implementing if this affects schema or schedule.
+Decision: snapshots are saved when report generation completes. If fewer than two snapshots exist, dashboard history may fall back to market-data-derived history.
 
 ### Phase 3: Recommendation Lifecycle Tracking
 
+Status: implemented.
+
 Goal: Track whether recommendations are useful over time.
 
-Implement:
+Implemented baseline:
 
-- recommendation lifecycle table, tentatively `recommendation_cycles`
+- `recommendation_cycles` table
 - start date
 - ticker
 - report type
@@ -756,11 +769,9 @@ Implement:
 
 Rules:
 
-- Repeated same ticker/action must not reset an active cycle.
-- A new cycle starts only when the recommendation materially changes or prior cycle is closed.
-- Preserve current `performance_logs` until migration path is explicitly implemented.
-
-Ask before implementing final schema.
+- Repeated same ticker/horizon/action does not reset an active cycle.
+- A new cycle starts when action changes, target/stop changes by at least 5%, horizon changes, or the prior cycle is closed.
+- Current `performance_logs` remains preserved and runs in parallel.
 
 ### Phase 4: Analysis Quality
 
@@ -831,17 +842,16 @@ Do not implement until selected.
 
 Follow this order unless the user explicitly changes priority:
 
-1. Update AGENTS.md and roadmap document.
-2. Persist manual report jobs in Supabase.
-3. Add report generation step timing and status UI.
-4. Add portfolio snapshots.
-5. Replace dashboard history with snapshot-backed history.
-6. Design and implement recommendation lifecycle tracking.
-7. Migrate or bridge existing `performance_logs`.
-8. Add confidence explanation and data-quality transparency.
-9. Add portfolio decision-support features.
-10. Improve mobile UX.
-11. Decide and implement stronger security if approved.
+1. Update AGENTS.md and roadmap document. Done.
+2. Persist manual report jobs in Supabase. Done.
+3. Add report generation step timing and status UI. Done.
+4. Add portfolio snapshots. Done.
+5. Replace dashboard history with snapshot-backed history. Done.
+6. Design and implement recommendation lifecycle tracking. Done.
+7. Add confidence explanation and data-quality transparency.
+8. Add portfolio decision-support features.
+9. Improve mobile UX.
+10. Decide and implement stronger security if approved.
 
 Each step must include:
 

@@ -1,5 +1,5 @@
-from typing import Any
 from datetime import datetime, time, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends
@@ -43,6 +43,21 @@ def get_system_status(repository: Repository = Depends(get_repository)) -> dict[
         "get_latest_global_report",
         None,
     )
+    report_jobs, report_job_error = _safe_database_call(
+        lambda: repository.list_report_jobs(limit=20),
+        "list_report_jobs",
+        [],
+    )
+    snapshots, snapshot_error = _safe_database_call(
+        lambda: repository.list_portfolio_snapshots(limit=20),
+        "list_portfolio_snapshots",
+        [],
+    )
+    recommendation_cycles, cycle_error = _safe_database_call(
+        lambda: repository.list_recommendation_cycles(limit=50),
+        "list_recommendation_cycles",
+        [],
+    )
     database_errors = [
         error
         for error in (
@@ -51,6 +66,9 @@ def get_system_status(repository: Repository = Depends(get_repository)) -> dict[
             candidate_error,
             domestic_error,
             global_error,
+            report_job_error,
+            snapshot_error,
+            cycle_error,
         )
         if error
     ]
@@ -95,6 +113,23 @@ def get_system_status(repository: Repository = Depends(get_repository)) -> dict[
         "scheduler": {
             "domestic": _schedule_status(domestic_report, time(8, 30)),
             "global": _schedule_status(global_report, time(22, 30)),
+        },
+        "report_jobs": {
+            "total_recent_count": len(report_jobs),
+            "active_count": len(
+                [row for row in report_jobs if row.get("status") in {"queued", "running"}]
+            ),
+            "latest": report_jobs[0] if report_jobs else None,
+        },
+        "portfolio_snapshots": {
+            "recent_count": len(snapshots),
+            "latest_created_at": snapshots[0].get("created_at") if snapshots else None,
+        },
+        "recommendation_cycles": {
+            "recent_count": len(recommendation_cycles),
+            "active_count": len(
+                [row for row in recommendation_cycles if row.get("status") == "active"]
+            ),
         },
     }
 
