@@ -9,6 +9,7 @@ from app.api import assets, candidates, performance, portfolio, reports, setting
 from app.config import get_environment_settings
 from app.db.supabase_client import Repository, create_repository
 from app.services.market_data_service import MarketDataService
+from app.services.report_job_service import ReportJobStore
 from app.utils.rate_limit import DailyEndpointRateLimiter
 
 SCHEDULER_ENDPOINTS = {
@@ -44,6 +45,7 @@ def create_app(repository: Repository | None = None) -> FastAPI:
     app.state.repository = repository or create_repository(env)
     app.state.rate_limiter = DailyEndpointRateLimiter(max_per_day=10)
     app.state.market_data_service = MarketDataService()
+    app.state.report_jobs = ReportJobStore()
 
     origins = [env.frontend_origin] if env.frontend_origin else []
     app.add_middleware(

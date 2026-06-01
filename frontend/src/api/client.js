@@ -138,6 +138,7 @@ export const api = {
     get: (id) => apiRequest(`/api/reports/${id}`),
     generate: (reportType) =>
       apiRequest(`/api/reports/${reportType}/manual-generate`, { method: "POST" }),
+    jobStatus: (jobId) => apiRequest(`/api/reports/manual-jobs/${jobId}`),
   },
   performanceLogs: {
     list: () => apiRequest("/api/performance-logs"),

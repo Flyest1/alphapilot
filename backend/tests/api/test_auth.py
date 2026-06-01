@@ -62,7 +62,7 @@ def test_manual_report_endpoint_uses_api_token(monkeypatch):
     monkeypatch.setattr(
         ReportService,
         "generate_report",
-        lambda _self, report_type: {"report_type": report_type, "status": "generated"},
+        lambda _self, report_type: {"id": "report-1", "report_type": report_type},
     )
     test_client = client()
 
@@ -71,5 +71,26 @@ def test_manual_report_endpoint_uses_api_token(monkeypatch):
         headers={"Authorization": "Bearer test-api-token"},
     )
 
-    assert response.status_code == 200
-    assert response.json() == {"report_type": "domestic", "status": "generated"}
+    assert response.status_code == 202
+    body = response.json()
+    assert body["report_type"] == "domestic"
+    assert body["status"] == "queued"
+
+    status_response = test_client.get(
+        f"/api/reports/manual-jobs/{body['job_id']}",
+        headers={"Authorization": "Bearer test-api-token"},
+    )
+
+    assert status_response.status_code == 200
+    assert status_response.json()["status"] == "completed"
+
+
+def test_manual_report_job_status_returns_404_for_unknown_job():
+    test_client = client()
+
+    response = test_client.get(
+        "/api/reports/manual-jobs/missing",
+        headers={"Authorization": "Bearer test-api-token"},
+    )
+
+    assert response.status_code == 404

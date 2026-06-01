@@ -35,9 +35,51 @@ const horizonLabels = {
 };
 const REPORTS_CACHE_MS = 5 * 60 * 1000;
 const INITIAL_HISTORY_COUNT = 8;
+const REPORT_JOB_STORAGE_KEY = "alphapilot_active_report_job";
+const activeJobStatuses = new Set(["queued", "running"]);
 
 function firstReportForType(latest, reports, type) {
   return latest[type] || reports.find((report) => report.report_type === type) || null;
+}
+
+function readStoredReportJob() {
+  try {
+    const stored = window.localStorage.getItem(REPORT_JOB_STORAGE_KEY);
+    if (!stored) return null;
+    const job = JSON.parse(stored);
+    return activeJobStatuses.has(job?.status) ? job : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function writeStoredReportJob(job) {
+  if (!job || !activeJobStatuses.has(job.status)) {
+    window.localStorage.removeItem(REPORT_JOB_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(REPORT_JOB_STORAGE_KEY, JSON.stringify(job));
+}
+
+function isActiveReportJob(job) {
+  return activeJobStatuses.has(job?.status);
+}
+
+function reportJobMessage(job) {
+  if (!job) return "";
+  if (job.status === "queued") {
+    return `${reportTypeLabel(job.report_type)} 리포트 생성 요청을 접수했습니다. 기존 리포트는 계속 볼 수 있습니다.`;
+  }
+  if (job.status === "running") {
+    return `${reportTypeLabel(job.report_type)} 리포트를 생성하는 중입니다. 완료되면 자동으로 새로고침됩니다.`;
+  }
+  if (job.status === "completed") {
+    return `${reportTypeLabel(job.report_type)} 리포트 생성이 완료되었습니다.`;
+  }
+  if (job.status === "failed") {
+    return `${reportTypeLabel(job.report_type)} 리포트 생성에 실패했습니다.`;
+  }
+  return job.message || "";
 }
 
 export default function Reports() {
@@ -60,13 +102,14 @@ export default function Reports() {
   const [strategyFilter, setStrategyFilter] = useState("ALL");
   const [isLoading, setIsLoading] = useState(!hasCachedData);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [generatingType, setGeneratingType] = useState("");
+  const [generationJob, setGenerationJob] = useState(readStoredReportJob);
   const [statusMessage, setStatusMessage] = useState("");
   const [error, setError] = useState("");
   const [historyCount, setHistoryCount] = useState(INITIAL_HISTORY_COUNT);
   const lastRefreshAt = useRef(0);
+  const generatingType = isActiveReportJob(generationJob) ? generationJob.report_type : "";
 
-  function loadReports({ background = false } = {}) {
+  function loadReports({ background = false, preferredReportId = "" } = {}) {
     lastRefreshAt.current = Date.now();
     if (background) {
       setIsRefreshing(true);
@@ -87,9 +130,12 @@ export default function Reports() {
         setPerformanceLogs(performanceLogList);
         setAssets(assetList);
         setSettings(appSettings);
-        const nextReport = selected
-          ? reportList.find((report) => report.id === selected.id) || initialReport
-          : initialReport;
+        const preferredReport =
+          preferredReportId && reportList.find((report) => report.id === preferredReportId);
+        const nextReport =
+          preferredReport ||
+          (selected ? reportList.find((report) => report.id === selected.id) : null) ||
+          initialReport;
         setSelected(nextReport);
         if (nextReport) setActiveType(nextReport.report_type);
       })
@@ -123,6 +169,41 @@ export default function Reports() {
       document.removeEventListener("visibilitychange", refreshOnReturn);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isActiveReportJob(generationJob)) return undefined;
+
+    let cancelled = false;
+    async function checkReportJob() {
+      try {
+        const job = await api.reports.jobStatus(generationJob.job_id);
+        if (cancelled) return;
+        setGenerationJob(job);
+        writeStoredReportJob(job);
+        if (job.status === "completed") {
+          setStatusMessage(reportJobMessage(job));
+          await loadReports({ background: true, preferredReportId: job.report_id });
+          if (!cancelled) {
+            setGenerationJob(null);
+            writeStoredReportJob(null);
+          }
+        } else if (job.status === "failed") {
+          setError(job.message || "리포트 생성에 실패했습니다.");
+          setGenerationJob(null);
+          writeStoredReportJob(null);
+        }
+      } catch (err) {
+        if (!cancelled) setError(err.message);
+      }
+    }
+
+    checkReportJob();
+    const intervalId = window.setInterval(checkReportJob, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [generationJob?.job_id]);
 
   const content = selected?.content || {};
   const filteredReports = reports.filter((report) => report.report_type === activeType);
@@ -160,17 +241,13 @@ export default function Reports() {
     if (!confirmed) return;
     setError("");
     setStatusMessage("");
-    setGeneratingType(type);
     try {
-      const generated = await api.reports.generate(type);
-      setStatusMessage(`${reportTypeLabel(type)} 리포트를 생성했습니다.`);
-      await loadReports();
-      setSelected(generated);
+      const job = await api.reports.generate(type);
+      setGenerationJob(job);
+      writeStoredReportJob(job);
       setActiveType(type);
     } catch (err) {
       setError(err.message);
-    } finally {
-      setGeneratingType("");
     }
   }
 
@@ -198,6 +275,7 @@ export default function Reports() {
       </header>
       {error && <p className="alert">{error}</p>}
       {statusMessage && <p className="notice">{statusMessage}</p>}
+      {generationJob && <p className="notice">{reportJobMessage(generationJob)}</p>}
       {isLoading && <p className="empty-state">리포트를 불러오는 중입니다.</p>}
       {isRefreshing && <p className="field-hint">최신 리포트를 확인하는 중입니다.</p>}
 

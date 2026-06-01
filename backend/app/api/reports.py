@@ -1,8 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from typing import Any
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 
 from app.api.dependencies import get_repository
 from app.db.supabase_client import Repository
 from app.services.report_service import ReportService
+from app.utils.logging import log_external_failure
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
@@ -25,6 +28,50 @@ def _generate_report(
     return _report_service(request, repository).generate_report(report_type)
 
 
+def _run_manual_report_job(
+    app_state: Any,
+    repository: Repository,
+    report_type: str,
+    job_id: str,
+) -> None:
+    app_state.report_jobs.mark_running(job_id)
+    try:
+        report = ReportService(
+            repository=repository,
+            market_data_service=app_state.market_data_service,
+        ).generate_report(report_type)
+        app_state.report_jobs.mark_completed(job_id, report.get("id"))
+    except Exception as exc:
+        log_external_failure(
+            "manual_report_job",
+            exc,
+            {"operation": "generate_report", "report_type": report_type, "job_id": job_id},
+        )
+        app_state.report_jobs.mark_failed(job_id)
+
+
+def _start_manual_report_job(
+    report_type: str,
+    endpoint_key: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+) -> dict[str, Any]:
+    if not request.app.state.rate_limiter.allow(endpoint_key):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded"
+        )
+    job, created = request.app.state.report_jobs.create_or_get_active(report_type)
+    if created:
+        background_tasks.add_task(
+            _run_manual_report_job,
+            request.app.state,
+            request.app.state.repository,
+            report_type,
+            job.job_id,
+        )
+    return job.to_dict()
+
+
 @router.post("/domestic/generate")
 def generate_domestic_report(
     request: Request,
@@ -41,22 +88,38 @@ def generate_global_report(
     return _generate_report("global", "/api/reports/global/generate", request, repository)
 
 
-@router.post("/domestic/manual-generate")
+@router.post("/domestic/manual-generate", status_code=status.HTTP_202_ACCEPTED)
 def manually_generate_domestic_report(
+    background_tasks: BackgroundTasks,
     request: Request,
-    repository: Repository = Depends(get_repository),
 ) -> dict:
-    return _generate_report(
-        "domestic", "/api/reports/domestic/manual-generate", request, repository
+    return _start_manual_report_job(
+        "domestic",
+        "/api/reports/domestic/manual-generate",
+        request,
+        background_tasks,
     )
 
 
-@router.post("/global/manual-generate")
+@router.post("/global/manual-generate", status_code=status.HTTP_202_ACCEPTED)
 def manually_generate_global_report(
+    background_tasks: BackgroundTasks,
     request: Request,
-    repository: Repository = Depends(get_repository),
 ) -> dict:
-    return _generate_report("global", "/api/reports/global/manual-generate", request, repository)
+    return _start_manual_report_job(
+        "global",
+        "/api/reports/global/manual-generate",
+        request,
+        background_tasks,
+    )
+
+
+@router.get("/manual-jobs/{job_id}")
+def get_manual_report_job(job_id: str, request: Request) -> dict:
+    job = request.app.state.report_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="job not found")
+    return job.to_dict()
 
 
 @router.get("/latest")
