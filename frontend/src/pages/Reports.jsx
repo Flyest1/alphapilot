@@ -34,7 +34,7 @@ const horizonLabels = {
   long: "장기 60거래일",
 };
 const REPORTS_CACHE_MS = 5 * 60 * 1000;
-const INITIAL_HISTORY_COUNT = 8;
+const INITIAL_HISTORY_COUNT = 2;
 const REPORT_JOB_STORAGE_KEY = "alphapilot_active_report_job";
 const REPORT_JOB_CLIENT_TIMEOUT_MS = 30 * 60 * 1000;
 const activeJobStatuses = new Set(["queued", "running"]);
@@ -96,6 +96,57 @@ function reportJobMessage(job) {
     return `${reportTypeLabel(job.report_type)} 리포트 생성에 실패했습니다.`;
   }
   return job.message || "";
+}
+
+function formatStrategyMessageValue(value) {
+  if (value == null) return "";
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "";
+  return numeric.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function importantStrategyMessages(strategies = [], limit = 8) {
+  const priority = { BUY: 0, SELL: 1, REDUCE: 2, WATCH: 3, HOLD: 4 };
+  return [...strategies]
+    .filter((strategy) => strategy.reasoning !== "data-limited")
+    .sort(
+      (a, b) =>
+        (priority[a.action] ?? 9) - (priority[b.action] ?? 9) ||
+        Number(b.confidence || 0) - Number(a.confidence || 0),
+    )
+    .slice(0, limit)
+    .map((strategy) => {
+      const target = formatStrategyMessageValue(strategy.target_price);
+      const stop = formatStrategyMessageValue(strategy.stop_loss);
+      const details = [
+        target ? `목표 ${target}` : "",
+        stop ? `손절 ${stop}` : "",
+        strategy.confidence != null ? `신뢰도 ${strategy.confidence}%` : "",
+      ].filter(Boolean);
+      return {
+        key: `${strategy.ticker}-${strategy.action}-${strategy.confidence}`,
+        text: `${strategy.ticker} ${actionLabel(strategy.action)}`,
+        details: details.join(" · "),
+        action: strategy.action,
+      };
+    });
+}
+
+function KeyMessagePanel({ strategies = [] }) {
+  const messages = importantStrategyMessages(strategies);
+  if (!messages.length) {
+    return <p className="empty-state">핵심 매매 메시지를 만들 수 있는 전략이 아직 없습니다.</p>;
+  }
+  return (
+    <div className="key-message-list">
+      {messages.map((message) => (
+        <div className="key-message-item" key={message.key}>
+          <strong>{message.text}</strong>
+          <span>{message.details}</span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export default function Reports() {
@@ -419,6 +470,10 @@ export default function Reports() {
             <span>{selectedDataLimitedCount}개 데이터 제한</span>
             {selectedTechnicalOnly && <span>기술 지표만</span>}
           </div>
+        </div>
+        <div className="key-message-panel">
+          <h3>핵심 매매 메시지</h3>
+          <KeyMessagePanel strategies={strategies} />
         </div>
         <p>{displayText(content.market_summary?.summary) || "표시할 리포트 내용이 없습니다."}</p>
         {!!content.market_summary?.macro_factors?.length && (

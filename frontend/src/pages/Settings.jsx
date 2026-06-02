@@ -3,12 +3,28 @@ import { useEffect, useState } from "react";
 import { API_BASE_URL, api } from "../api/client.js";
 import CandidateAssetsPanel from "../components/CandidateAssetsPanel.jsx";
 
+function roundNumber(value, digits = 4) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return value;
+  return Number(numeric.toFixed(digits));
+}
+
+function normalizeSettings(settings) {
+  return {
+    ...settings,
+    usd_krw_rate: roundNumber(settings.usd_krw_rate, 4),
+  };
+}
+
 export default function Settings() {
   const [settings, setSettings] = useState(null);
   const [status, setStatus] = useState("");
 
   useEffect(() => {
-    api.settings.get().then(setSettings).catch((err) => setStatus(err.message));
+    api.settings
+      .get()
+      .then((data) => setSettings(normalizeSettings(data)))
+      .catch((err) => setStatus(err.message));
   }, []);
 
   function update(field, value) {
@@ -28,9 +44,9 @@ export default function Settings() {
         candidate_horizon: settings.candidate_horizon,
         frontend_timezone: settings.frontend_timezone,
         stale_data_business_days: Number(settings.stale_data_business_days),
-        usd_krw_rate: Number(settings.usd_krw_rate),
+        usd_krw_rate: roundNumber(settings.usd_krw_rate, 4),
       });
-      setSettings(saved);
+      setSettings(normalizeSettings(saved));
       setStatus("설정을 저장했습니다.");
     } catch (err) {
       setStatus(err.message);
@@ -117,7 +133,7 @@ export default function Settings() {
             USD-KRW 환율
             <input
               min="1"
-              step="0.01"
+              step="any"
               type="number"
               value={settings.usd_krw_rate}
               onChange={(event) => update("usd_krw_rate", event.target.value)}

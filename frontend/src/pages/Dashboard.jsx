@@ -20,6 +20,39 @@ function money(value) {
 
 const DASHBOARD_CACHE_MS = 5 * 60 * 1000;
 
+function formatStrategyMessageValue(value) {
+  if (value == null) return "";
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "";
+  return numeric.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function importantStrategyMessages(strategies = [], limit = 6) {
+  const priority = { BUY: 0, SELL: 1, REDUCE: 2, WATCH: 3, HOLD: 4 };
+  return [...strategies]
+    .filter((strategy) => strategy.reasoning !== "data-limited")
+    .sort(
+      (a, b) =>
+        (priority[a.action] ?? 9) - (priority[b.action] ?? 9) ||
+        Number(b.confidence || 0) - Number(a.confidence || 0),
+    )
+    .slice(0, limit)
+    .map((strategy) => {
+      const target = formatStrategyMessageValue(strategy.target_price);
+      const stop = formatStrategyMessageValue(strategy.stop_loss);
+      const details = [
+        target ? `목표 ${target}` : "",
+        stop ? `손절 ${stop}` : "",
+        strategy.confidence != null ? `신뢰도 ${strategy.confidence}%` : "",
+      ].filter(Boolean);
+      return {
+        key: `${strategy.ticker}-${strategy.action}-${strategy.confidence}`,
+        text: `${strategy.ticker} ${actionLabel(strategy.action)}`,
+        details: details.join(" · "),
+      };
+    });
+}
+
 export default function Dashboard() {
   const cachedSummary = readApiCache("/api/portfolio/summary", { maxAgeMs: DASHBOARD_CACHE_MS });
   const cachedLatest = readApiCache("/api/reports/latest", { maxAgeMs: DASHBOARD_CACHE_MS });
@@ -31,6 +64,7 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(!hasCachedData);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [snapshotStatus, setSnapshotStatus] = useState("");
   const [chartRange, setChartRange] = useState("7d");
   const lastRefreshAt = useRef(0);
 
@@ -52,6 +86,22 @@ export default function Dashboard() {
         setIsLoading(false);
         setIsRefreshing(false);
       });
+  }
+
+  async function createSnapshot() {
+    setError("");
+    setSnapshotStatus("");
+    setIsRefreshing(true);
+    try {
+      const result = await api.portfolio.snapshot();
+      setSummary(result.summary);
+      setSnapshotStatus("현재 환율과 시세 기준으로 자산 스냅샷을 저장했습니다.");
+      await loadDashboard({ background: true });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsRefreshing(false);
+    }
   }
 
   useEffect(() => {
@@ -91,6 +141,7 @@ export default function Dashboard() {
   const topCandidates = [...candidateStrategies]
     .sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
     .slice(0, 5);
+  const keyMessages = importantStrategyMessages(strategies, 6);
   const dailyChanges = (summary?.daily_asset_changes || []).slice(0, 8);
   const chartPoints = (summary?.value_history || []).slice(chartRange === "7d" ? -7 : -30);
 
@@ -101,9 +152,15 @@ export default function Dashboard() {
           <h1>포트폴리오 대시보드</h1>
           <p>보유 자산, 최신 리포트, 전략 신호를 한눈에 확인합니다.</p>
         </div>
+        <div className="header-actions">
+          <button disabled={isRefreshing} type="button" onClick={createSnapshot}>
+            자산 스냅샷 저장
+          </button>
+        </div>
       </header>
 
       {error && <p className="alert">{error}</p>}
+      {snapshotStatus && <p className="notice">{snapshotStatus}</p>}
       {isLoading && <p className="empty-state">포트폴리오 데이터를 불러오는 중입니다.</p>}
       {isRefreshing && <p className="field-hint">최신 데이터를 확인하는 중입니다.</p>}
 
@@ -215,6 +272,21 @@ export default function Dashboard() {
               <strong>{item.count}</strong>
             </div>
           ))}
+        </div>
+        <div className="key-message-panel">
+          <h3>핵심 매매 메시지</h3>
+          {keyMessages.length ? (
+            <div className="key-message-list">
+              {keyMessages.map((message) => (
+                <div className="key-message-item" key={message.key}>
+                  <strong>{message.text}</strong>
+                  <span>{message.details}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-state">핵심 매매 메시지를 만들 수 있는 전략이 아직 없습니다.</p>
+          )}
         </div>
         <div className="top-strategy-list">
           {topStrategies.length === 0 && <p className="empty-state">표시할 최신 전략이 없습니다.</p>}

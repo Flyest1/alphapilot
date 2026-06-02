@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Any
 
 from app.config import get_env_application_defaults, resolve_application_settings
@@ -18,7 +19,7 @@ class PortfolioService:
             self.repository.get_settings(),
             get_env_application_defaults(),
         )
-        usd_krw_rate = float(app_settings.usd_krw_rate)
+        usd_krw_rate = self._resolve_usd_krw_rate(app_settings)
         rows = []
         value_history_sources = []
         totals = {
@@ -152,6 +153,57 @@ class PortfolioService:
             asset_returns=rows,
             latest_report_summary=latest_summary,
         )
+
+    def create_snapshot(self) -> dict[str, Any]:
+        summary = self.get_summary()
+        snapshot = self.repository.create_portfolio_snapshot(
+            {
+                "report_id": None,
+                "report_type": "manual",
+                "snapshot_date": datetime.now(timezone.utc).date().isoformat(),
+                "total_market_value": summary.total_market_value,
+                "total_cost": summary.total_cost,
+                "total_profit_loss": summary.total_profit_loss,
+                "total_return_rate": summary.total_return_rate,
+                "daily_profit_loss": summary.daily_profit_loss,
+                "daily_return_rate": summary.daily_return_rate,
+                "domestic_value": summary.domestic_value,
+                "global_value": summary.global_value,
+                "cash_value": summary.cash_value,
+                "usd_krw_rate": summary.usd_krw_rate,
+                "asset_allocation": summary.asset_allocation,
+                "asset_returns": summary.asset_returns,
+            }
+        )
+        return {"snapshot": snapshot, "summary": summary.model_dump(mode="json")}
+
+    def _resolve_usd_krw_rate(self, app_settings: Any) -> float:
+        fallback_rate = round(float(app_settings.usd_krw_rate), 4)
+        if self.market_data_service is None or not hasattr(
+            self.market_data_service, "fetch_usd_krw_rate"
+        ):
+            return fallback_rate
+        try:
+            latest_rate = self.market_data_service.fetch_usd_krw_rate(fallback_rate)
+            if latest_rate is None or float(latest_rate) <= 0:
+                return fallback_rate
+            resolved_rate = round(float(latest_rate), 4)
+            if abs(resolved_rate - fallback_rate) < 0.0001:
+                return resolved_rate
+            values = app_settings.model_dump(
+                mode="json",
+                exclude={"created_at", "updated_at"},
+            )
+            values["usd_krw_rate"] = resolved_rate
+            self.repository.upsert_settings(values)
+            return resolved_rate
+        except Exception as exc:
+            log_external_failure(
+                "market_data",
+                exc,
+                {"operation": "portfolio_usd_krw_rate"},
+            )
+            return fallback_rate
 
     def _price_result(self, asset: dict[str, Any]) -> Any | None:
         if asset.get("market") == "CASH" or self.market_data_service is None:

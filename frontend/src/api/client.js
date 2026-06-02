@@ -131,6 +131,8 @@ export const api = {
   },
   portfolio: {
     summary: () => apiRequest("/api/portfolio/summary"),
+    snapshot: () => apiRequest("/api/portfolio/snapshot", { method: "POST" }),
+    benchmarkReturns: (days = 60) => apiRequest(`/api/portfolio/benchmark-returns?days=${days}`),
   },
   reports: {
     latest: () => apiRequest("/api/reports/latest"),

@@ -1120,10 +1120,11 @@ class ReportService:
             return app_settings
         if refreshed_rate is None or refreshed_rate <= 0:
             return app_settings
-        if abs(float(refreshed_rate) - float(app_settings.usd_krw_rate)) < 0.01:
+        rounded_rate = round(float(refreshed_rate), 4)
+        if abs(rounded_rate - float(app_settings.usd_krw_rate)) < 0.01:
             return app_settings
         try:
-            saved = self.repository.upsert_settings({"usd_krw_rate": float(refreshed_rate)})
+            saved = self.repository.upsert_settings({"usd_krw_rate": rounded_rate})
             return resolve_application_settings(saved, get_env_application_defaults())
         except Exception as exc:
             log_external_failure("settings", exc, {"operation": "refresh_usd_krw_rate"})
