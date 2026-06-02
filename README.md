@@ -218,6 +218,7 @@ SCHEDULER_SECRET=Render에 설정한 SCHEDULER_SECRET과 같은 값
 ```
 
 자동 리포트는 사용자가 사이트에 접속해 있어야 생성되는 방식이 아닙니다. GitHub Actions가 지정된 시간에 Render 백엔드를 직접 호출합니다. 자동 생성이 되지 않으면 GitHub 저장소의 `Actions` 탭에서 `Generate Domestic Market Report`, `Generate Global Market Report` 워크플로가 비활성화되어 있지 않은지, scheduled run이 생성되는지, `BACKEND_URL`과 `SCHEDULER_SECRET` secret이 현재 Render 값과 일치하는지 확인하세요.
+스케줄러 API는 리포트 생성 작업을 즉시 `report_jobs`에 접수하고 202 응답을 반환합니다. 따라서 GitHub Actions의 성공은 "작업 접수 성공"을 의미하며, 실제 리포트 완료 여부는 앱의 `상태` 화면에서 최근 리포트 생성 job 상태로 확인합니다.
 
 국내 리포트:
 

@@ -58,6 +58,33 @@ def test_scheduler_endpoint_rejects_wrong_token():
     assert response.status_code == 401
 
 
+def test_scheduler_report_endpoint_queues_job_with_scheduler_token(monkeypatch):
+    monkeypatch.setattr(
+        ReportService,
+        "generate_report",
+        lambda _self, report_type: {"id": "report-1", "report_type": report_type},
+    )
+    test_client = client()
+
+    response = test_client.post(
+        "/api/reports/global/generate",
+        headers={"Authorization": "Bearer test-scheduler-token"},
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["report_type"] == "global"
+    assert body["status"] == "queued"
+
+    status_response = test_client.get(
+        f"/api/reports/manual-jobs/{body['job_id']}",
+        headers={"Authorization": "Bearer test-api-token"},
+    )
+
+    assert status_response.status_code == 200
+    assert status_response.json()["status"] == "completed"
+
+
 def test_manual_report_endpoint_uses_api_token(monkeypatch):
     monkeypatch.setattr(
         ReportService,

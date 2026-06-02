@@ -10,24 +10,6 @@ from app.utils.logging import log_external_failure
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
 
-def _report_service(request: Request, repository: Repository) -> ReportService:
-    market_data_service = getattr(request.app.state, "market_data_service", None)
-    return ReportService(repository=repository, market_data_service=market_data_service)
-
-
-def _generate_report(
-    report_type: str,
-    endpoint_key: str,
-    request: Request,
-    repository: Repository,
-) -> dict:
-    if not request.app.state.rate_limiter.allow(endpoint_key):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded"
-        )
-    return _report_service(request, repository).generate_report(report_type)
-
-
 def _run_manual_report_job(
     app_state: Any,
     repository: Repository,
@@ -74,20 +56,30 @@ def _start_manual_report_job(
     return job.to_dict()
 
 
-@router.post("/domestic/generate")
+@router.post("/domestic/generate", status_code=status.HTTP_202_ACCEPTED)
 def generate_domestic_report(
+    background_tasks: BackgroundTasks,
     request: Request,
-    repository: Repository = Depends(get_repository),
 ) -> dict:
-    return _generate_report("domestic", "/api/reports/domestic/generate", request, repository)
+    return _start_manual_report_job(
+        "domestic",
+        "/api/reports/domestic/generate",
+        request,
+        background_tasks,
+    )
 
 
-@router.post("/global/generate")
+@router.post("/global/generate", status_code=status.HTTP_202_ACCEPTED)
 def generate_global_report(
+    background_tasks: BackgroundTasks,
     request: Request,
-    repository: Repository = Depends(get_repository),
 ) -> dict:
-    return _generate_report("global", "/api/reports/global/generate", request, repository)
+    return _start_manual_report_job(
+        "global",
+        "/api/reports/global/generate",
+        request,
+        background_tasks,
+    )
 
 
 @router.post("/domestic/manual-generate", status_code=status.HTTP_202_ACCEPTED)
