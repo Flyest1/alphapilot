@@ -36,6 +36,7 @@ const horizonLabels = {
 const REPORTS_CACHE_MS = 5 * 60 * 1000;
 const INITIAL_HISTORY_COUNT = 8;
 const REPORT_JOB_STORAGE_KEY = "alphapilot_active_report_job";
+const REPORT_JOB_CLIENT_TIMEOUT_MS = 30 * 60 * 1000;
 const activeJobStatuses = new Set(["queued", "running"]);
 
 function firstReportForType(latest, reports, type) {
@@ -47,22 +48,37 @@ function readStoredReportJob() {
     const stored = window.localStorage.getItem(REPORT_JOB_STORAGE_KEY);
     if (!stored) return null;
     const job = JSON.parse(stored);
-    return activeJobStatuses.has(job?.status) ? job : null;
+    if (!activeJobStatuses.has(job?.status) || isReportJobClientStale(job)) {
+      window.localStorage.removeItem(REPORT_JOB_STORAGE_KEY);
+      return null;
+    }
+    return job;
   } catch (_error) {
     return null;
   }
 }
 
 function writeStoredReportJob(job) {
-  if (!job || !activeJobStatuses.has(job.status)) {
+  if (!job || !activeJobStatuses.has(job.status) || isReportJobClientStale(job)) {
     window.localStorage.removeItem(REPORT_JOB_STORAGE_KEY);
     return;
   }
   window.localStorage.setItem(REPORT_JOB_STORAGE_KEY, JSON.stringify(job));
 }
 
+function reportJobUpdatedAtMs(job) {
+  const timestamp = job?.updated_at || job?.created_at;
+  if (!timestamp) return Date.now();
+  const parsed = new Date(timestamp).getTime();
+  return Number.isNaN(parsed) ? Date.now() : parsed;
+}
+
+function isReportJobClientStale(job) {
+  return Date.now() - reportJobUpdatedAtMs(job) > REPORT_JOB_CLIENT_TIMEOUT_MS;
+}
+
 function isActiveReportJob(job) {
-  return activeJobStatuses.has(job?.status);
+  return activeJobStatuses.has(job?.status) && !isReportJobClientStale(job);
 }
 
 function reportJobMessage(job) {
@@ -110,7 +126,8 @@ export default function Reports() {
   const [error, setError] = useState("");
   const [historyCount, setHistoryCount] = useState(INITIAL_HISTORY_COUNT);
   const lastRefreshAt = useRef(0);
-  const generatingType = isActiveReportJob(generationJob) ? generationJob.report_type : "";
+  const activeGenerationJob = isActiveReportJob(generationJob) ? generationJob : null;
+  const generatingType = activeGenerationJob?.report_type || "";
 
   function loadReports({ background = false, preferredReportId = "" } = {}) {
     lastRefreshAt.current = Date.now();
@@ -207,7 +224,13 @@ export default function Reports() {
           writeStoredReportJob(null);
         }
       } catch (err) {
-        if (!cancelled) setError(err.message);
+        if (!cancelled) {
+          setError(err.message);
+          if (isReportJobClientStale(generationJob)) {
+            setGenerationJob(null);
+            writeStoredReportJob(null);
+          }
+        }
       }
     }
 
@@ -268,6 +291,12 @@ export default function Reports() {
     }
   }
 
+  function clearGenerationStatus() {
+    setGenerationJob(null);
+    setStatusMessage("");
+    writeStoredReportJob(null);
+  }
+
   return (
     <section className="page">
       <header className="page-header">
@@ -292,7 +321,14 @@ export default function Reports() {
       </header>
       {error && <p className="alert">{error}</p>}
       {statusMessage && <p className="notice">{statusMessage}</p>}
-      {generationJob && <p className="notice">{reportJobMessage(generationJob)}</p>}
+      {activeGenerationJob && (
+        <div className="notice notice-with-action">
+          <span>{reportJobMessage(activeGenerationJob)}</span>
+          <button type="button" onClick={clearGenerationStatus}>
+            생성 상태 초기화
+          </button>
+        </div>
+      )}
       {isLoading && <p className="empty-state">리포트를 불러오는 중입니다.</p>}
       {isRefreshing && <p className="field-hint">최신 리포트를 확인하는 중입니다.</p>}
 

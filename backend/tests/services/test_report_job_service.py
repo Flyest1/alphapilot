@@ -48,3 +48,25 @@ def test_report_job_store_records_step_timings():
 
     assert updated is not None
     assert updated.step_timings["market_data"]["duration_ms"] == 120
+
+
+def test_report_job_store_expires_stale_active_job_and_allows_new_job():
+    repo = InMemoryRepository()
+    stale = repo.create_report_job(
+        {
+            "report_type": "domestic",
+            "status": "running",
+            "created_at": "2026-01-01T00:00:00+00:00",
+            "updated_at": "2026-01-01T00:00:00+00:00",
+        }
+    )
+    store = ReportJobStore(repo)
+
+    second, created = store.create_or_get_active("domestic")
+    expired = store.get(stale["job_id"])
+
+    assert created is True
+    assert second.job_id != stale["job_id"]
+    assert expired is not None
+    assert expired.status == "failed"
+    assert expired.error_category == "stale_active_job"

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from time import perf_counter
 from uuid import uuid4
 
 from app.db.supabase_client import Repository
+from app.utils.datetime import parse_iso_datetime
 
 ACTIVE_JOB_STATUSES = {"queued", "running"}
+ACTIVE_JOB_TIMEOUT = timedelta(minutes=20)
 
 
 def _now_iso() -> str:
@@ -45,12 +47,24 @@ class ReportGenerationJob:
 
 
 class ReportJobStore:
-    def __init__(self, repository: Repository) -> None:
+    def __init__(
+        self,
+        repository: Repository,
+        active_timeout: timedelta = ACTIVE_JOB_TIMEOUT,
+    ) -> None:
         self.repository = repository
+        self.active_timeout = active_timeout
 
     def create_or_get_active(self, report_type: str) -> tuple[ReportGenerationJob, bool]:
         for row in self.repository.list_report_jobs(limit=20):
-            if row.get("report_type") == report_type and row.get("status") in ACTIVE_JOB_STATUSES:
+            if (
+                row.get("report_type") != report_type
+                or row.get("status") not in ACTIVE_JOB_STATUSES
+            ):
+                continue
+            if self._expire_if_stale(row):
+                continue
+            if row.get("status") in ACTIVE_JOB_STATUSES:
                 return ReportGenerationJob.from_row(row), False
 
         row = self.repository.create_report_job(
@@ -66,6 +80,8 @@ class ReportJobStore:
 
     def get(self, job_id: str) -> ReportGenerationJob | None:
         row = self.repository.get_report_job(job_id)
+        if row and self._expire_if_stale(row):
+            row = self.repository.get_report_job(job_id)
         return ReportGenerationJob.from_row(row) if row else None
 
     def mark_running(self, job_id: str) -> ReportGenerationJob | None:
@@ -117,6 +133,29 @@ class ReportJobStore:
 
     def time_step(self, job_id: str, step_name: str) -> "ReportJobStepTimer":
         return ReportJobStepTimer(self, job_id, step_name)
+
+    def _expire_if_stale(self, row: dict) -> bool:
+        if row.get("status") not in ACTIVE_JOB_STATUSES:
+            return False
+        timestamp = parse_iso_datetime(row.get("updated_at") or row.get("created_at"))
+        if timestamp is None:
+            return False
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - timestamp <= self.active_timeout:
+            return False
+        self.repository.update_report_job(
+            str(row.get("job_id")),
+            {
+                "status": "failed",
+                "error_category": "stale_active_job",
+                "message": (
+                    "이전 리포트 생성 작업이 응답 없이 오래 지나 자동 종료되었습니다. "
+                    "다시 생성할 수 있습니다."
+                ),
+            },
+        )
+        return True
 
     def _update(self, job_id: str, **updates: str | None | dict) -> ReportGenerationJob | None:
         row = self.repository.update_report_job(job_id, updates)
