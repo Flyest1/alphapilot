@@ -6,12 +6,12 @@ import {
   dataLimitedCount,
   displayText,
   formatReportTime,
-  importantStrategyMessages,
   pickReportWithStrategies,
   reportAiModeLabel,
   reportTypeLabel,
   splitStrategiesByAssets,
 } from "../api/reports.js";
+import KeyMessageList from "../components/KeyMessageList.jsx";
 import StrategyTable from "../components/StrategyTable.jsx";
 import SummaryCard from "../components/SummaryCard.jsx";
 
@@ -20,39 +20,6 @@ function money(value) {
 }
 
 const DASHBOARD_CACHE_MS = 5 * 60 * 1000;
-
-function formatStrategyMessageValue(value) {
-  if (value == null) return "";
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "";
-  return numeric.toLocaleString(undefined, { maximumFractionDigits: 2 });
-}
-
-function legacyImportantStrategyMessages(strategies = [], limit = 6) {
-  const priority = { BUY: 0, SELL: 1, REDUCE: 2, WATCH: 3, HOLD: 4 };
-  return [...strategies]
-    .filter((strategy) => strategy.reasoning !== "data-limited")
-    .sort(
-      (a, b) =>
-        (priority[a.action] ?? 9) - (priority[b.action] ?? 9) ||
-        Number(b.confidence || 0) - Number(a.confidence || 0),
-    )
-    .slice(0, limit)
-    .map((strategy) => {
-      const target = formatStrategyMessageValue(strategy.target_price);
-      const stop = formatStrategyMessageValue(strategy.stop_loss);
-      const details = [
-        target ? `목표 ${target}` : "",
-        stop ? `손절 ${stop}` : "",
-        strategy.confidence != null ? `신뢰도 ${strategy.confidence}%` : "",
-      ].filter(Boolean);
-      return {
-        key: `${strategy.ticker}-${strategy.action}-${strategy.confidence}`,
-        text: `${strategy.ticker} ${actionLabel(strategy.action)}`,
-        details: details.join(" · "),
-      };
-    });
-}
 
 export default function Dashboard() {
   const cachedSummary = readApiCache("/api/portfolio/summary", { maxAgeMs: DASHBOARD_CACHE_MS });
@@ -142,7 +109,6 @@ export default function Dashboard() {
   const topCandidates = [...candidateStrategies]
     .sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
     .slice(0, 5);
-  const keyMessages = importantStrategyMessages(strategies, 6);
   const dailyChanges = (summary?.daily_asset_changes || []).slice(0, 8);
   const chartPoints = (summary?.value_history || []).slice(chartRange === "7d" ? -7 : -30);
 
@@ -276,18 +242,7 @@ export default function Dashboard() {
         </div>
         <div className="key-message-panel">
           <h3>핵심 매매 메시지</h3>
-          {keyMessages.length ? (
-            <div className="key-message-list">
-              {keyMessages.map((message) => (
-                <div className="key-message-item" key={message.key}>
-                  <strong>{message.text}</strong>
-                  <span>{message.details}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="empty-state">핵심 매매 메시지를 만들 수 있는 전략이 아직 없습니다.</p>
-          )}
+          <KeyMessageList strategies={strategies} limit={6} />
         </div>
         <div className="top-strategy-list">
           {topStrategies.length === 0 && <p className="empty-state">표시할 최신 전략이 없습니다.</p>}

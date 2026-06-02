@@ -83,19 +83,22 @@ export function formatStrategyMessageValue(value) {
   return numeric.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
-function strategyDisplayName(strategy) {
+function strategyTitle(strategy) {
   const ticker = String(strategy.ticker || "").trim();
   const name = String(strategy.name || "").trim();
+  const tickerText = ticker ? `(${ticker})` : "";
+  const displayName = name && name !== ticker ? name : "";
 
-  if (name && ticker && name !== ticker) return `${name} (${ticker})`;
-  return name || ticker || "-";
+  return [actionLabel(strategy.action), tickerText, displayName].filter(Boolean).join(" ");
 }
 
-function formatStrategyRange(low, high) {
+function formatStrategyRange(low, current, high) {
   const lowText = formatStrategyMessageValue(low);
+  const currentText = formatStrategyMessageValue(current);
   const highText = formatStrategyMessageValue(high);
-  if (lowText && highText) return `${lowText}~${highText}`;
-  return lowText || highText;
+  const parts = [lowText, currentText, highText].filter(Boolean);
+  if (parts.length >= 2) return parts.join("~");
+  return parts[0] || "";
 }
 
 export function importantStrategyMessages(strategies = [], limit = 8) {
@@ -109,15 +112,19 @@ export function importantStrategyMessages(strategies = [], limit = 8) {
     )
     .slice(0, limit)
     .map((strategy) => {
-      const buyRange = formatStrategyRange(strategy.buy_range_low, strategy.buy_range_high);
+      const buyRange = formatStrategyRange(
+        strategy.buy_range_low,
+        strategy.current_price,
+        strategy.buy_range_high,
+      );
       const target = formatStrategyMessageValue(strategy.target_price);
       const stop = formatStrategyMessageValue(strategy.stop_loss);
       const confidence =
         strategy.confidence == null || strategy.confidence === ""
           ? ""
           : `(${strategy.confidence}%)`;
-      const details = [
-        buyRange ? `매수구간 ${buyRange}` : "",
+      const rangeLine = buyRange ? `매수구간 ${buyRange}` : "";
+      const exitLine = [
         target ? `목표 ${target}` : "",
         stop ? `손절 ${stop}` : "",
         confidence,
@@ -125,9 +132,12 @@ export function importantStrategyMessages(strategies = [], limit = 8) {
 
       return {
         key: `${strategy.ticker}-${strategy.action}-${strategy.confidence}-${strategy.name || ""}`,
-        text: `${strategyDisplayName(strategy)} ${actionLabel(strategy.action)}`,
-        details: details.join(" · "),
+        text: strategyTitle(strategy),
+        rangeLine,
+        exitLine: exitLine.join(", "),
+        details: [rangeLine, exitLine.join(", ")].filter(Boolean).join(" · "),
         action: strategy.action,
+        strategy,
       };
     });
 }

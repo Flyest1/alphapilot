@@ -6,7 +6,6 @@ import {
   dataLimitedCount,
   displayText,
   formatReportTime,
-  importantStrategyMessages,
   isTechnicalOnlyReport,
   pickReportWithStrategies,
   reportAiModeLabel,
@@ -16,6 +15,7 @@ import {
   strategyCount,
   trendLabel,
 } from "../api/reports.js";
+import KeyMessageList from "../components/KeyMessageList.jsx";
 import StrategyTable from "../components/StrategyTable.jsx";
 
 const reportTypes = ["domestic", "global"];
@@ -99,55 +99,8 @@ function reportJobMessage(job) {
   return job.message || "";
 }
 
-function formatStrategyMessageValue(value) {
-  if (value == null) return "";
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "";
-  return numeric.toLocaleString(undefined, { maximumFractionDigits: 2 });
-}
-
-function legacyImportantStrategyMessages(strategies = [], limit = 8) {
-  const priority = { BUY: 0, SELL: 1, REDUCE: 2, WATCH: 3, HOLD: 4 };
-  return [...strategies]
-    .filter((strategy) => strategy.reasoning !== "data-limited")
-    .sort(
-      (a, b) =>
-        (priority[a.action] ?? 9) - (priority[b.action] ?? 9) ||
-        Number(b.confidence || 0) - Number(a.confidence || 0),
-    )
-    .slice(0, limit)
-    .map((strategy) => {
-      const target = formatStrategyMessageValue(strategy.target_price);
-      const stop = formatStrategyMessageValue(strategy.stop_loss);
-      const details = [
-        target ? `목표 ${target}` : "",
-        stop ? `손절 ${stop}` : "",
-        strategy.confidence != null ? `신뢰도 ${strategy.confidence}%` : "",
-      ].filter(Boolean);
-      return {
-        key: `${strategy.ticker}-${strategy.action}-${strategy.confidence}`,
-        text: `${strategy.ticker} ${actionLabel(strategy.action)}`,
-        details: details.join(" · "),
-        action: strategy.action,
-      };
-    });
-}
-
 function KeyMessagePanel({ strategies = [] }) {
-  const messages = importantStrategyMessages(strategies);
-  if (!messages.length) {
-    return <p className="empty-state">핵심 매매 메시지를 만들 수 있는 전략이 아직 없습니다.</p>;
-  }
-  return (
-    <div className="key-message-list">
-      {messages.map((message) => (
-        <div className="key-message-item" key={message.key}>
-          <strong>{message.text}</strong>
-          <span>{message.details}</span>
-        </div>
-      ))}
-    </div>
-  );
+  return <KeyMessageList strategies={strategies} />;
 }
 
 export default function Reports() {
