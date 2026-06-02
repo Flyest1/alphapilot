@@ -6,6 +6,7 @@ import {
   dataLimitedCount,
   displayText,
   formatReportTime,
+  importantStrategyMessages,
   isTechnicalOnlyReport,
   pickReportWithStrategies,
   reportAiModeLabel,
@@ -105,7 +106,7 @@ function formatStrategyMessageValue(value) {
   return numeric.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
-function importantStrategyMessages(strategies = [], limit = 8) {
+function legacyImportantStrategyMessages(strategies = [], limit = 8) {
   const priority = { BUY: 0, SELL: 1, REDUCE: 2, WATCH: 3, HOLD: 4 };
   return [...strategies]
     .filter((strategy) => strategy.reasoning !== "data-limited")

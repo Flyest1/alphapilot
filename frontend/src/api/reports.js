@@ -76,6 +76,62 @@ export function actionLabel(action) {
   return ACTION_LABELS[action] || action;
 }
 
+export function formatStrategyMessageValue(value) {
+  if (value == null) return "";
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "";
+  return numeric.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function strategyDisplayName(strategy) {
+  const ticker = String(strategy.ticker || "").trim();
+  const name = String(strategy.name || "").trim();
+
+  if (name && ticker && name !== ticker) return `${name} (${ticker})`;
+  return name || ticker || "-";
+}
+
+function formatStrategyRange(low, high) {
+  const lowText = formatStrategyMessageValue(low);
+  const highText = formatStrategyMessageValue(high);
+  if (lowText && highText) return `${lowText}~${highText}`;
+  return lowText || highText;
+}
+
+export function importantStrategyMessages(strategies = [], limit = 8) {
+  const priority = { BUY: 0, SELL: 1, REDUCE: 2, WATCH: 3, HOLD: 4 };
+  return [...strategies]
+    .filter((strategy) => strategy.reasoning !== "data-limited")
+    .sort(
+      (a, b) =>
+        (priority[a.action] ?? 9) - (priority[b.action] ?? 9) ||
+        Number(b.confidence || 0) - Number(a.confidence || 0),
+    )
+    .slice(0, limit)
+    .map((strategy) => {
+      const buyRange = formatStrategyRange(strategy.buy_range_low, strategy.buy_range_high);
+      const target = formatStrategyMessageValue(strategy.target_price);
+      const stop = formatStrategyMessageValue(strategy.stop_loss);
+      const confidence =
+        strategy.confidence == null || strategy.confidence === ""
+          ? ""
+          : `(${strategy.confidence}%)`;
+      const details = [
+        buyRange ? `매수구간 ${buyRange}` : "",
+        target ? `목표 ${target}` : "",
+        stop ? `손절 ${stop}` : "",
+        confidence,
+      ].filter(Boolean);
+
+      return {
+        key: `${strategy.ticker}-${strategy.action}-${strategy.confidence}-${strategy.name || ""}`,
+        text: `${strategyDisplayName(strategy)} ${actionLabel(strategy.action)}`,
+        details: details.join(" · "),
+        action: strategy.action,
+      };
+    });
+}
+
 export function reportAiModeLabel(report) {
   if (!report) return "-";
   return isTechnicalOnlyReport(report) ? "기술 지표만" : "AI";
