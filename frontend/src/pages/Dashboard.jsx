@@ -25,10 +25,13 @@ export default function Dashboard() {
   const cachedSummary = readApiCache("/api/portfolio/summary", { maxAgeMs: DASHBOARD_CACHE_MS });
   const cachedLatest = readApiCache("/api/reports/latest", { maxAgeMs: DASHBOARD_CACHE_MS });
   const cachedAssets = readApiCache("/api/assets", { maxAgeMs: DASHBOARD_CACHE_MS });
+  const cachedPerformanceLogs =
+    readApiCache("/api/performance-logs", { maxAgeMs: DASHBOARD_CACHE_MS }) || [];
   const hasCachedData = Boolean(cachedSummary || cachedLatest || cachedAssets);
   const [summary, setSummary] = useState(cachedSummary);
   const [latest, setLatest] = useState(cachedLatest);
   const [assets, setAssets] = useState(cachedAssets || []);
+  const [performanceLogs, setPerformanceLogs] = useState(cachedPerformanceLogs);
   const [isLoading, setIsLoading] = useState(!hasCachedData);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -43,11 +46,17 @@ export default function Dashboard() {
     } else {
       setIsLoading(true);
     }
-    Promise.all([api.portfolio.summary(), api.reports.latest(), api.assets.list()])
-      .then(([portfolio, reports, assetList]) => {
+    Promise.all([
+      api.portfolio.summary(),
+      api.reports.latest(),
+      api.assets.list(),
+      api.performanceLogs.list(),
+    ])
+      .then(([portfolio, reports, assetList, performanceLogList]) => {
         setSummary(portfolio);
         setLatest(reports);
         setAssets(assetList);
+        setPerformanceLogs(performanceLogList);
       })
       .catch((err) => setError(err.message))
       .finally(() => {
@@ -76,7 +85,8 @@ export default function Dashboard() {
     const cacheFresh =
       isApiCacheFresh("/api/portfolio/summary", DASHBOARD_CACHE_MS) &&
       isApiCacheFresh("/api/reports/latest", DASHBOARD_CACHE_MS) &&
-      isApiCacheFresh("/api/assets", DASHBOARD_CACHE_MS);
+      isApiCacheFresh("/api/assets", DASHBOARD_CACHE_MS) &&
+      isApiCacheFresh("/api/performance-logs", DASHBOARD_CACHE_MS);
     if (!cacheFresh) {
       loadDashboard({ background: hasCachedData });
     }
@@ -242,7 +252,7 @@ export default function Dashboard() {
         </div>
         <div className="key-message-panel">
           <h3>핵심 매매 메시지</h3>
-          <KeyMessageList strategies={strategies} limit={6} />
+          <KeyMessageList strategies={strategies} limit={6} performanceLogs={performanceLogs} />
         </div>
         <div className="top-strategy-list">
           {topStrategies.length === 0 && <p className="empty-state">표시할 최신 전략이 없습니다.</p>}
@@ -335,7 +345,7 @@ export default function Dashboard() {
         {isLoading ? (
           <p className="empty-state">전략을 불러오는 중입니다.</p>
         ) : (
-          <StrategyTable strategies={ownedStrategies} />
+          <StrategyTable strategies={ownedStrategies} performanceLogs={performanceLogs} />
         )}
       </section>
     </section>

@@ -756,6 +756,11 @@ form button,
   font-size: 12px;
 }
 
+.key-message-range-current {
+  color: #17202a;
+  font-weight: 800;
+}
+
 .key-message-detail-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

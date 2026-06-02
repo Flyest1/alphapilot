@@ -99,8 +99,8 @@ function reportJobMessage(job) {
   return job.message || "";
 }
 
-function KeyMessagePanel({ strategies = [] }) {
-  return <KeyMessageList strategies={strategies} />;
+function KeyMessagePanel({ strategies = [], performanceLogs = [] }) {
+  return <KeyMessageList strategies={strategies} performanceLogs={performanceLogs} />;
 }
 
 export default function Reports() {
@@ -427,7 +427,7 @@ export default function Reports() {
         </div>
         <div className="key-message-panel">
           <h3>핵심 매매 메시지</h3>
-          <KeyMessagePanel strategies={strategies} />
+          <KeyMessagePanel strategies={strategies} performanceLogs={performanceLogs} />
         </div>
         <p>{displayText(content.market_summary?.summary) || "표시할 리포트 내용이 없습니다."}</p>
         {!!content.market_summary?.macro_factors?.length && (
