@@ -1,6 +1,7 @@
 from typing import Any
 
 from app.models.report import AssetStrategy
+from app.utils.labels import risk_profile_label, trend_label
 
 
 class StrategyService:
@@ -50,11 +51,11 @@ class StrategyService:
         stop_pct = self._stop_loss_pct(risk_profile)
         range_pct = self._range_pct(risk_profile)
         target_pct = self._target_pct(risk_profile, action)
-        trend_label = self._trend_label(getattr(technical_analysis, "trend_label", "watch"))
+        trend_text = trend_label(getattr(technical_analysis, "trend_label", "watch"))
         reasoning = (
             "technical-only fallback (LLM unavailable)"
             if fallback_mode
-            else f"기술 점수 {score}: {trend_label}"
+            else f"기술 점수 {score}: {trend_text}"
         )
 
         buy_low = current_price * (1 - range_pct)
@@ -110,7 +111,7 @@ class StrategyService:
         return {"conservative": 0.08, "balanced": 0.12, "aggressive": 0.18}.get(risk_profile, 0.12)
 
     def _risk_text(self, risk_profile: str, score: int) -> str:
-        risk_label = self._risk_profile_label(risk_profile)
+        risk_label = risk_profile_label(risk_profile)
         if score < 50:
             return f"{risk_label} 성향: 약한 기술적 흐름이므로 하락 위험 관리가 필요합니다."
         return f"{risk_label} 성향: 포지션 크기와 손절 기준을 지키는 것이 중요합니다."
@@ -120,20 +121,3 @@ class StrategyService:
             invalidation_price = current_price * (1 - stop_pct)
             return f"종가가 {invalidation_price:.4f} 아래로 내려가면 무효화합니다."
         return "기술 점수가 50을 회복하고 모멘텀이 개선되면 판단을 다시 검토합니다."
-
-    def _risk_profile_label(self, risk_profile: str) -> str:
-        return {
-            "conservative": "보수적",
-            "balanced": "균형",
-            "aggressive": "공격적",
-        }.get(risk_profile, risk_profile)
-
-    def _trend_label(self, trend_label: str) -> str:
-        return {
-            "strong bullish setup": "강한 상승 흐름",
-            "bullish but needs confirmation": "상승 우위이나 확인 필요",
-            "neutral / watch": "중립 또는 관찰",
-            "weak / reduce risk": "약세, 위험 축소 필요",
-            "bearish / sell or avoid": "약세, 매도 또는 회피",
-            "data-limited": "데이터 제한",
-        }.get(trend_label, trend_label)

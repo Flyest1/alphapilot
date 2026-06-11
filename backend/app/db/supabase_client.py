@@ -53,6 +53,10 @@ class Repository(Protocol):
 
     def list_performance_logs(self, limit: int | None = None) -> list[dict[str, Any]]: ...
 
+    def list_unevaluated_performance_logs(
+        self, limit: int | None = None
+    ) -> list[dict[str, Any]]: ...
+
     def update_performance_log(
         self, log_id: str, data: dict[str, Any]
     ) -> dict[str, Any] | None: ...
@@ -81,6 +85,12 @@ class Repository(Protocol):
         self, status: str | None = None, limit: int | None = None
     ) -> list[dict[str, Any]]: ...
 
+    def list_open_recommendation_cycles(self, limit: int | None = None) -> list[dict[str, Any]]: ...
+
+    def get_market_data_cache(self, cache_key: str) -> dict[str, Any] | None: ...
+
+    def upsert_market_data_cache(self, cache_key: str, payload: dict[str, Any]) -> None: ...
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -101,6 +111,7 @@ class InMemoryRepository:
         self.report_jobs: dict[str, dict[str, Any]] = {}
         self.portfolio_snapshots: dict[str, dict[str, Any]] = {}
         self.recommendation_cycles: dict[str, dict[str, Any]] = {}
+        self.market_data_cache: dict[str, dict[str, Any]] = {}
 
     def list_assets(self) -> list[dict[str, Any]]:
         return sorted(_copy_rows(self.assets.values()), key=lambda row: row["created_at"])
@@ -219,6 +230,15 @@ class InMemoryRepository:
         rows = sorted(rows, key=lambda row: row.get("created_at") or "", reverse=True)
         return rows[:limit] if limit is not None else rows
 
+    def list_unevaluated_performance_logs(self, limit: int | None = None) -> list[dict[str, Any]]:
+        rows = [
+            row
+            for row in _copy_rows(self.performance_logs.values())
+            if row.get("price_after_20d") is None
+        ]
+        rows = sorted(rows, key=lambda row: row.get("created_at") or "", reverse=True)
+        return rows[:limit] if limit is not None else rows
+
     def update_performance_log(self, log_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
         if log_id not in self.performance_logs:
             return None
@@ -301,6 +321,26 @@ class InMemoryRepository:
             rows = [row for row in rows if row.get("status") == status]
         rows = sorted(rows, key=lambda row: row.get("created_at") or "", reverse=True)
         return rows[:limit] if limit is not None else rows
+
+    def list_open_recommendation_cycles(self, limit: int | None = None) -> list[dict[str, Any]]:
+        rows = [
+            row
+            for row in _copy_rows(self.recommendation_cycles.values())
+            if row.get("status") == "active" or row.get("price_after_60d") is None
+        ]
+        rows = sorted(rows, key=lambda row: row.get("created_at") or "", reverse=True)
+        return rows[:limit] if limit is not None else rows
+
+    def get_market_data_cache(self, cache_key: str) -> dict[str, Any] | None:
+        row = self.market_data_cache.get(cache_key)
+        return deepcopy(row) if row else None
+
+    def upsert_market_data_cache(self, cache_key: str, payload: dict[str, Any]) -> None:
+        self.market_data_cache[cache_key] = {
+            "cache_key": cache_key,
+            "payload": deepcopy(payload),
+            "created_at": _now_iso(),
+        }
 
 
 class SupabaseRepository:
@@ -449,6 +489,17 @@ class SupabaseRepository:
             builder = builder.limit(limit)
         return self._run(builder, {"operation": "list_performance_logs"})
 
+    def list_unevaluated_performance_logs(self, limit: int | None = None) -> list[dict[str, Any]]:
+        builder = (
+            self.client.table("performance_logs")
+            .select("*")
+            .is_("price_after_20d", "null")
+            .order("created_at", desc=True)
+        )
+        if limit is not None:
+            builder = builder.limit(limit)
+        return self._run(builder, {"operation": "list_unevaluated_performance_logs"})
+
     def update_performance_log(self, log_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
         builder = self.client.table("performance_logs").update(data).eq("id", log_id)
         rows = self._run(builder, {"operation": "update_performance_log", "log_id": log_id})
@@ -519,6 +570,31 @@ class SupabaseRepository:
         if limit is not None:
             builder = builder.limit(limit)
         return self._run(builder, {"operation": "list_recommendation_cycles", "status": status})
+
+    def list_open_recommendation_cycles(self, limit: int | None = None) -> list[dict[str, Any]]:
+        builder = (
+            self.client.table("recommendation_cycles")
+            .select("*")
+            .or_("status.eq.active,price_after_60d.is.null")
+            .order("created_at", desc=True)
+        )
+        if limit is not None:
+            builder = builder.limit(limit)
+        return self._run(builder, {"operation": "list_open_recommendation_cycles"})
+
+    def get_market_data_cache(self, cache_key: str) -> dict[str, Any] | None:
+        builder = (
+            self.client.table("market_data_cache").select("*").eq("cache_key", cache_key).limit(1)
+        )
+        rows = self._run(builder, {"operation": "get_market_data_cache"})
+        return rows[0] if rows else None
+
+    def upsert_market_data_cache(self, cache_key: str, payload: dict[str, Any]) -> None:
+        builder = self.client.table("market_data_cache").upsert(
+            {"cache_key": cache_key, "payload": payload},
+            on_conflict="cache_key",
+        )
+        self._run(builder, {"operation": "upsert_market_data_cache"})
 
 
 def create_repository(env: EnvironmentSettings | None = None) -> Repository:

@@ -1,4 +1,5 @@
 import logging
+import secrets
 from collections.abc import Callable
 
 from fastapi import FastAPI, HTTPException, Request
@@ -53,7 +54,7 @@ def create_app(repository: Repository | None = None) -> FastAPI:
     app = FastAPI(title="AlphaPilot API", version="0.1.0")
     app.state.repository = repository or create_repository(env)
     app.state.rate_limiter = DailyEndpointRateLimiter(max_per_day=10)
-    app.state.market_data_service = MarketDataService()
+    app.state.market_data_service = MarketDataService(repository=app.state.repository)
     app.state.report_jobs = ReportJobStore(app.state.repository)
 
     origins = [env.frontend_origin] if env.frontend_origin else []
@@ -76,7 +77,12 @@ def create_app(repository: Repository | None = None) -> FastAPI:
             if request.url.path in SCHEDULER_ENDPOINTS
             else current_env.api_access_token
         )
-        if not expected_token or _bearer_token(request) != expected_token:
+        provided_token = _bearer_token(request)
+        if (
+            not expected_token
+            or provided_token is None
+            or not secrets.compare_digest(provided_token.encode(), expected_token.encode())
+        ):
             return JSONResponse(
                 {"detail": "unauthorized"},
                 status_code=401,

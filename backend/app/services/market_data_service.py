@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from io import StringIO
 import logging
 from typing import Any
 
@@ -7,6 +8,7 @@ import numpy as np
 import pandas as pd
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
+from app.utils.datetime import parse_iso_datetime
 from app.utils.logging import log_external_failure
 
 
@@ -26,10 +28,14 @@ class MarketDataService:
         kr_provider: Any | None = None,
         yf_module: Any | None = None,
         now_provider: Any | None = None,
+        repository: Any | None = None,
     ) -> None:
         self.kr_provider = kr_provider
         self.yf_module = yf_module
         self.now_provider = now_provider or (lambda: datetime.now(timezone.utc))
+        # repository가 주어지면 일중 캐시를 Supabase market_data_cache 테이블에 영속화해
+        # 콜드스타트 직후 외부 시세 재호출 폭주를 막는다.
+        self.repository = repository
         self._price_cache: dict[tuple[str, str, int, int, str], MarketDataResult] = {}
 
     def fetch_price_history(
@@ -61,6 +67,11 @@ class MarketDataService:
         if cache_key in self._price_cache:
             return self._price_cache[cache_key]
 
+        persisted = self._read_persistent_cache(cache_key)
+        if persisted is not None:
+            self._price_cache[cache_key] = persisted
+            return persisted
+
         provider = self._provider_name(normalized_market, normalized_ticker)
         try:
             if provider == "pykrx":
@@ -71,6 +82,7 @@ class MarketDataService:
                 raw, provider, stale_data_business_days, normalized_ticker
             )
             self._price_cache[cache_key] = result
+            self._write_persistent_cache(cache_key, result)
             return result
         except Exception as exc:
             log_external_failure(
@@ -197,6 +209,59 @@ class MarketDataService:
                 provider="pykrx",
                 data_quality_note="pykrx index failure; data-limited",
             )
+
+    def _persistent_cache_key(self, cache_key: tuple[str, str, int, int, str]) -> str:
+        return ":".join(str(part) for part in cache_key)
+
+    def _read_persistent_cache(
+        self, cache_key: tuple[str, str, int, int, str]
+    ) -> MarketDataResult | None:
+        if self.repository is None:
+            return None
+        try:
+            row = self.repository.get_market_data_cache(self._persistent_cache_key(cache_key))
+        except Exception as exc:
+            log_external_failure("market_data_cache", exc, {"operation": "read"})
+            return None
+        payload = (row or {}).get("payload")
+        if not payload:
+            return None
+        try:
+            frame = pd.read_json(StringIO(payload["frame"]), orient="split")
+            frame.index = pd.to_datetime(frame.index)
+            return MarketDataResult(
+                dataframe=frame,
+                last_trading_date=parse_iso_datetime(payload.get("last_trading_date")),
+                is_stale=bool(payload.get("is_stale")),
+                provider=str(payload.get("provider") or "cache"),
+                data_quality_note=str(payload.get("data_quality_note") or "ok"),
+                current_price=payload.get("current_price"),
+            )
+        except Exception as exc:
+            log_external_failure("market_data_cache", exc, {"operation": "deserialize"})
+            return None
+
+    def _write_persistent_cache(
+        self,
+        cache_key: tuple[str, str, int, int, str],
+        result: MarketDataResult,
+    ) -> None:
+        if self.repository is None or result.dataframe.empty:
+            return
+        try:
+            payload = {
+                "frame": result.dataframe.to_json(orient="split", date_format="iso"),
+                "last_trading_date": (
+                    result.last_trading_date.isoformat() if result.last_trading_date else None
+                ),
+                "is_stale": result.is_stale,
+                "provider": result.provider,
+                "data_quality_note": result.data_quality_note,
+                "current_price": result.current_price,
+            }
+            self.repository.upsert_market_data_cache(self._persistent_cache_key(cache_key), payload)
+        except Exception as exc:
+            log_external_failure("market_data_cache", exc, {"operation": "write"})
 
     def normalize_ticker(self, market: str, ticker: str) -> str:
         upper = ticker.strip().upper()
