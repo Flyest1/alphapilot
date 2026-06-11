@@ -13,6 +13,7 @@ import {
 } from "../api/reports.js";
 import AllocationChart from "../components/dashboard/AllocationChart.jsx";
 import ExposurePanel from "../components/dashboard/ExposurePanel.jsx";
+import RebalanceCard from "../components/dashboard/RebalanceCard.jsx";
 import SummaryCards from "../components/dashboard/SummaryCards.jsx";
 import TopStrategies from "../components/dashboard/TopStrategies.jsx";
 import TrendChart from "../components/dashboard/TrendChart.jsx";
@@ -144,6 +145,8 @@ export default function Dashboard() {
       {isRefreshing && <p className="field-hint">{MESSAGES.refreshing}</p>}
 
       <SummaryCards summary={summary} />
+
+      <RebalanceCard summary={summary} />
 
       <ExposurePanel summary={summary} />
 

@@ -15,6 +15,18 @@ class Settings(BaseModel):
     frontend_timezone: str = "Asia/Seoul"
     stale_data_business_days: int = Field(default=2, ge=0)
     usd_krw_rate: float = Field(default=1400, gt=0)
+    # Phase 5-2: 목표 배분(합계 100 권장)과 리밸런스 임계치
+    target_domestic_pct: float = Field(default=40, ge=0, le=100)
+    target_global_pct: float = Field(default=40, ge=0, le=100)
+    target_cash_pct: float = Field(default=20, ge=0, le=100)
+    target_max_asset_pct: float = Field(default=25, gt=0, le=100)
+    rebalance_band_pct: float = Field(default=5, ge=0, le=50)
+    # Phase 5-3: 1회 추천당 감수할 손실 한도 (총자산 대비 %)
+    risk_per_trade_pct: float = Field(default=1.0, gt=0, le=10)
+    # Phase 5-4: 비용 인지 수익률 추정용 (모두 편도 %)
+    fee_rate_pct: float = Field(default=0.015, ge=0, le=5)
+    kr_tax_rate_pct: float = Field(default=0.18, ge=0, le=5)
+    fx_spread_pct: float = Field(default=0.5, ge=0, le=5)
     created_at: str | None = None
     updated_at: str | None = None
 
@@ -31,3 +43,12 @@ class SettingsUpdate(BaseModel):
     frontend_timezone: str | None = None
     stale_data_business_days: int | None = Field(default=None, ge=0)
     usd_krw_rate: float | None = Field(default=None, gt=0)
+    target_domestic_pct: float | None = Field(default=None, ge=0, le=100)
+    target_global_pct: float | None = Field(default=None, ge=0, le=100)
+    target_cash_pct: float | None = Field(default=None, ge=0, le=100)
+    target_max_asset_pct: float | None = Field(default=None, gt=0, le=100)
+    rebalance_band_pct: float | None = Field(default=None, ge=0, le=50)
+    risk_per_trade_pct: float | None = Field(default=None, gt=0, le=10)
+    fee_rate_pct: float | None = Field(default=None, ge=0, le=5)
+    kr_tax_rate_pct: float | None = Field(default=None, ge=0, le=5)
+    fx_spread_pct: float | None = Field(default=None, ge=0, le=5)

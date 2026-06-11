@@ -31,6 +31,15 @@ function confidenceDetailText(detail) {
   return parts.join(" · ");
 }
 
+function positionSizingText(sizing) {
+  const max = formatValue(sizing.suggested_max_amount);
+  return (
+    `최대 약 ${max} ${sizing.currency} ` +
+    `(1회 리스크 ${sizing.risk_per_trade_pct}% 기준, 손절까지 거리 ${sizing.stop_distance_pct}%). ` +
+    "의사결정 지원 정보이며 주문 수량이 아닙니다."
+  );
+}
+
 function dataQualityText(inputs) {
   const parts = [`제공자 ${inputs.provider || "-"}`];
   if (inputs.last_trading_date) {
@@ -104,6 +113,12 @@ export default function StrategyTable({ strategies = [], performanceLogs = [], i
                 <dt>20일 변동</dt>
                 <dd>{formatReturn(performance?.return_after_20d)}</dd>
               </div>
+              {strategy.position_sizing && (
+                <div className="wide-definition">
+                  <dt>제안 투입 한도</dt>
+                  <dd>{positionSizingText(strategy.position_sizing)}</dd>
+                </div>
+              )}
               {strategy.confidence_detail && !isDataLimited(strategy) && (
                 <div className="wide-definition">
                   <dt>신뢰도 근거</dt>

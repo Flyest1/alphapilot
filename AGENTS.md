@@ -822,6 +822,9 @@ Do not add new data providers without approval.
 
 ### Phase 5: Portfolio Decision Support
 
+Status: implemented (2026-06) except sell/reduce condition checklist, which is folded into the
+Phase 6 action briefing. Migration 011 (allocation/cost settings columns) required.
+
 Goal: Move from reports to actionable portfolio management without execution.
 
 Implement:

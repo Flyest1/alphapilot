@@ -17,6 +17,29 @@ APPLICATION_DEFAULT_ENV_MAP = {
     "frontend_timezone": "FRONTEND_TIMEZONE",
     "stale_data_business_days": "STALE_DATA_BUSINESS_DAYS",
     "usd_krw_rate": "USD_KRW_RATE",
+    "target_domestic_pct": "TARGET_DOMESTIC_PCT",
+    "target_global_pct": "TARGET_GLOBAL_PCT",
+    "target_cash_pct": "TARGET_CASH_PCT",
+    "target_max_asset_pct": "TARGET_MAX_ASSET_PCT",
+    "rebalance_band_pct": "REBALANCE_BAND_PCT",
+    "risk_per_trade_pct": "RISK_PER_TRADE_PCT",
+    "fee_rate_pct": "FEE_RATE_PCT",
+    "kr_tax_rate_pct": "KR_TAX_RATE_PCT",
+    "fx_spread_pct": "FX_SPREAD_PCT",
+}
+
+INT_APPLICATION_FIELDS = {"stale_data_business_days"}
+FLOAT_APPLICATION_FIELDS = {
+    "usd_krw_rate",
+    "target_domestic_pct",
+    "target_global_pct",
+    "target_cash_pct",
+    "target_max_asset_pct",
+    "rebalance_band_pct",
+    "risk_per_trade_pct",
+    "fee_rate_pct",
+    "kr_tax_rate_pct",
+    "fx_spread_pct",
 }
 
 INFRASTRUCTURE_ENV_KEYS = (
@@ -84,9 +107,9 @@ def get_env_application_defaults() -> dict[str, Any]:
         raw_value = _clean(os.getenv(env_name))
         if raw_value is None:
             continue
-        if field_name == "stale_data_business_days":
+        if field_name in INT_APPLICATION_FIELDS:
             values[field_name] = int(raw_value)
-        elif field_name == "usd_krw_rate":
+        elif field_name in FLOAT_APPLICATION_FIELDS:
             values[field_name] = float(raw_value)
         else:
             values[field_name] = raw_value

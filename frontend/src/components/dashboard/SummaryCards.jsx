@@ -16,6 +16,11 @@ export default function SummaryCards({ summary }) {
           value={`${summary?.total_return_rate ?? 0}%`}
           tone={summary?.total_return_rate >= 0 ? "positive" : "negative"}
         />
+        <SummaryCard
+          label="세후·비용 차감 수익률(추정)"
+          value={`${summary?.total_net_return_rate ?? 0}%`}
+          tone={summary?.total_net_return_rate >= 0 ? "positive" : "negative"}
+        />
         <SummaryCard label="현금(KRW)" value={formatMoney(summary?.cash_value)} />
         <SummaryCard
           label="1일 변동(KRW)"

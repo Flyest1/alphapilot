@@ -44,6 +44,9 @@ from app.utils.labels import action_label, report_type_label, trend_label
 from app.utils.logging import log_external_failure
 from app.utils.tickers import infer_market, normalize_ticker
 
+# Phase 5-3: 신규 후보 1건당 가용 현금 투입 비율 (위험 성향별)
+CASH_DEPLOY_RATIO = {"conservative": 0.1, "balanced": 0.2, "aggressive": 0.3}
+
 
 class ReportService:
     def __init__(
@@ -142,6 +145,12 @@ class ReportService:
             content = self._apply_confidence_calibration(
                 content, app_settings.candidate_horizon, news_context
             )
+        content = self._apply_position_sizing(
+            content,
+            portfolio_summary.model_dump(),
+            app_settings,
+            owned_tickers={normalize_ticker(asset.get("ticker", "")) for asset in all_assets},
+        )
 
         with self._timed_step("save_report"):
             saved = self.persistence.save_report(
@@ -454,6 +463,70 @@ class ReportService:
             log_external_failure(
                 "recommendation_stats", exc, {"operation": "confidence_calibration"}
             )
+            return content
+
+    def _apply_position_sizing(
+        self,
+        content: ReportContent,
+        portfolio_summary: dict[str, Any],
+        app_settings: Any,
+        owned_tickers: set[str],
+    ) -> ReportContent:
+        """신규 매수 후보에 고정 리스크(fixed-fractional) 기반 제안 투입 한도를 채운다 (Phase 5-3).
+
+        suggested = min(가용 현금 × 성향별 비율, 1회 리스크 한도 ÷ 손절까지 거리 비율).
+        금액 범위만 안내하며 주문 수량/티켓은 만들지 않는다 (자동매매 금지 원칙 유지).
+        """
+        try:
+            total_value = float(portfolio_summary.get("total_market_value") or 0)
+            cash_value = float(portfolio_summary.get("cash_value") or 0)
+            if total_value <= 0:
+                return content
+            cash_ratio = CASH_DEPLOY_RATIO.get(app_settings.risk_profile, 0.2)
+            risk_budget = total_value * float(app_settings.risk_per_trade_pct) / 100
+            updated_strategies = []
+            for strategy in content.asset_strategies:
+                is_candidate = normalize_ticker(strategy.ticker) not in owned_tickers
+                if (
+                    not is_candidate
+                    or strategy.action not in {"BUY", "WATCH"}
+                    or strategy.reasoning == "data-limited"
+                    or strategy.current_price is None
+                    or strategy.stop_loss is None
+                    or strategy.current_price <= 0
+                    or strategy.stop_loss >= strategy.current_price
+                ):
+                    updated_strategies.append(strategy)
+                    continue
+                stop_distance_ratio = (
+                    strategy.current_price - strategy.stop_loss
+                ) / strategy.current_price
+                risk_cap = risk_budget / stop_distance_ratio
+                cash_cap = cash_value * cash_ratio
+                suggested_max = min(risk_cap, cash_cap)
+                if suggested_max <= 0:
+                    updated_strategies.append(strategy)
+                    continue
+                updated_strategies.append(
+                    strategy.model_copy(
+                        update={
+                            "position_sizing": {
+                                "suggested_max_amount": round(suggested_max, 0),
+                                "risk_cap_amount": round(risk_cap, 0),
+                                "cash_cap_amount": round(cash_cap, 0),
+                                "risk_budget_amount": round(risk_budget, 0),
+                                "risk_per_trade_pct": float(app_settings.risk_per_trade_pct),
+                                "cash_deploy_ratio": cash_ratio,
+                                "stop_distance_pct": round(stop_distance_ratio * 100, 2),
+                                "currency": "KRW",
+                                "method": "fixed-fractional",
+                            }
+                        }
+                    )
+                )
+            return content.model_copy(update={"asset_strategies": updated_strategies})
+        except Exception as exc:
+            log_external_failure("position_sizing", exc, {"operation": "apply_position_sizing"})
             return content
 
     def _build_report_inputs(

@@ -45,6 +45,15 @@ export default function Settings() {
         frontend_timezone: settings.frontend_timezone,
         stale_data_business_days: Number(settings.stale_data_business_days),
         usd_krw_rate: roundNumber(settings.usd_krw_rate, 4),
+        target_domestic_pct: Number(settings.target_domestic_pct),
+        target_global_pct: Number(settings.target_global_pct),
+        target_cash_pct: Number(settings.target_cash_pct),
+        target_max_asset_pct: Number(settings.target_max_asset_pct),
+        rebalance_band_pct: Number(settings.rebalance_band_pct),
+        risk_per_trade_pct: Number(settings.risk_per_trade_pct),
+        fee_rate_pct: Number(settings.fee_rate_pct),
+        kr_tax_rate_pct: Number(settings.kr_tax_rate_pct),
+        fx_spread_pct: Number(settings.fx_spread_pct),
       });
       setSettings(normalizeSettings(saved));
       setStatus("설정을 저장했습니다.");
@@ -152,6 +161,122 @@ export default function Settings() {
           <label>
             API 기준 URL
             <input readOnly value={API_BASE_URL} />
+          </label>
+          <button type="submit">설정 저장</button>
+        </form>
+      </section>
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h2>목표 배분과 리스크 (Phase 5)</h2>
+            <p>대시보드 드리프트 카드와 신규 후보 제안 투입 한도 계산에 사용합니다.</p>
+          </div>
+        </div>
+        <form className="settings-form" onSubmit={save}>
+          <label>
+            목표 국내 비중 (%)
+            <input
+              max="100"
+              min="0"
+              step="any"
+              type="number"
+              value={settings.target_domestic_pct}
+              onChange={(event) => update("target_domestic_pct", event.target.value)}
+            />
+          </label>
+          <label>
+            목표 글로벌 비중 (%)
+            <input
+              max="100"
+              min="0"
+              step="any"
+              type="number"
+              value={settings.target_global_pct}
+              onChange={(event) => update("target_global_pct", event.target.value)}
+            />
+          </label>
+          <label>
+            목표 현금 비중 (%)
+            <input
+              max="100"
+              min="0"
+              step="any"
+              type="number"
+              value={settings.target_cash_pct}
+              onChange={(event) => update("target_cash_pct", event.target.value)}
+            />
+            <span className="field-hint">세 비중의 합계가 100이 되도록 입력하세요.</span>
+          </label>
+          <label>
+            종목별 비중 상한 (%)
+            <input
+              max="100"
+              min="1"
+              step="any"
+              type="number"
+              value={settings.target_max_asset_pct}
+              onChange={(event) => update("target_max_asset_pct", event.target.value)}
+            />
+          </label>
+          <label>
+            리밸런스 임계치 (%p)
+            <input
+              max="50"
+              min="0"
+              step="any"
+              type="number"
+              value={settings.rebalance_band_pct}
+              onChange={(event) => update("rebalance_band_pct", event.target.value)}
+            />
+            <span className="field-hint">
+              목표 대비 드리프트가 이 값을 넘으면 제안이 표시됩니다.
+            </span>
+          </label>
+          <label>
+            1회 리스크 한도 (총자산 %)
+            <input
+              max="10"
+              min="0.1"
+              step="any"
+              type="number"
+              value={settings.risk_per_trade_pct}
+              onChange={(event) => update("risk_per_trade_pct", event.target.value)}
+            />
+            <span className="field-hint">신규 후보 제안 투입 한도 계산에 사용합니다.</span>
+          </label>
+          <label>
+            매매 수수료율 (편도 %)
+            <input
+              max="5"
+              min="0"
+              step="any"
+              type="number"
+              value={settings.fee_rate_pct}
+              onChange={(event) => update("fee_rate_pct", event.target.value)}
+            />
+          </label>
+          <label>
+            국내 거래세율 (매도 %)
+            <input
+              max="5"
+              min="0"
+              step="any"
+              type="number"
+              value={settings.kr_tax_rate_pct}
+              onChange={(event) => update("kr_tax_rate_pct", event.target.value)}
+            />
+          </label>
+          <label>
+            환전 스프레드 (편도 %)
+            <input
+              max="5"
+              min="0"
+              step="any"
+              type="number"
+              value={settings.fx_spread_pct}
+              onChange={(event) => update("fx_spread_pct", event.target.value)}
+            />
+            <span className="field-hint">USD 자산의 비용 차감 수익률 추정에 사용합니다.</span>
           </label>
           <button type="submit">설정 저장</button>
         </form>

@@ -34,6 +34,7 @@ class TechnicalAnalysisService:
         frame["ema_12"] = close.ewm(span=12, adjust=False).mean()
         frame["ema_26"] = close.ewm(span=26, adjust=False).mean()
         frame["rsi_14"] = self._rsi_wilder(close, 14)
+        frame["atr_14"] = self._atr_wilder(high, low, close, 14)
         frame["macd"] = frame["ema_12"] - frame["ema_26"]
         frame["macd_signal"] = frame["macd"].ewm(span=9, adjust=False).mean()
         frame["bb_middle"] = frame["sma_20"]
@@ -77,6 +78,7 @@ class TechnicalAnalysisService:
                 "ema_12",
                 "ema_26",
                 "rsi_14",
+                "atr_14",
                 "macd",
                 "macd_signal",
                 "bb_middle",
@@ -174,6 +176,25 @@ class TechnicalAnalysisService:
         if score >= 35:
             return "weak / reduce risk"
         return "bearish / sell or avoid"
+
+    def _atr_wilder(
+        self,
+        high: pd.Series,
+        low: pd.Series,
+        close: pd.Series,
+        period: int,
+    ) -> pd.Series:
+        """ATR(14): Wilder 평활 방식의 평균 진폭. 외부 TA 라이브러리 없이 직접 계산한다."""
+        previous_close = close.shift(1)
+        true_range = pd.concat(
+            [
+                high - low,
+                (high - previous_close).abs(),
+                (low - previous_close).abs(),
+            ],
+            axis=1,
+        ).max(axis=1)
+        return true_range.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
 
     def _rsi_wilder(self, close: pd.Series, period: int) -> pd.Series:
         delta = close.diff()

@@ -83,6 +83,30 @@ describe("StrategyTable", () => {
     expect(screen.getByText(/과거 승률 80%/)).toBeInTheDocument();
   });
 
+  it("shows suggested position sizing for new candidates", () => {
+    render(
+      <StrategyTable
+        performanceLogs={[]}
+        strategies={[
+          {
+            ...strategies[0],
+            position_sizing: {
+              suggested_max_amount: 200000,
+              risk_per_trade_pct: 1,
+              stop_distance_pct: 8,
+              currency: "KRW",
+              method: "fixed-fractional",
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("제안 투입 한도")).toBeInTheDocument();
+    expect(screen.getByText(/최대 약 200,000 KRW/)).toBeInTheDocument();
+    expect(screen.getByText(/주문 수량이 아닙니다/)).toBeInTheDocument();
+  });
+
   it("shows data quality badges from report inputs", () => {
     render(
       <StrategyTable
