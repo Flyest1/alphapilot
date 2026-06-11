@@ -6,6 +6,13 @@ from app.db.supabase_client import Repository
 from app.models.portfolio import PortfolioSummaryResponse
 from app.utils.logging import log_external_failure
 
+# 집중도 경고 임계치 (Phase 4-3)
+SINGLE_ASSET_WEIGHT_WARNING = 25.0
+SINGLE_SECTOR_WEIGHT_WARNING = 40.0
+UNCLASSIFIED_SECTOR = "미분류"
+
+MARKET_LABELS = {"KR": "국내", "US": "미국", "ETF": "미국 ETF", "CASH": "현금"}
+
 
 class PortfolioService:
     def __init__(self, repository: Repository, market_data_service: Any | None = None) -> None:
@@ -67,6 +74,7 @@ class PortfolioService:
                     "ticker": asset.get("ticker"),
                     "name": asset.get("name"),
                     "market": market,
+                    "sector": asset.get("sector"),
                     "currency": currency,
                     "fx_rate": round(fx_rate, 4),
                     "base_currency": "KRW",
@@ -114,6 +122,8 @@ class PortfolioService:
             if not latest_summary and isinstance(latest_report.get("content"), dict):
                 latest_summary = latest_report["content"].get("market_summary", {}).get("summary")
 
+        exposures = self._exposures(allocation)
+
         snapshot_history = self._snapshot_value_history()
         value_history = (
             snapshot_history
@@ -152,7 +162,71 @@ class PortfolioService:
             asset_allocation=allocation,
             asset_returns=rows,
             latest_report_summary=latest_summary,
+            currency_exposure=exposures["currency"],
+            market_exposure=exposures["market"],
+            sector_exposure=exposures["sector"],
+            concentration_warnings=exposures["warnings"],
         )
+
+    def _exposures(self, allocation: list[dict[str, Any]]) -> dict[str, Any]:
+        """통화/시장/섹터 노출 비중과 집중도 경고를 계산한다 (Phase 4-3)."""
+
+        def grouped(key_fn: Any, label_fn: Any = None) -> list[dict[str, Any]]:
+            buckets: dict[str, dict[str, float]] = {}
+            for row in allocation:
+                key = key_fn(row)
+                bucket = buckets.setdefault(key, {"value": 0.0, "weight": 0.0})
+                bucket["value"] += float(row.get("market_value") or 0)
+                bucket["weight"] += float(row.get("weight") or 0)
+            return sorted(
+                [
+                    {
+                        "key": key,
+                        "label": label_fn(key) if label_fn else key,
+                        "value": round(bucket["value"], 2),
+                        "weight": round(bucket["weight"], 2),
+                    }
+                    for key, bucket in buckets.items()
+                ],
+                key=lambda item: item["value"],
+                reverse=True,
+            )
+
+        currency_exposure = grouped(lambda row: str(row.get("currency") or "KRW"))
+        market_exposure = grouped(
+            lambda row: str(row.get("market") or "기타"),
+            lambda key: MARKET_LABELS.get(key, key),
+        )
+        sector_exposure = grouped(
+            lambda row: (
+                "현금"
+                if row.get("market") == "CASH"
+                else str(row.get("sector") or UNCLASSIFIED_SECTOR)
+            )
+        )
+
+        warnings = []
+        for row in allocation:
+            weight = float(row.get("weight") or 0)
+            if row.get("market") != "CASH" and weight > SINGLE_ASSET_WEIGHT_WARNING:
+                warnings.append(
+                    f"단일 종목 {row.get('ticker')} 비중이 {weight:.1f}%로 "
+                    f"{SINGLE_ASSET_WEIGHT_WARNING:.0f}%를 초과합니다. 분산을 검토하세요."
+                )
+        for item in sector_exposure:
+            if item["key"] in {"현금", UNCLASSIFIED_SECTOR}:
+                continue
+            if item["weight"] > SINGLE_SECTOR_WEIGHT_WARNING:
+                warnings.append(
+                    f"{item['label']} 섹터 비중이 {item['weight']:.1f}%로 "
+                    f"{SINGLE_SECTOR_WEIGHT_WARNING:.0f}%를 초과합니다. 섹터 분산을 검토하세요."
+                )
+        return {
+            "currency": currency_exposure,
+            "market": market_exposure,
+            "sector": sector_exposure,
+            "warnings": warnings,
+        }
 
     def create_snapshot(self) -> dict[str, Any]:
         summary = self.get_summary()

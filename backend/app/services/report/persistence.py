@@ -24,15 +24,29 @@ class ReportPersistence:
         candidate_horizon: str,
         portfolio_summary: dict[str, Any],
         frontend_timezone: str,
+        report_inputs: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        report = self.repository.create_report(
-            {
-                "report_type": content.report_type,
-                "title": f"{report_type_label(content.report_type)} 시장 리포트",
-                "summary": content.market_summary.summary,
-                "content": content.model_dump(mode="json"),
-            }
-        )
+        report_data = {
+            "report_type": content.report_type,
+            "title": f"{report_type_label(content.report_type)} 시장 리포트",
+            "summary": content.market_summary.summary,
+            "content": content.model_dump(mode="json"),
+        }
+        if report_inputs is not None:
+            report_data["report_inputs"] = report_inputs
+        try:
+            report = self.repository.create_report(report_data)
+        except Exception:
+            if "report_inputs" not in report_data:
+                raise
+            # 마이그레이션 010(report_inputs 컬럼) 미적용 환경에서도 리포트 저장은 계속한다.
+            report_data.pop("report_inputs")
+            report = self.repository.create_report(report_data)
+            log_external_failure(
+                "reports",
+                RuntimeError("report_inputs column missing; saved report without snapshot"),
+                {"operation": "create_report_without_inputs"},
+            )
         assets_by_ticker = {asset["ticker"]: asset for asset in assets}
         existing_logs = self.repository.list_performance_logs(limit=500)
         existing_strategies = {row["id"]: row for row in self.repository.list_strategies()}

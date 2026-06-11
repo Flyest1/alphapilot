@@ -785,6 +785,8 @@ Rules:
 
 ### Phase R (Track R): Structural Refactoring and Quality Infrastructure
 
+Status: implemented (2026-06).
+
 Goal: Remove structural debt before feature expansion. Behavior-preserving; public API contracts unchanged.
 
 Implement:
@@ -800,6 +802,8 @@ Implement:
 - add `.github/workflows/ci.yml` running backend and frontend checks
 
 ### Phase 4: Analysis Quality and Performance Feedback
+
+Status: implemented (2026-06). Migrations 009 (sector columns) and 010 (report_inputs) required.
 
 Goal: Feed accumulated `recommendation_cycles` outcomes back into confidence and transparency.
 

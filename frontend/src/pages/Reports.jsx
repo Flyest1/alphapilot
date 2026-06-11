@@ -361,7 +361,11 @@ export default function Reports() {
               onFilterChange={setStrategyFilter}
               onGroupChange={setStrategyGroup}
             />
-            <StrategyTable performanceLogs={performanceLogs} strategies={filteredStrategies} />
+            <StrategyTable
+              inputsByTicker={selected?.report_inputs?.tickers}
+              performanceLogs={performanceLogs}
+              strategies={filteredStrategies}
+            />
           </>
         )}
       </section>

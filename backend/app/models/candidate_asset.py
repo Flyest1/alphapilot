@@ -11,6 +11,7 @@ class CandidateAssetCreate(BaseModel):
     name: str
     currency: str = "KRW"
     memo: str | None = None
+    sector: str | None = None
     is_active: bool = True
 
 
@@ -22,6 +23,7 @@ class CandidateAssetUpdate(BaseModel):
     name: str | None = None
     currency: str | None = None
     memo: str | None = None
+    sector: str | None = None
     is_active: bool | None = None
 
 

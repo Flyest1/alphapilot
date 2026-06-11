@@ -11,6 +11,7 @@ from app.api import (
     candidates,
     performance,
     portfolio,
+    recommendation_stats,
     recommendations,
     reports,
     settings,
@@ -118,6 +119,7 @@ def create_app(repository: Repository | None = None) -> FastAPI:
     app.include_router(candidates.router)
     app.include_router(performance.router)
     app.include_router(portfolio.router)
+    app.include_router(recommendation_stats.router)
     app.include_router(recommendations.router)
     app.include_router(reports.router)
     app.include_router(settings.router)

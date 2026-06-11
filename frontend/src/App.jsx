@@ -6,6 +6,7 @@ import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import Assets from "./pages/Assets.jsx";
 import Comparison from "./pages/Comparison.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
+import Performance from "./pages/Performance.jsx";
 import Reports from "./pages/Reports.jsx";
 import Settings from "./pages/Settings.jsx";
 import Status from "./pages/Status.jsx";
@@ -15,6 +16,7 @@ const tabs = [
   { id: "assets", label: "자산" },
   { id: "reports", label: "리포트" },
   { id: "comparison", label: "비교" },
+  { id: "performance", label: "성과 분석" },
   { id: "status", label: "상태" },
   { id: "settings", label: "설정" },
 ];
@@ -26,6 +28,7 @@ export default function App() {
     dashboard: Dashboard,
     assets: Assets,
     comparison: Comparison,
+    performance: Performance,
     reports: Reports,
     status: Status,
     settings: Settings,

@@ -37,6 +37,7 @@ class MarketDataService:
         # 콜드스타트 직후 외부 시세 재호출 폭주를 막는다.
         self.repository = repository
         self._price_cache: dict[tuple[str, str, int, int, str], MarketDataResult] = {}
+        self._sector_cache: dict[tuple[str, str], str | None] = {}
 
     def fetch_price_history(
         self,
@@ -133,6 +134,42 @@ class MarketDataService:
                 {"operation": "fetch_usd_krw_rate", "ticker": "KRW=X"},
             )
             return fallback
+
+    def fetch_sector(self, market: str, ticker: str) -> str | None:
+        """yfinance info 기반 섹터 조회 (Phase 4-3 노출 분석용).
+
+        KR 종목은 .KS → .KQ 순서로 yfinance 심볼을 시도한다. 실패하면 None.
+        """
+        normalized_market = market.upper()
+        if normalized_market == "CASH":
+            return None
+        normalized_ticker = self.normalize_ticker(normalized_market, ticker)
+        cache_key = (normalized_market, normalized_ticker)
+        if cache_key in self._sector_cache:
+            return self._sector_cache[cache_key]
+
+        symbols = (
+            [f"{normalized_ticker}.KS", f"{normalized_ticker}.KQ"]
+            if normalized_market == "KR"
+            else [normalized_ticker]
+        )
+        sector: str | None = None
+        for symbol in symbols:
+            try:
+                info = self._yf_module().Ticker(symbol).info or {}
+            except Exception as exc:
+                log_external_failure(
+                    "yfinance",
+                    exc,
+                    {"operation": "fetch_sector", "ticker": symbol},
+                )
+                continue
+            # 개별 주식은 sector, ETF는 category가 분류 정보를 담는다.
+            sector = info.get("sector") or info.get("category")
+            if sector:
+                break
+        self._sector_cache[cache_key] = sector
+        return sector
 
     def _provider_name(self, market: str, ticker: str) -> str:
         upper_ticker = ticker.upper()

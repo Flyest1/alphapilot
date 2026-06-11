@@ -186,6 +186,9 @@ export const api = {
   recommendationCycles: {
     list: () => apiRequest("/api/recommendation-cycles"),
   },
+  recommendationStats: {
+    get: () => apiRequest("/api/recommendation-stats"),
+  },
   settings: {
     get: () => apiRequest("/api/settings"),
     save: (payload) =>

@@ -24,11 +24,20 @@ export const CYCLE_STATUS_LABELS = {
   superseded: "대체됨",
 };
 
+export const SCORE_BAND_LABELS = {
+  under_60: "점수 60 미만",
+  "60s": "점수 60대",
+  "70s": "점수 70대",
+  "80_plus": "점수 80 이상",
+  unknown: "점수 미기록",
+};
+
 export const MESSAGES = {
   loadingReports: "리포트를 불러오는 중입니다.",
   loadingStrategies: "전략을 불러오는 중입니다.",
   loadingDashboard: "포트폴리오 데이터를 불러오는 중입니다.",
   loadingComparison: "비교 데이터를 불러오는 중입니다.",
+  loadingStats: "추천 성과 통계를 불러오는 중입니다.",
   refreshing: "최신 데이터를 확인하는 중입니다.",
   noReports: "아직 생성된 리포트가 없습니다.",
   noStrategies: "표시할 전략이 없습니다.",

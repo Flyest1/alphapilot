@@ -56,4 +56,50 @@ describe("StrategyTable", () => {
 
     expect(screen.getByText("4.20%")).toBeInTheDocument();
   });
+
+  it("shows calibration badge and confidence breakdown when detail exists", () => {
+    render(
+      <StrategyTable
+        performanceLogs={[]}
+        strategies={[
+          {
+            ...strategies[0],
+            confidence: 78,
+            confidence_detail: {
+              technical_confidence: 60,
+              win_rate: 0.8,
+              sample_size: 30,
+              calibrated: true,
+              calibration_factor: 1.3,
+              news_context_used: true,
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("승률 보정됨")).toBeInTheDocument();
+    expect(screen.getByText(/기술 점수 기여 60/)).toBeInTheDocument();
+    expect(screen.getByText(/과거 승률 80%/)).toBeInTheDocument();
+  });
+
+  it("shows data quality badges from report inputs", () => {
+    render(
+      <StrategyTable
+        inputsByTicker={{
+          "005930": {
+            provider: "pykrx",
+            last_trading_date: "2026-06-10T00:00:00+00:00",
+            is_stale: false,
+          },
+        }}
+        performanceLogs={[]}
+        strategies={[strategies[0]]}
+      />,
+    );
+
+    expect(screen.getByText(/제공자 pykrx/)).toBeInTheDocument();
+    expect(screen.getByText(/최근 거래일 2026-06-10/)).toBeInTheDocument();
+    expect(screen.getByText(/데이터 최신/)).toBeInTheDocument();
+  });
 });

@@ -24,9 +24,15 @@ from app.services.market_data_service import MarketDataService
 from app.services.news_service import NewsService
 from app.services.openai_provider import OpenAIProvider
 from app.services.portfolio_service import PortfolioService
+from app.services.recommendation_stats_service import ConfidenceCalibrator
 from app.services.report import candidate_screener
 from app.services.report.persistence import ReportPersistence
-from app.services.report.prompt_builder import DISCLAIMER, build_context, build_prompt
+from app.services.report.prompt_builder import (
+    DISCLAIMER,
+    PROMPT_VERSION,
+    build_context,
+    build_prompt,
+)
 from app.services.report.tracking import PerformanceTracker
 from app.services.report_job_service import ReportJobStore
 from app.services.strategy_service import StrategyService
@@ -70,6 +76,8 @@ class ReportService:
             app_settings = self._refresh_usd_krw_rate(app_settings)
             all_assets = self.repository.list_assets()
             assets = self._assets_for_report(all_assets, report_type)
+        with self._timed_step("sector_backfill"):
+            self._backfill_sectors(assets)
         with self._timed_step("portfolio"):
             portfolio_summary = PortfolioService(
                 self.repository,
@@ -130,6 +138,10 @@ class ReportService:
         else:
             content = self._enforce_stale_rules(content, analysis_rows, stale_tickers)
         content = self._append_news_context_note(content, news_context)
+        with self._timed_step("confidence_calibration"):
+            content = self._apply_confidence_calibration(
+                content, app_settings.candidate_horizon, news_context
+            )
 
         with self._timed_step("save_report"):
             saved = self.persistence.save_report(
@@ -138,6 +150,7 @@ class ReportService:
                 app_settings.candidate_horizon,
                 portfolio_summary.model_dump(mode="json"),
                 app_settings.frontend_timezone,
+                report_inputs=self._build_report_inputs(analysis_rows, news_context, app_settings),
             )
         with self._timed_step("performance_backfill"):
             self.backfill_performance_logs()
@@ -372,6 +385,110 @@ class ReportService:
         return {
             name: self.technical_analysis_service.analyze(name, result.dataframe)
             for name, result in results.items()
+        }
+
+    def _backfill_sectors(self, assets: list[dict[str, Any]]) -> None:
+        """sector가 비어 있는 보유 자산에 yfinance 섹터 정보를 보충한다 (Phase 4-3)."""
+        fetch_sector = getattr(self.market_data_service, "fetch_sector", None)
+        if fetch_sector is None:
+            return
+        for asset in assets:
+            if asset.get("sector") or asset.get("market") == "CASH" or not asset.get("id"):
+                continue
+            try:
+                sector = fetch_sector(asset["market"], asset["ticker"])
+            except Exception as exc:
+                log_external_failure(
+                    "yfinance",
+                    exc,
+                    {"operation": "backfill_sector", "ticker": asset.get("ticker")},
+                )
+                continue
+            if not sector:
+                continue
+            try:
+                self.repository.update_asset(asset["id"], {"sector": sector})
+                asset["sector"] = sector
+            except Exception as exc:
+                log_external_failure(
+                    "assets",
+                    exc,
+                    {"operation": "save_sector", "ticker": asset.get("ticker")},
+                )
+
+    def _apply_confidence_calibration(
+        self,
+        content: ReportContent,
+        horizon: str,
+        news_context: dict[str, Any],
+    ) -> ReportContent:
+        """실측 승률 기반 신뢰도 보정과 산출 근거를 전략에 채운다 (Phase 4-2).
+
+        표본이 부족한 밴드는 신뢰도를 바꾸지 않고 근거(calibrated=False)만 기록한다.
+        실패해도 리포트 생성을 막지 않는다.
+        """
+        try:
+            calibrator = ConfidenceCalibrator.from_repository(self.repository)
+            news_used = news_context.get("status") == "ok" and bool(news_context.get("articles"))
+            calibrated_strategies = []
+            for strategy in content.asset_strategies:
+                if strategy.reasoning == "data-limited":
+                    calibrated_strategies.append(strategy)
+                    continue
+                result = calibrator.calibrate(
+                    action=strategy.action,
+                    horizon=horizon,
+                    base_confidence=strategy.confidence,
+                    news_context_used=news_used,
+                )
+                calibrated_strategies.append(
+                    strategy.model_copy(
+                        update={
+                            "confidence": result["confidence"],
+                            "confidence_detail": result["detail"],
+                        }
+                    )
+                )
+            return content.model_copy(update={"asset_strategies": calibrated_strategies})
+        except Exception as exc:
+            log_external_failure(
+                "recommendation_stats", exc, {"operation": "confidence_calibration"}
+            )
+            return content
+
+    def _build_report_inputs(
+        self,
+        analysis_rows: list[dict[str, Any]],
+        news_context: dict[str, Any],
+        app_settings: Any,
+    ) -> dict[str, Any]:
+        """리포트 입력 스냅샷(데이터 품질 배지/사후 검증용, Phase 4-4)."""
+        tickers: dict[str, Any] = {}
+        for row in analysis_rows:
+            market_data = row["market_data"]
+            last_trading_date = market_data.last_trading_date
+            tickers[row["asset"]["ticker"]] = {
+                "provider": market_data.provider,
+                "last_trading_date": (last_trading_date.isoformat() if last_trading_date else None),
+                "is_stale": market_data.is_stale,
+                "data_quality_note": market_data.data_quality_note,
+                "technical_score": row["technical_analysis"].technical_score,
+                "is_candidate": row["asset"].get("id") is None,
+                "sector": row["asset"].get("sector"),
+            }
+        return {
+            "prompt_version": PROMPT_VERSION,
+            "tickers": tickers,
+            "news_context": {
+                "provider": news_context.get("provider"),
+                "status": news_context.get("status"),
+                "article_count": len(news_context.get("articles") or []),
+            },
+            "settings": {
+                "risk_profile": app_settings.risk_profile,
+                "candidate_horizon": app_settings.candidate_horizon,
+                "stale_data_business_days": app_settings.stale_data_business_days,
+            },
         }
 
     def _build_news_context(

@@ -12,6 +12,7 @@ import {
   splitStrategiesByAssets,
 } from "../api/reports.js";
 import AllocationChart from "../components/dashboard/AllocationChart.jsx";
+import ExposurePanel from "../components/dashboard/ExposurePanel.jsx";
 import SummaryCards from "../components/dashboard/SummaryCards.jsx";
 import TopStrategies from "../components/dashboard/TopStrategies.jsx";
 import TrendChart from "../components/dashboard/TrendChart.jsx";
@@ -144,6 +145,8 @@ export default function Dashboard() {
 
       <SummaryCards summary={summary} />
 
+      <ExposurePanel summary={summary} />
+
       <TrendChart chartRange={chartRange} summary={summary} onChangeRange={setChartRange} />
 
       <section className="panel">
@@ -223,7 +226,11 @@ export default function Dashboard() {
         {isLoading ? (
           <Skeleton label={MESSAGES.loadingStrategies} />
         ) : (
-          <StrategyTable performanceLogs={performanceLogs} strategies={ownedStrategies} />
+          <StrategyTable
+            inputsByTicker={report?.report_inputs?.tickers}
+            performanceLogs={performanceLogs}
+            strategies={ownedStrategies}
+          />
         )}
       </section>
     </section>

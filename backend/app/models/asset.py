@@ -15,6 +15,7 @@ class AssetCreate(BaseModel):
     avg_price: float = Field(ge=0)
     currency: str = "KRW"
     memo: str | None = None
+    sector: str | None = None
 
 
 class AssetUpdate(BaseModel):
@@ -27,6 +28,7 @@ class AssetUpdate(BaseModel):
     avg_price: float | None = Field(default=None, ge=0)
     currency: str | None = None
     memo: str | None = None
+    sector: str | None = None
 
 
 class AssetRead(AssetCreate):
