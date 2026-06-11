@@ -178,27 +178,29 @@ Only these external services are allowed:
 ```text
 - OpenAI API                  (LLM)
 - Supabase                    (database, auth-disabled unless explicitly approved later)
-- Render                      (backend hosting, Free tier for current deployment)
+- Render                      (backend hosting; Free tier currently, paid tier upgrade pre-approved when a phase requires it)
 - GitHub Pages                (frontend hosting)
 - GitHub Actions              (scheduler)
 - pykrx                       (KR market data)
 - yfinance                    (US/ETF/FX market data)
 - GDELT DOC 2.0 API           (news/trend context)
+- Telegram Bot API            (notification channel, Phase 9; user must provide bot token via backend env var)
 ```
 
-Any new service requires explicit user approval and an AGENTS.md update before implementation.
+2026-06 decision: the user approved paid tiers and additional services in principle.
+Paid upgrades of already-allowed services (Render, Supabase, OpenAI usage) may proceed
+when a roadmap phase requires them; record the change in README. Entirely new providers
+(paid market data APIs, email providers, additional LLM providers, vector databases,
+file storage) are allowed in principle but the specific provider and cost must be
+confirmed with the user before implementation and added to this list.
 
-Examples requiring approval:
+Still requiring case-by-case approval before implementation:
 
-- paid market data APIs
-- email providers
-- push notification providers
-- Telegram/Discord/Slack bots
+- specific paid market data APIs
+- email/push providers other than Telegram
 - external cron/ping services
-- vector databases
 - alternative LLM providers
-- Supabase Auth login flow
-- file-storage services
+- Supabase Auth login flow (Phase 7/10 decision)
 
 ---
 
@@ -882,8 +884,9 @@ Implement:
 
 - `notifications` table (additive): report completed, target/stop hit, cycle closed, drift warning; populated during scheduled report generation
 - in-app notification badge and list with read state
+- Telegram Bot API delivery for the same events (approved 2026-06): backend env vars `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`, opt-in per event type in settings, graceful no-op when unset
 
-External channels (email, Telegram, Web Push) require explicit approval and an Allowed External Services update before implementation.
+Other external channels (email, Web Push) still require provider-specific approval before implementation.
 
 ### Phase 10 (Optional): Multi-User / Commercialization
 

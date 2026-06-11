@@ -150,8 +150,10 @@ backend/app/utils/labels.py   # action/trend/risk 한국어 라벨 단일화
 - 인앱 알림 센터(`notifications` 테이블, additive): 리포트 생성 완료, 목표/손절 도달,
   사이클 종료(hit_target/hit_stop/expired), 드리프트 경고를 스케줄 리포트 생성 시 적재.
 - 프론트 헤더에 알림 뱃지 + 목록. 읽음 처리.
-- **외부 채널(이메일/텔레그램/Web Push)은 외부 서비스 승인 필요** — 사용자가 채널을 선택하면
-  지침서 Allowed External Services 개정 후 진행.
+- **텔레그램 봇 알림 (2026-06 승인됨)**: 동일 이벤트를 Telegram Bot API로 발송.
+  `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` 환경변수, 설정 화면에서 이벤트별 on/off,
+  미설정 시 조용히 건너뜀. 무료이며 모바일 푸시 효과가 즉시 확보됨.
+- 이메일/Web Push 등 다른 외부 채널은 구체 제공자 확정 시 지침서 개정 후 진행.
 
 ## 8. 트랙 C (사용자 결정 필요)
 
@@ -181,6 +183,11 @@ backend/app/utils/labels.py   # action/trend/risk 한국어 라벨 단일화
    **Phase 8(신호 품질 엔진), Phase 9(알림 센터), Phase 10(멀티유저/상업화 — 승인 필요)** 신설.
 4. Development Order를 트랙 R → A → B → C 순서로 갱신.
 5. Testing Requirements에 프론트엔드 테스트 최소 범위 추가.
+6. **(2026-06 사용자 결정 반영)** Allowed External Services 개정:
+   - 기존 허용 서비스의 유료 티어 업그레이드(Render/Supabase/OpenAI 사용량)는 단계상 필요 시 사전 승인된 것으로 간주.
+   - **Telegram Bot API를 알림 채널로 허용** (Phase 9에서 구현).
+   - 신규 유료 데이터 API·이메일 등은 원칙적으로 허용하되, 구체 제공자/비용은 구현 전 확정 필요.
+   - 자동매매/주문 실행 금지는 사용자 확인으로 **유지**.
 
 변경되지 않는 원칙: 자동 매매/주문/브로커 연동 금지, 수익 보장 표현 금지,
 화이트리스트 외 외부 서비스 금지, additive 마이그레이션, 한국어 README.
