@@ -847,6 +847,9 @@ Forbidden:
 
 ### Phase 6: UX and Mobile Polish
 
+Status: implemented (2026-06). The service worker caches static assets only; offline last-report
+viewing relies on the existing localStorage API cache (tokens never enter SW caches).
+
 Goal: Make daily use comfortable on mobile.
 
 Implement:

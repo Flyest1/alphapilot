@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { api, readApiCache } from "../api/client.js";
+import { assetsToCsv, parseAssetsCsv } from "../utils/assetsCsv.js";
 
 const blankAsset = {
   market: "KR",
@@ -89,6 +90,8 @@ export default function Assets() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = useRef(null);
 
   const guide = marketGuides[form.market] || marketGuides.KR;
 
@@ -175,6 +178,54 @@ export default function Assets() {
     }
   }
 
+  function exportCsv() {
+    const csv = assetsToCsv(assets);
+    const blob = new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `alphapilot-assets-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setStatus(`${assets.length}개 자산을 CSV로 내보냈습니다.`);
+  }
+
+  async function importCsv(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setError("");
+    setStatus("");
+    setIsImporting(true);
+    try {
+      const text = await file.text();
+      const { assets: parsed, errors } = parseAssetsCsv(text);
+      if (!parsed.length) {
+        setError(errors.join(" / ") || "가져올 자산이 없습니다.");
+        return;
+      }
+      let created = 0;
+      const failures = [...errors];
+      for (const payload of parsed) {
+        try {
+          await api.assets.create(payload);
+          created += 1;
+        } catch (err) {
+          failures.push(`${payload.ticker}: ${err.message}`);
+        }
+      }
+      setStatus(`CSV에서 ${created}개 자산을 추가했습니다.`);
+      if (failures.length) {
+        setError(`건너뛴 항목 ${failures.length}건 — ${failures.slice(0, 5).join(" / ")}`);
+      }
+      loadAssets();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
   function startEdit(asset) {
     setError("");
     setStatus("");
@@ -196,6 +247,25 @@ export default function Assets() {
         <div>
           <h1>자산</h1>
           <p>포트폴리오와 전략 리포트에 사용할 보유 자산을 등록합니다.</p>
+        </div>
+        <div className="header-actions">
+          <button
+            disabled={isImporting}
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {isImporting ? "CSV 가져오는 중" : "CSV 가져오기"}
+          </button>
+          <button disabled={!assets.length} type="button" onClick={exportCsv}>
+            CSV 내보내기
+          </button>
+          <input
+            accept=".csv,text/csv"
+            hidden
+            ref={fileInputRef}
+            type="file"
+            onChange={importCsv}
+          />
         </div>
       </header>
       {error && <p className="alert">{error}</p>}

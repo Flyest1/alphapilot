@@ -1,11 +1,13 @@
 import { STRATEGY_FILTER_LABELS } from "../../constants/strings.js";
-import { STRATEGY_FILTERS } from "../../utils/strategyFilters.js";
+import { STRATEGY_FILTERS, STRATEGY_SORTS } from "../../utils/strategyFilters.js";
 
 export default function StrategyFilters({
   strategyGroup,
   strategyFilter,
+  strategySort,
   onGroupChange,
   onFilterChange,
+  onSortChange,
 }) {
   return (
     <>
@@ -34,6 +36,18 @@ export default function StrategyFilters({
             onClick={() => onFilterChange(filter)}
           >
             {STRATEGY_FILTER_LABELS[filter]}
+          </button>
+        ))}
+      </div>
+      <div className="filter-row">
+        {STRATEGY_SORTS.map((sort) => (
+          <button
+            className={strategySort === sort.key ? "active" : ""}
+            key={sort.key}
+            type="button"
+            onClick={() => onSortChange(sort.key)}
+          >
+            {sort.label}
           </button>
         ))}
       </div>

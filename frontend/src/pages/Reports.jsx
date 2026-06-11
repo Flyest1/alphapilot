@@ -10,12 +10,14 @@ import {
 } from "../api/reports.js";
 import PerformancePanel from "../components/reports/PerformancePanel.jsx";
 import ReportContent from "../components/reports/ReportContent.jsx";
+import ReportDiff from "../components/reports/ReportDiff.jsx";
 import ReportSelector from "../components/reports/ReportSelector.jsx";
 import StrategyFilters from "../components/reports/StrategyFilters.jsx";
 import Skeleton from "../components/Skeleton.jsx";
 import StrategyTable from "../components/StrategyTable.jsx";
 import { HORIZON_LABELS, MESSAGES } from "../constants/strings.js";
-import { filterStrategies } from "../utils/strategyFilters.js";
+import { findPreviousReport } from "../utils/reportDiff.js";
+import { filterStrategies, sortStrategies } from "../utils/strategyFilters.js";
 
 const REPORT_TYPES = ["domestic", "global"];
 const REPORTS_CACHE_MS = 5 * 60 * 1000;
@@ -104,6 +106,7 @@ export default function Reports() {
   const [activeType, setActiveType] = useState("domestic");
   const [strategyGroup, setStrategyGroup] = useState("owned");
   const [strategyFilter, setStrategyFilter] = useState("ALL");
+  const [strategySort, setStrategySort] = useState("default");
   const [isLoading, setIsLoading] = useState(!hasCachedData);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [generationJob, setGenerationJob] = useState(readStoredReportJob);
@@ -240,7 +243,12 @@ export default function Reports() {
   );
   const selectedStrategyGroup =
     strategyGroup === "candidates" ? candidateStrategies : ownedStrategies;
-  const filteredStrategies = filterStrategies(selectedStrategyGroup, strategyFilter);
+  const filteredStrategies = sortStrategies(
+    filterStrategies(selectedStrategyGroup, strategyFilter),
+    strategySort,
+    performanceLogs,
+  );
+  const previousReport = findPreviousReport(selected, reports);
   const selectedTickers = new Set(strategies.map((strategy) => strategy.ticker));
   const selectedPerformanceLogs = performanceLogs.filter((row) => selectedTickers.has(row.ticker));
   const selectedRecommendationCycles = recommendationCycles.filter((row) =>
@@ -340,6 +348,8 @@ export default function Reports() {
         technicalOnly={isTechnicalOnlyReport(selected)}
       />
 
+      <ReportDiff previous={previousReport} selected={selected} />
+
       <section className="panel">
         <div className="section-heading">
           <div>
@@ -358,8 +368,10 @@ export default function Reports() {
             <StrategyFilters
               strategyFilter={strategyFilter}
               strategyGroup={strategyGroup}
+              strategySort={strategySort}
               onFilterChange={setStrategyFilter}
               onGroupChange={setStrategyGroup}
+              onSortChange={setStrategySort}
             />
             <StrategyTable
               inputsByTicker={selected?.report_inputs?.tickers}

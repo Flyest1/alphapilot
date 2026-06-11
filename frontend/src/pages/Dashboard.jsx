@@ -11,6 +11,7 @@ import {
   reportTypeLabel,
   splitStrategiesByAssets,
 } from "../api/reports.js";
+import ActionBriefing from "../components/dashboard/ActionBriefing.jsx";
 import AllocationChart from "../components/dashboard/AllocationChart.jsx";
 import ExposurePanel from "../components/dashboard/ExposurePanel.jsx";
 import RebalanceCard from "../components/dashboard/RebalanceCard.jsx";
@@ -30,11 +31,14 @@ export default function Dashboard() {
   const cachedAssets = readApiCache("/api/assets", { maxAgeMs: DASHBOARD_CACHE_MS });
   const cachedPerformanceLogs =
     readApiCache("/api/performance-logs", { maxAgeMs: DASHBOARD_CACHE_MS }) || [];
+  const cachedCycles =
+    readApiCache("/api/recommendation-cycles", { maxAgeMs: DASHBOARD_CACHE_MS }) || [];
   const hasCachedData = Boolean(cachedSummary || cachedLatest || cachedAssets);
   const [summary, setSummary] = useState(cachedSummary);
   const [latest, setLatest] = useState(cachedLatest);
   const [assets, setAssets] = useState(cachedAssets || []);
   const [performanceLogs, setPerformanceLogs] = useState(cachedPerformanceLogs);
+  const [recommendationCycles, setRecommendationCycles] = useState(cachedCycles);
   const [isLoading, setIsLoading] = useState(!hasCachedData);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -54,12 +58,14 @@ export default function Dashboard() {
       api.reports.latest(),
       api.assets.list(),
       api.performanceLogs.list(),
+      api.recommendationCycles.list(),
     ])
-      .then(([portfolio, reports, assetList, performanceLogList]) => {
+      .then(([portfolio, reports, assetList, performanceLogList, cycleList]) => {
         setSummary(portfolio);
         setLatest(reports);
         setAssets(assetList);
         setPerformanceLogs(performanceLogList);
+        setRecommendationCycles(cycleList);
         setError("");
       })
       .catch((err) => setError(err.message))
@@ -143,6 +149,13 @@ export default function Dashboard() {
       {snapshotStatus && <p className="notice">{snapshotStatus}</p>}
       {isLoading && <Skeleton label={MESSAGES.loadingDashboard} lines={4} />}
       {isRefreshing && <p className="field-hint">{MESSAGES.refreshing}</p>}
+
+      <ActionBriefing
+        assets={assets}
+        cycles={recommendationCycles}
+        report={report}
+        summary={summary}
+      />
 
       <SummaryCards summary={summary} />
 

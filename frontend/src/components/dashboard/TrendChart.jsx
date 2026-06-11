@@ -1,51 +1,78 @@
+import {
+  Bar,
+  CartesianGrid,
+  Cell,
+  ComposedChart,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+
 import { formatMoney } from "../../utils/formatters.js";
 
-function PortfolioCharts({ points = [] }) {
+function compactKrw(value) {
+  const numeric = Number(value || 0);
+  if (Math.abs(numeric) >= 100000000) return `${(numeric / 100000000).toFixed(1)}억`;
+  if (Math.abs(numeric) >= 10000) return `${Math.round(numeric / 10000).toLocaleString()}만`;
+  return numeric.toLocaleString();
+}
+
+function PortfolioTrend({ points = [] }) {
   if (points.length < 2) {
     return <p className="empty-state">차트로 표시할 기간 데이터가 아직 부족합니다.</p>;
   }
-  const maxAbsChange = Math.max(
-    ...points.map((point) => Math.abs(Number(point.daily_profit_loss || 0))),
-    1,
-  );
-  const values = points.map((point) => Number(point.total_market_value || 0));
-  const minValue = Math.min(...values);
-  const maxValue = Math.max(...values);
-  const valueRange = Math.max(maxValue - minValue, 1);
+  const data = points.map((point) => ({
+    date: point.date,
+    total: Number(point.total_market_value || 0),
+    change: Number(point.daily_profit_loss || 0),
+  }));
 
   return (
-    <div className="portfolio-chart-grid">
-      <div>
-        <h3>일간 변동 금액</h3>
-        <div className="change-chart">
-          {points.map((point) => {
-            const change = Number(point.daily_profit_loss || 0);
-            return (
-              <span
-                className={change >= 0 ? "positive" : "negative"}
-                key={`change-${point.date}`}
-                style={{ height: `${Math.max(4, (Math.abs(change) / maxAbsChange) * 100)}%` }}
-                title={`${point.date}: ${change.toLocaleString()} KRW`}
-              />
-            );
-          })}
-        </div>
-      </div>
-      <div>
-        <h3>총 평가금액</h3>
-        <div className="value-chart">
-          {points.map((point) => {
-            const value = Number(point.total_market_value || 0);
-            return (
-              <span
-                key={`value-${point.date}`}
-                style={{ height: `${Math.max(8, ((value - minValue) / valueRange) * 92 + 8)}%` }}
-                title={`${point.date}: ${value.toLocaleString()} KRW`}
-              />
-            );
-          })}
-        </div>
-      </div>
+    <div className="benchmark-recharts">
+      <ResponsiveContainer height="100%" width="100%">
+        <ComposedChart data={data} margin={{ top: 12, right: 8, bottom: 4, left: 8 }}>
+          <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+          <XAxis
+            dataKey="date"
+            minTickGap={28}
+            stroke="#64748b"
+            tick={{ fontSize: 12 }}
+            tickFormatter={(value) => String(value).slice(5)}
+          />
+          <YAxis
+            domain={["auto", "auto"]}
+            stroke="#64748b"
+            tick={{ fontSize: 12 }}
+            tickFormatter={compactKrw}
+            width={56}
+            yAxisId="total"
+          />
+          <YAxis hide yAxisId="change" />
+          <Tooltip
+            formatter={(value, name) => [
+              `${formatMoney(value)} KRW`,
+              name === "total" ? "총 평가금액" : "일간 변동",
+            ]}
+            labelFormatter={(label) => `날짜: ${label}`}
+          />
+          <Bar dataKey="change" name="change" opacity={0.7} yAxisId="change">
+            {data.map((entry) => (
+              <Cell fill={entry.change >= 0 ? "#0f766e" : "#be123c"} key={`bar-${entry.date}`} />
+            ))}
+          </Bar>
+          <Line
+            dataKey="total"
+            dot={false}
+            name="total"
+            stroke="#2563eb"
+            strokeWidth={2.5}
+            type="monotone"
+            yAxisId="total"
+          />
+        </ComposedChart>
+      </ResponsiveContainer>
     </div>
   );
 }
@@ -82,7 +109,7 @@ export default function TrendChart({ summary, chartRange, onChangeRange }) {
           1달
         </button>
       </div>
-      <PortfolioCharts points={chartPoints} />
+      <PortfolioTrend points={chartPoints} />
       <div className="daily-change-list">
         {dailyChanges.length === 0 && (
           <p className="empty-state">표시할 일별 변동 데이터가 아직 없습니다.</p>
