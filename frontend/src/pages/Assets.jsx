@@ -226,7 +226,10 @@ export default function Assets() {
           </label>
           <label>
             이름
-            <input value={form.name} onChange={(event) => updateField("name", event.target.value)} />
+            <input
+              value={form.name}
+              onChange={(event) => updateField("name", event.target.value)}
+            />
           </label>
           <label>
             수량
@@ -238,7 +241,9 @@ export default function Assets() {
               onChange={(event) => updateField("quantity", event.target.value)}
             />
             {form.market === "CASH" && (
-              <span className="field-hint">현금 총액을 평균 매입가에 넣는 경우 수량은 1입니다.</span>
+              <span className="field-hint">
+                현금 총액을 평균 매입가에 넣는 경우 수량은 1입니다.
+              </span>
             )}
           </label>
           <label>
@@ -261,7 +266,10 @@ export default function Assets() {
           </label>
           <label className="wide">
             메모
-            <input value={form.memo} onChange={(event) => updateField("memo", event.target.value)} />
+            <input
+              value={form.memo}
+              onChange={(event) => updateField("memo", event.target.value)}
+            />
           </label>
           <button type="submit">{editingId ? "자산 저장" : "자산 추가"}</button>
         </form>
@@ -280,7 +288,9 @@ export default function Assets() {
 
       <section className="panel">
         {isLoading && <p className="empty-state">자산을 불러오는 중입니다.</p>}
-        {!isLoading && assets.length === 0 && <p className="empty-state">등록된 자산이 없습니다.</p>}
+        {!isLoading && assets.length === 0 && (
+          <p className="empty-state">등록된 자산이 없습니다.</p>
+        )}
         <div className="asset-card-list">
           {assets.map((asset) => (
             <article className="asset-card" key={asset.id}>

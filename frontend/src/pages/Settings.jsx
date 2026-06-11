@@ -88,15 +88,24 @@ export default function Settings() {
           </label>
           <label>
             AI 제공자
-            <input value={settings.ai_provider} onChange={(event) => update("ai_provider", event.target.value)} />
+            <input
+              value={settings.ai_provider}
+              onChange={(event) => update("ai_provider", event.target.value)}
+            />
           </label>
           <label>
             AI 모델
-            <input value={settings.ai_model} onChange={(event) => update("ai_model", event.target.value)} />
+            <input
+              value={settings.ai_model}
+              onChange={(event) => update("ai_model", event.target.value)}
+            />
           </label>
           <label>
             위험 성향
-            <select value={settings.risk_profile} onChange={(event) => update("risk_profile", event.target.value)}>
+            <select
+              value={settings.risk_profile}
+              onChange={(event) => update("risk_profile", event.target.value)}
+            >
               <option value="conservative">보수적</option>
               <option value="balanced">균형</option>
               <option value="aggressive">공격적</option>

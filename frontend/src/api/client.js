@@ -64,31 +64,69 @@ export function clearApiCache() {
   keys.forEach((key) => window.localStorage.removeItem(key));
 }
 
+export const DEFAULT_TIMEOUT_MS = 30 * 1000;
+
+// 표준 에러 객체: message 외에 status(HTTP 코드)와 kind(분류)를 함께 제공한다.
+export class ApiError extends Error {
+  constructor(message, { status = 0, kind = "http" } = {}) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.kind = kind; // "http" | "network" | "timeout" | "auth"
+  }
+}
+
+async function fetchWithTimeout(url, fetchOptions, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...fetchOptions, signal: controller.signal });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new ApiError(
+        "요청 시간이 초과되었습니다. 백엔드가 깨어나는 중일 수 있으니 잠시 후 다시 시도하세요.",
+        { kind: "timeout" },
+      );
+    }
+    throw new ApiError("백엔드 연결에 실패했습니다. API URL, 토큰, CORS 설정을 확인하세요.", {
+      kind: "network",
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function apiRequest(path, options = {}) {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   const accessToken = options.accessToken ?? getApiAccessToken();
-  const { accessToken: _accessToken, ...fetchOptions } = options;
+  const { accessToken: _accessToken, timeoutMs = DEFAULT_TIMEOUT_MS, ...fetchOptions } = options;
   const method = (fetchOptions.method || "GET").toUpperCase();
   if (!accessToken) {
-    throw new Error("접속 토큰을 먼저 입력하세요.");
+    throw new ApiError("접속 토큰을 먼저 입력하세요.", { kind: "auth" });
   }
+
+  const url = `${API_BASE_URL}${normalizedPath}`;
+  const requestInit = {
+    ...fetchOptions,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+      ...(fetchOptions.headers || {}),
+    },
+  };
+
   let response;
   try {
-    response = await fetch(`${API_BASE_URL}${normalizedPath}`, {
-      ...fetchOptions,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-        ...(fetchOptions.headers || {}),
-      },
-    });
+    response = await fetchWithTimeout(url, requestInit, timeoutMs);
   } catch (error) {
-    throw new Error("백엔드 연결에 실패했습니다. API URL, 토큰, CORS 설정을 확인하세요.");
+    // 무료 호스팅 콜드스타트 대응: 조회 요청은 한 번만 재시도한다. (변경 요청은 중복 실행 위험 때문에 재시도하지 않음)
+    if (method !== "GET") throw error;
+    response = await fetchWithTimeout(url, requestInit, timeoutMs);
   }
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({ detail: "요청에 실패했습니다." }));
-    throw new Error(body.detail || "요청에 실패했습니다.");
+    throw new ApiError(body.detail || "요청에 실패했습니다.", { status: response.status });
   }
 
   const data = await response.json();

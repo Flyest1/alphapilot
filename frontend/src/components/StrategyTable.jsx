@@ -1,4 +1,5 @@
 import { actionLabel, displayText } from "../api/reports.js";
+import { formatReturn, formatValue } from "../utils/formatters.js";
 
 function formatRange(low, high) {
   if (low == null && high == null) return "-";
@@ -7,20 +8,6 @@ function formatRange(low, high) {
 
 function isDataLimited(strategy) {
   return strategy.reasoning === "data-limited";
-}
-
-function formatReturn(value) {
-  if (value == null) return "-";
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "-";
-  return `${numeric.toFixed(2)}%`;
-}
-
-function formatValue(value) {
-  if (value == null) return "-";
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return value;
-  return numeric.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
 function performanceFor(strategy, performanceLogs) {

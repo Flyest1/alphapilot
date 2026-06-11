@@ -1,6 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 import { api, isApiCacheFresh, readApiCache } from "../api/client.js";
+import Skeleton from "../components/Skeleton.jsx";
+import { MESSAGES } from "../constants/strings.js";
+import { formatPercent } from "../utils/formatters.js";
 
 const colorByKey = {
   kospi: "#0f766e",
@@ -17,46 +29,21 @@ const rangeOptions = [
   { label: "120일", value: 120 },
 ];
 
-function formatPercent(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "-";
-  return `${numeric.toFixed(2)}%`;
-}
-
-function benchmarkPath(points, dateIndex, minReturn, returnRange) {
-  const width = 760;
-  const height = 300;
-  const left = 42;
-  const right = 18;
-  const top = 18;
-  const bottom = 32;
-  const xRange = width - left - right;
-  const yRange = height - top - bottom;
-  const maxIndex = Math.max(dateIndex.size - 1, 1);
-  return points
-    .map((point) => {
-      const index = dateIndex.get(point.date) ?? 0;
-      const x = left + (index / maxIndex) * xRange;
-      const y = top + ((Number(point.return_rate) - minReturn) / returnRange) * -yRange + yRange;
-      return { ...point, x, y };
-    })
-    .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
-}
+const COMPARISON_CACHE_MS = 5 * 60 * 1000;
 
 export default function Comparison() {
   const [days, setDays] = useState(60);
   const cachePath = `/api/portfolio/benchmark-returns?days=${days}`;
-  const cached = readApiCache(cachePath, { maxAgeMs: 5 * 60 * 1000 });
+  const cached = readApiCache(cachePath, { maxAgeMs: COMPARISON_CACHE_MS });
   const [data, setData] = useState(cached);
   const [enabled, setEnabled] = useState({});
-  const [hovered, setHovered] = useState(null);
   const [isLoading, setIsLoading] = useState(!cached);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const fresh = isApiCacheFresh(cachePath, 5 * 60 * 1000);
+    const fresh = isApiCacheFresh(cachePath, COMPARISON_CACHE_MS);
     if (fresh) {
-      setData(readApiCache(cachePath, { maxAgeMs: 5 * 60 * 1000 }));
+      setData(readApiCache(cachePath, { maxAgeMs: COMPARISON_CACHE_MS }));
       return;
     }
     setIsLoading(true);
@@ -64,10 +51,7 @@ export default function Comparison() {
       .benchmarkReturns(days)
       .then((result) => {
         setData(result);
-        setEnabled((current) => {
-          if (Object.keys(current).length) return current;
-          return Object.fromEntries((result.series || []).map((row) => [row.key, true]));
-        });
+        setError("");
       })
       .catch((err) => setError(err.message))
       .finally(() => setIsLoading(false));
@@ -84,30 +68,26 @@ export default function Comparison() {
     });
   }, [data]);
 
-  const chart = useMemo(() => {
-    const visibleSeries = (data?.series || []).filter((row) => enabled[row.key] !== false);
-    const dates = Array.from(
-      new Set(visibleSeries.flatMap((row) => row.points.map((point) => point.date))),
-    ).sort();
-    const values = visibleSeries.flatMap((row) =>
-      row.points.map((point) => Number(point.return_rate)),
-    );
-    const minReturn = Math.min(...values, 0);
-    const maxReturn = Math.max(...values, 0);
-    const returnRange = Math.max(maxReturn - minReturn, 1);
-    const dateIndex = new Map(dates.map((date, index) => [date, index]));
-    return {
-      dates,
-      maxReturn,
-      minReturn,
-      returnRange,
-      visibleSeries,
-      paths: visibleSeries.map((row) => ({
-        ...row,
-        pathPoints: benchmarkPath(row.points, dateIndex, minReturn, returnRange),
-      })),
-    };
+  const visibleSeries = (data?.series || []).filter((row) => enabled[row.key] !== false);
+
+  const chartData = useMemo(() => {
+    const byDate = new Map();
+    visibleSeries.forEach((row) => {
+      (row.points || []).forEach((point) => {
+        if (!byDate.has(point.date)) byDate.set(point.date, { date: point.date });
+        const numeric = Number(point.return_rate);
+        if (Number.isFinite(numeric)) {
+          byDate.get(point.date)[row.key] = numeric;
+        }
+      });
+    });
+    return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
   }, [data, enabled]);
+
+  const labelByKey = useMemo(
+    () => Object.fromEntries((data?.series || []).map((row) => [row.key, row.label])),
+    [data],
+  );
 
   function toggleSeries(key) {
     setEnabled((current) => ({ ...current, [key]: current[key] === false }));
@@ -123,7 +103,7 @@ export default function Comparison() {
       </header>
 
       {error && <p className="alert">{error}</p>}
-      {isLoading && <p className="empty-state">비교 데이터를 불러오는 중입니다.</p>}
+      {isLoading && <Skeleton label={MESSAGES.loadingComparison} lines={4} />}
 
       <section className="panel">
         <div className="section-heading">
@@ -158,61 +138,50 @@ export default function Comparison() {
           ))}
         </div>
 
-        {!chart.visibleSeries.length ? (
+        {!visibleSeries.length || chartData.length < 2 ? (
           <p className="empty-state">표시할 수익률 데이터가 아직 없습니다.</p>
         ) : (
-          <div className="benchmark-chart-wrap">
-            <svg className="benchmark-chart" role="img" viewBox="0 0 760 300">
-              <line className="chart-axis" x1="42" x2="742" y1="268" y2="268" />
-              <line className="chart-axis" x1="42" x2="42" y1="18" y2="268" />
-              <text className="chart-label" x="44" y="28">
-                {formatPercent(chart.maxReturn)}
-              </text>
-              <text className="chart-label" x="44" y="264">
-                {formatPercent(chart.minReturn)}
-              </text>
-              {chart.paths.map((row) => (
-                <g key={row.key}>
-                  <polyline
-                    fill="none"
-                    points={row.pathPoints.map((point) => `${point.x},${point.y}`).join(" ")}
+          <div className="benchmark-recharts">
+            <ResponsiveContainer height="100%" width="100%">
+              <LineChart data={chartData} margin={{ top: 12, right: 16, bottom: 4, left: 0 }}>
+                <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="date"
+                  minTickGap={28}
+                  stroke="#64748b"
+                  tick={{ fontSize: 12 }}
+                  tickFormatter={(value) => String(value).slice(5)}
+                />
+                <YAxis
+                  stroke="#64748b"
+                  tick={{ fontSize: 12 }}
+                  tickFormatter={(value) => `${value}%`}
+                  width={52}
+                />
+                <Tooltip
+                  formatter={(value, name) => [formatPercent(value), labelByKey[name] || name]}
+                  labelFormatter={(label) => `날짜: ${label}`}
+                />
+                {visibleSeries.map((row) => (
+                  <Line
+                    activeDot={{ r: 4 }}
+                    connectNulls
+                    dataKey={row.key}
+                    dot={false}
+                    key={row.key}
+                    name={row.key}
                     stroke={colorByKey[row.key] || "#334155"}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2.5"
+                    strokeWidth={2.5}
+                    type="monotone"
                   />
-                  {row.pathPoints.map((point) => (
-                    <circle
-                      cx={point.x}
-                      cy={point.y}
-                      fill={colorByKey[row.key] || "#334155"}
-                      key={`${row.key}-${point.date}`}
-                      r="4"
-                      onMouseEnter={() =>
-                        setHovered({
-                          date: point.date,
-                          label: row.label,
-                          return_rate: point.return_rate,
-                        })
-                      }
-                      onMouseLeave={() => setHovered(null)}
-                    />
-                  ))}
-                </g>
-              ))}
-            </svg>
-            {hovered && (
-              <div className="chart-tooltip">
-                <strong>{hovered.label}</strong>
-                <span>{hovered.date}</span>
-                <em>{formatPercent(hovered.return_rate)}</em>
-              </div>
-            )}
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
           </div>
         )}
 
         <div className="metric-grid compact">
-          {chart.visibleSeries.map((row) => {
+          {visibleSeries.map((row) => {
             const last = row.points[row.points.length - 1];
             return (
               <div key={row.key}>

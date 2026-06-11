@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { clearApiAccessToken, getApiAccessToken } from "./api/client.js";
 import AccessGate from "./components/AccessGate.jsx";
+import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import Assets from "./pages/Assets.jsx";
 import Comparison from "./pages/Comparison.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
@@ -64,7 +65,9 @@ export default function App() {
         </button>
       </aside>
       <main>
-        <Page />
+        <ErrorBoundary resetKey={activeTab}>
+          <Page />
+        </ErrorBoundary>
       </main>
     </div>
   );

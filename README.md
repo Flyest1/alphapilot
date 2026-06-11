@@ -183,6 +183,14 @@ backend/app/db/migrations/007_create_recommendation_cycles.sql
 
 이 세 마이그레이션은 각각 수동 리포트 생성 작업 상태, 포트폴리오 일별 스냅샷, 추천 생애주기 추적을 저장합니다. 모두 새 테이블을 추가하는 방식이라 기존 자산/리포트 데이터는 삭제하지 않습니다.
 
+시장 데이터 일중 캐시 영속화(콜드스타트 후 외부 시세 재호출 폭주 방지)를 위해 아래 파일도 실행합니다.
+
+```text
+backend/app/db/migrations/008_create_market_data_cache.sql
+```
+
+이 마이그레이션도 새 테이블만 추가하며, 미적용 상태에서도 백엔드는 프로세스 내 캐시만으로 정상 동작합니다.
+
 Supabase service role key는 RLS를 우회합니다. 반드시 백엔드 서버 환경변수에만 보관하고, 프론트엔드나 에러 메시지에 노출하지 마세요.
 
 ## Render 배포
@@ -301,5 +309,23 @@ pytest backend/tests -v
 ruff check .
 black --check .
 cd frontend
+npm run lint
+npm run format:check
+npm test
 npm run build
 ```
+
+같은 검사가 `.github/workflows/ci.yml` 워크플로로 push/PR마다 자동 실행됩니다.
+
+## 코드 구조 (2026-06 리팩토링)
+
+- 백엔드 리포트 생성은 `backend/app/services/report/` 패키지로 분리되어 있습니다.
+  `pipeline.py`(오케스트레이션), `candidate_screener.py`(후보 유니버스/스코어링),
+  `prompt_builder.py`(LLM 프롬프트), `persistence.py`(저장), `tracking.py`(성과 백필).
+  기존 `report_service.py` 경로는 하위 호환 re-export로 유지됩니다.
+- 티커 정규화/시장 추론은 `backend/app/utils/tickers.py`, 한국어 라벨은
+  `backend/app/utils/labels.py`로 단일화했습니다.
+- 프론트엔드 공용 숫자 포맷은 `frontend/src/utils/formatters.js`, 공용 UI 문자열은
+  `frontend/src/constants/strings.js`에 있습니다. 대시보드/리포트 화면은
+  `components/dashboard/`, `components/reports/` 하위 컴포넌트로 분리되어 있습니다.
+- 프론트엔드 도구: ESLint + Prettier + Vitest(+ React Testing Library), 차트는 Recharts를 사용합니다.
