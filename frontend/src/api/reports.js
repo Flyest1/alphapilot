@@ -19,7 +19,9 @@ export function normalizeTicker(ticker) {
 export function splitStrategiesByAssets(strategies = [], assets = []) {
   const ownedTickers = new Set(assets.map((asset) => normalizeTicker(asset.ticker)));
   return {
-    ownedStrategies: strategies.filter((strategy) => ownedTickers.has(normalizeTicker(strategy.ticker))),
+    ownedStrategies: strategies.filter((strategy) =>
+      ownedTickers.has(normalizeTicker(strategy.ticker)),
+    ),
     candidateStrategies: strategies.filter(
       (strategy) => !ownedTickers.has(normalizeTicker(strategy.ticker)),
     ),
@@ -198,7 +200,9 @@ export function displayText(value) {
   const staleMatch = text.match(/^stale market data for: (.+)$/);
   if (staleMatch) return `시장 데이터가 지연된 종목: ${staleMatch[1]}`;
 
-  const technicalCandidateMatch = text.match(/^(.+): (BUY|HOLD|REDUCE|SELL|WATCH) candidate from technical score$/);
+  const technicalCandidateMatch = text.match(
+    /^(.+): (BUY|HOLD|REDUCE|SELL|WATCH) candidate from technical score$/,
+  );
   if (technicalCandidateMatch) {
     return `${technicalCandidateMatch[1]}: 기술 점수 기준 ${actionLabel(technicalCandidateMatch[2])} 후보`;
   }

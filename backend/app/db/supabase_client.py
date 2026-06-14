@@ -33,6 +33,10 @@ class Repository(Protocol):
 
     def delete_candidate_asset(self, candidate_id: str) -> bool: ...
 
+    def list_candidate_universe(self, report_type: str | None = None) -> list[dict[str, Any]]: ...
+
+    def upsert_candidate_universe(self, data: dict[str, Any]) -> dict[str, Any]: ...
+
     def get_settings(self) -> dict[str, Any] | None: ...
 
     def upsert_settings(self, data: dict[str, Any]) -> dict[str, Any]: ...
@@ -52,6 +56,10 @@ class Repository(Protocol):
     def create_performance_log(self, data: dict[str, Any]) -> dict[str, Any]: ...
 
     def list_performance_logs(self, limit: int | None = None) -> list[dict[str, Any]]: ...
+
+    def list_unevaluated_performance_logs(
+        self, limit: int | None = None
+    ) -> list[dict[str, Any]]: ...
 
     def update_performance_log(
         self, log_id: str, data: dict[str, Any]
@@ -81,6 +89,26 @@ class Repository(Protocol):
         self, status: str | None = None, limit: int | None = None
     ) -> list[dict[str, Any]]: ...
 
+    def list_open_recommendation_cycles(self, limit: int | None = None) -> list[dict[str, Any]]: ...
+
+    def get_market_data_cache(self, cache_key: str) -> dict[str, Any] | None: ...
+
+    def upsert_market_data_cache(self, cache_key: str, payload: dict[str, Any]) -> None: ...
+
+    def list_notifications(
+        self, unread_only: bool = False, limit: int | None = None
+    ) -> list[dict[str, Any]]: ...
+
+    def get_notification_by_event_key(self, event_key: str) -> dict[str, Any] | None: ...
+
+    def create_notification(self, data: dict[str, Any]) -> dict[str, Any]: ...
+
+    def update_notification(
+        self, notification_id: str, data: dict[str, Any]
+    ) -> dict[str, Any] | None: ...
+
+    def mark_all_notifications_read(self) -> int: ...
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -94,6 +122,7 @@ class InMemoryRepository:
     def __init__(self) -> None:
         self.assets: dict[str, dict[str, Any]] = {}
         self.candidate_assets: dict[str, dict[str, Any]] = {}
+        self.candidate_universe: dict[str, dict[str, Any]] = {}
         self.settings: dict[str, Any] | None = None
         self.reports: dict[str, dict[str, Any]] = {}
         self.strategies: dict[str, dict[str, Any]] = {}
@@ -101,6 +130,8 @@ class InMemoryRepository:
         self.report_jobs: dict[str, dict[str, Any]] = {}
         self.portfolio_snapshots: dict[str, dict[str, Any]] = {}
         self.recommendation_cycles: dict[str, dict[str, Any]] = {}
+        self.market_data_cache: dict[str, dict[str, Any]] = {}
+        self.notifications: dict[str, dict[str, Any]] = {}
 
     def list_assets(self) -> list[dict[str, Any]]:
         return sorted(_copy_rows(self.assets.values()), key=lambda row: row["created_at"])
@@ -159,6 +190,35 @@ class InMemoryRepository:
     def delete_candidate_asset(self, candidate_id: str) -> bool:
         return self.candidate_assets.pop(candidate_id, None) is not None
 
+    def list_candidate_universe(self, report_type: str | None = None) -> list[dict[str, Any]]:
+        rows = [
+            row
+            for row in _copy_rows(self.candidate_universe.values())
+            if row.get("is_active", True)
+            and (report_type is None or row.get("report_type") == report_type)
+        ]
+        return sorted(
+            rows,
+            key=lambda row: (
+                row.get("report_type") or "",
+                row.get("source_rank") if row.get("source_rank") is not None else 999999,
+                row.get("ticker") or "",
+            ),
+        )
+
+    def upsert_candidate_universe(self, data: dict[str, Any]) -> dict[str, Any]:
+        row = deepcopy(data)
+        key = f"{row['market']}:{row['ticker']}"
+        existing = self.candidate_universe.get(key, {})
+        now = _now_iso()
+        row["id"] = existing.get("id") or row.get("id") or str(uuid4())
+        row["created_at"] = existing.get("created_at") or row.get("created_at") or now
+        row["updated_at"] = now
+        row["refreshed_at"] = row.get("refreshed_at") or now
+        row["is_active"] = row.get("is_active", True)
+        self.candidate_universe[key] = {**existing, **row}
+        return deepcopy(self.candidate_universe[key])
+
     def get_settings(self) -> dict[str, Any] | None:
         return deepcopy(self.settings) if self.settings else None
 
@@ -216,6 +276,15 @@ class InMemoryRepository:
 
     def list_performance_logs(self, limit: int | None = None) -> list[dict[str, Any]]:
         rows = _copy_rows(self.performance_logs.values())
+        rows = sorted(rows, key=lambda row: row.get("created_at") or "", reverse=True)
+        return rows[:limit] if limit is not None else rows
+
+    def list_unevaluated_performance_logs(self, limit: int | None = None) -> list[dict[str, Any]]:
+        rows = [
+            row
+            for row in _copy_rows(self.performance_logs.values())
+            if row.get("price_after_20d") is None
+        ]
         rows = sorted(rows, key=lambda row: row.get("created_at") or "", reverse=True)
         return rows[:limit] if limit is not None else rows
 
@@ -301,6 +370,75 @@ class InMemoryRepository:
             rows = [row for row in rows if row.get("status") == status]
         rows = sorted(rows, key=lambda row: row.get("created_at") or "", reverse=True)
         return rows[:limit] if limit is not None else rows
+
+    def list_open_recommendation_cycles(self, limit: int | None = None) -> list[dict[str, Any]]:
+        rows = [
+            row
+            for row in _copy_rows(self.recommendation_cycles.values())
+            if row.get("status") == "active" or row.get("price_after_60d") is None
+        ]
+        rows = sorted(rows, key=lambda row: row.get("created_at") or "", reverse=True)
+        return rows[:limit] if limit is not None else rows
+
+    def get_market_data_cache(self, cache_key: str) -> dict[str, Any] | None:
+        row = self.market_data_cache.get(cache_key)
+        return deepcopy(row) if row else None
+
+    def upsert_market_data_cache(self, cache_key: str, payload: dict[str, Any]) -> None:
+        self.market_data_cache[cache_key] = {
+            "cache_key": cache_key,
+            "payload": deepcopy(payload),
+            "created_at": _now_iso(),
+        }
+
+    def list_notifications(
+        self, unread_only: bool = False, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        rows = _copy_rows(self.notifications.values())
+        if unread_only:
+            rows = [row for row in rows if not row.get("is_read", False)]
+        rows = sorted(rows, key=lambda row: row.get("created_at") or "", reverse=True)
+        return rows[:limit] if limit is not None else rows
+
+    def get_notification_by_event_key(self, event_key: str) -> dict[str, Any] | None:
+        row = next(
+            (row for row in self.notifications.values() if row.get("event_key") == event_key),
+            None,
+        )
+        return deepcopy(row) if row else None
+
+    def create_notification(self, data: dict[str, Any]) -> dict[str, Any]:
+        row = deepcopy(data)
+        row["id"] = row.get("id") or str(uuid4())
+        now = _now_iso()
+        row["created_at"] = row.get("created_at") or now
+        row["updated_at"] = row.get("updated_at") or now
+        row["is_read"] = row.get("is_read", False)
+        row["metadata"] = row.get("metadata") or {}
+        row["telegram_status"] = row.get("telegram_status") or "not_requested"
+        self.notifications[row["id"]] = row
+        return deepcopy(row)
+
+    def update_notification(
+        self, notification_id: str, data: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        if notification_id not in self.notifications:
+            return None
+        self.notifications[notification_id].update(data)
+        self.notifications[notification_id]["updated_at"] = _now_iso()
+        return deepcopy(self.notifications[notification_id])
+
+    def mark_all_notifications_read(self) -> int:
+        now = _now_iso()
+        updated = 0
+        for row in self.notifications.values():
+            if row.get("is_read"):
+                continue
+            row["is_read"] = True
+            row["read_at"] = now
+            row["updated_at"] = now
+            updated += 1
+        return updated
 
 
 class SupabaseRepository:
@@ -392,6 +530,29 @@ class SupabaseRepository:
         )
         return bool(rows)
 
+    def list_candidate_universe(self, report_type: str | None = None) -> list[dict[str, Any]]:
+        builder = (
+            self.client.table("candidate_universe")
+            .select("*")
+            .eq("is_active", True)
+            .order("source_rank")
+            .order("ticker")
+        )
+        if report_type is not None:
+            builder = builder.eq("report_type", report_type)
+        return self._run(
+            builder,
+            {"operation": "list_candidate_universe", "report_type": report_type},
+        )
+
+    def upsert_candidate_universe(self, data: dict[str, Any]) -> dict[str, Any]:
+        builder = self.client.table("candidate_universe").upsert(
+            data,
+            on_conflict="market,ticker",
+        )
+        rows = self._run(builder, {"operation": "upsert_candidate_universe"})
+        return rows[0]
+
     def get_settings(self) -> dict[str, Any] | None:
         builder = self.client.table("settings").select("*").limit(1)
         rows = self._run(builder, {"operation": "get_settings"})
@@ -448,6 +609,17 @@ class SupabaseRepository:
         if limit is not None:
             builder = builder.limit(limit)
         return self._run(builder, {"operation": "list_performance_logs"})
+
+    def list_unevaluated_performance_logs(self, limit: int | None = None) -> list[dict[str, Any]]:
+        builder = (
+            self.client.table("performance_logs")
+            .select("*")
+            .is_("price_after_20d", "null")
+            .order("created_at", desc=True)
+        )
+        if limit is not None:
+            builder = builder.limit(limit)
+        return self._run(builder, {"operation": "list_unevaluated_performance_logs"})
 
     def update_performance_log(self, log_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
         builder = self.client.table("performance_logs").update(data).eq("id", log_id)
@@ -519,6 +691,66 @@ class SupabaseRepository:
         if limit is not None:
             builder = builder.limit(limit)
         return self._run(builder, {"operation": "list_recommendation_cycles", "status": status})
+
+    def list_open_recommendation_cycles(self, limit: int | None = None) -> list[dict[str, Any]]:
+        builder = (
+            self.client.table("recommendation_cycles")
+            .select("*")
+            .or_("status.eq.active,price_after_60d.is.null")
+            .order("created_at", desc=True)
+        )
+        if limit is not None:
+            builder = builder.limit(limit)
+        return self._run(builder, {"operation": "list_open_recommendation_cycles"})
+
+    def get_market_data_cache(self, cache_key: str) -> dict[str, Any] | None:
+        builder = (
+            self.client.table("market_data_cache").select("*").eq("cache_key", cache_key).limit(1)
+        )
+        rows = self._run(builder, {"operation": "get_market_data_cache"})
+        return rows[0] if rows else None
+
+    def upsert_market_data_cache(self, cache_key: str, payload: dict[str, Any]) -> None:
+        builder = self.client.table("market_data_cache").upsert(
+            {"cache_key": cache_key, "payload": payload},
+            on_conflict="cache_key",
+        )
+        self._run(builder, {"operation": "upsert_market_data_cache"})
+
+    def list_notifications(
+        self, unread_only: bool = False, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        builder = self.client.table("notifications").select("*").order("created_at", desc=True)
+        if unread_only:
+            builder = builder.eq("is_read", False)
+        if limit is not None:
+            builder = builder.limit(limit)
+        return self._run(builder, {"operation": "list_notifications", "unread_only": unread_only})
+
+    def get_notification_by_event_key(self, event_key: str) -> dict[str, Any] | None:
+        builder = self.client.table("notifications").select("*").eq("event_key", event_key).limit(1)
+        rows = self._run(builder, {"operation": "get_notification_by_event_key"})
+        return rows[0] if rows else None
+
+    def create_notification(self, data: dict[str, Any]) -> dict[str, Any]:
+        builder = self.client.table("notifications").insert(data)
+        rows = self._run(builder, {"operation": "create_notification"})
+        return rows[0]
+
+    def update_notification(
+        self, notification_id: str, data: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        builder = self.client.table("notifications").update(data).eq("id", notification_id)
+        rows = self._run(builder, {"operation": "update_notification"})
+        return rows[0] if rows else None
+
+    def mark_all_notifications_read(self) -> int:
+        builder = (
+            self.client.table("notifications")
+            .update({"is_read": True, "read_at": _now_iso()})
+            .eq("is_read", False)
+        )
+        return len(self._run(builder, {"operation": "mark_all_notifications_read"}))
 
 
 def create_repository(env: EnvironmentSettings | None = None) -> Repository:

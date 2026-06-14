@@ -1,4 +1,6 @@
 import { actionLabel, displayText } from "../api/reports.js";
+import { formatReturn, formatValue } from "../utils/formatters.js";
+import { confidenceBadge } from "../utils/recommendationStats.js";
 
 function formatRange(low, high) {
   if (low == null && high == null) return "-";
@@ -9,27 +11,45 @@ function isDataLimited(strategy) {
   return strategy.reasoning === "data-limited";
 }
 
-function formatReturn(value) {
-  if (value == null) return "-";
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "-";
-  return `${numeric.toFixed(2)}%`;
-}
-
-function formatValue(value) {
-  if (value == null) return "-";
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return value;
-  return numeric.toLocaleString(undefined, { maximumFractionDigits: 2 });
-}
-
 function performanceFor(strategy, performanceLogs) {
   return performanceLogs.find(
     (row) => row.ticker === strategy.ticker && row.action === strategy.action,
   );
 }
 
-export default function StrategyTable({ strategies = [], performanceLogs = [] }) {
+function confidenceDetailText(detail) {
+  const parts = [`기술 점수 기여 ${detail.technical_confidence}`];
+  if (detail.win_rate != null) {
+    parts.push(
+      `과거 승률 ${Math.round(detail.win_rate * 100)}% (종료 표본 ${detail.sample_size}건` +
+        `${detail.calibrated ? `, 보정계수 ×${detail.calibration_factor}` : ", 보정 미적용"})`,
+    );
+  } else {
+    parts.push("과거 승률 표본 없음");
+  }
+  parts.push(detail.news_context_used ? "뉴스 컨텍스트 반영" : "뉴스 컨텍스트 미반영");
+  return parts.join(" · ");
+}
+
+function positionSizingText(sizing) {
+  const max = formatValue(sizing.suggested_max_amount);
+  return (
+    `최대 약 ${max} ${sizing.currency} ` +
+    `(1회 리스크 ${sizing.risk_per_trade_pct}% 기준, 손절까지 거리 ${sizing.stop_distance_pct}%). ` +
+    "의사결정 지원 정보이며 주문 수량이 아닙니다."
+  );
+}
+
+function dataQualityText(inputs) {
+  const parts = [`제공자 ${inputs.provider || "-"}`];
+  if (inputs.last_trading_date) {
+    parts.push(`최근 거래일 ${String(inputs.last_trading_date).slice(0, 10)}`);
+  }
+  parts.push(inputs.is_stale ? "데이터 지연" : "데이터 최신");
+  return parts.join(" · ");
+}
+
+export default function StrategyTable({ strategies = [], performanceLogs = [], inputsByTicker }) {
   if (!strategies.length) {
     return <p className="empty-state">표시할 전략이 없습니다.</p>;
   }
@@ -38,6 +58,8 @@ export default function StrategyTable({ strategies = [], performanceLogs = [] })
     <div className="strategy-accordion">
       {strategies.map((strategy) => {
         const performance = performanceFor(strategy, performanceLogs);
+        const badge = confidenceBadge(strategy.confidence_detail);
+        const inputs = inputsByTicker?.[strategy.ticker];
         return (
           <details
             className={`strategy-detail ${isDataLimited(strategy) ? "data-limited" : ""}`}
@@ -52,6 +74,11 @@ export default function StrategyTable({ strategies = [], performanceLogs = [] })
                 {actionLabel(strategy.action)}
               </span>
               {isDataLimited(strategy) && <span className="status-pill warning">데이터 제한</span>}
+              {!isDataLimited(strategy) && badge && (
+                <span className={`status-pill ${badge.kind === "calibrated" ? "ok" : "warning"}`}>
+                  {badge.label}
+                </span>
+              )}
             </summary>
             <dl>
               <div>
@@ -86,6 +113,24 @@ export default function StrategyTable({ strategies = [], performanceLogs = [] })
                 <dt>20일 변동</dt>
                 <dd>{formatReturn(performance?.return_after_20d)}</dd>
               </div>
+              {strategy.position_sizing && (
+                <div className="wide-definition">
+                  <dt>제안 투입 한도</dt>
+                  <dd>{positionSizingText(strategy.position_sizing)}</dd>
+                </div>
+              )}
+              {strategy.confidence_detail && !isDataLimited(strategy) && (
+                <div className="wide-definition">
+                  <dt>신뢰도 근거</dt>
+                  <dd>{confidenceDetailText(strategy.confidence_detail)}</dd>
+                </div>
+              )}
+              {inputs && (
+                <div className="wide-definition">
+                  <dt>데이터 품질</dt>
+                  <dd>{dataQualityText(inputs)}</dd>
+                </div>
+              )}
               {isDataLimited(strategy) && (
                 <div className="wide-definition">
                   <dt>상태</dt>

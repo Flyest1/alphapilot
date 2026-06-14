@@ -19,6 +19,10 @@ class AssetStrategy(BaseModel):
     reasoning: str
     risk: str
     invalidation_condition: str
+    # 신뢰도 산출 근거(기술 기여/과거 승률/뉴스 컨텍스트). 백엔드가 보정 단계에서 채운다.
+    confidence_detail: Optional[dict] = None
+    # 신규 매수 후보의 제안 투입 한도(금액 범위, 의사결정 지원 전용). 주문 수량은 제공하지 않는다.
+    position_sizing: Optional[dict] = None
 
 
 class MarketSummary(BaseModel):

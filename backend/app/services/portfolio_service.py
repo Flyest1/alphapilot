@@ -6,6 +6,13 @@ from app.db.supabase_client import Repository
 from app.models.portfolio import PortfolioSummaryResponse
 from app.utils.logging import log_external_failure
 
+# 집중도 경고 임계치 (Phase 4-3). 단일 종목 임계치는 설정 target_max_asset_pct를 따른다.
+SINGLE_SECTOR_WEIGHT_WARNING = 40.0
+UNCLASSIFIED_SECTOR = "미분류"
+
+MARKET_LABELS = {"KR": "국내", "US": "미국", "ETF": "미국 ETF", "CASH": "현금"}
+ALLOCATION_BUCKET_LABELS = {"domestic": "국내", "global": "글로벌", "cash": "현금"}
+
 
 class PortfolioService:
     def __init__(self, repository: Repository, market_data_service: Any | None = None) -> None:
@@ -67,6 +74,7 @@ class PortfolioService:
                     "ticker": asset.get("ticker"),
                     "name": asset.get("name"),
                     "market": market,
+                    "sector": asset.get("sector"),
                     "currency": currency,
                     "fx_rate": round(fx_rate, 4),
                     "base_currency": "KRW",
@@ -95,6 +103,8 @@ class PortfolioService:
                 )
             )
 
+        net_totals = self._apply_cost_adjusted_returns(rows, app_settings)
+
         total_value = totals["total_market_value"]
         total_cost = totals["total_cost"]
         total_profit_loss = total_value - total_cost
@@ -113,6 +123,9 @@ class PortfolioService:
             latest_summary = latest_report.get("summary")
             if not latest_summary and isinstance(latest_report.get("content"), dict):
                 latest_summary = latest_report["content"].get("market_summary", {}).get("summary")
+
+        exposures = self._exposures(allocation, app_settings.target_max_asset_pct)
+        drift = self._allocation_drift(totals, total_value, app_settings)
 
         snapshot_history = self._snapshot_value_history()
         value_history = (
@@ -152,7 +165,171 @@ class PortfolioService:
             asset_allocation=allocation,
             asset_returns=rows,
             latest_report_summary=latest_summary,
+            currency_exposure=exposures["currency"],
+            market_exposure=exposures["market"],
+            sector_exposure=exposures["sector"],
+            concentration_warnings=exposures["warnings"],
+            allocation_drift=drift["rows"],
+            rebalance_suggestions=drift["suggestions"],
+            total_net_profit_loss=round(net_totals["net_profit_loss"], 2),
+            total_net_return_rate=round(net_totals["net_return_rate"], 2),
         )
+
+    def _apply_cost_adjusted_returns(
+        self,
+        rows: list[dict[str, Any]],
+        app_settings: Any,
+    ) -> dict[str, float]:
+        """수수료/거래세/환전 스프레드를 차감한 추정 수익률을 행마다 채운다 (Phase 5-4).
+
+        매수측 비용은 매입금액, 매도측 비용은 현재 평가금액 기준의 추정치다.
+        """
+        fee = float(app_settings.fee_rate_pct) / 100
+        kr_tax = float(app_settings.kr_tax_rate_pct) / 100
+        fx_spread = float(app_settings.fx_spread_pct) / 100
+        total_net_profit = 0.0
+        total_cost = 0.0
+        for row in rows:
+            cost = float(row.get("cost") or 0)
+            value = float(row.get("market_value") or 0)
+            total_cost += cost
+            if row.get("market") == "CASH":
+                row["estimated_costs"] = 0.0
+                row["net_profit_loss"] = row.get("profit_loss", 0.0)
+                row["net_return_rate"] = row.get("return_rate", 0.0)
+                total_net_profit += float(row.get("profit_loss") or 0)
+                continue
+            is_usd = str(row.get("currency") or "") == "USD"
+            buy_side = cost * (fee + (fx_spread if is_usd else 0))
+            sell_side = value * (
+                fee + (kr_tax if row.get("market") == "KR" else 0) + (fx_spread if is_usd else 0)
+            )
+            estimated_costs = buy_side + sell_side
+            net_profit = float(row.get("profit_loss") or 0) - estimated_costs
+            row["estimated_costs"] = round(estimated_costs, 2)
+            row["net_profit_loss"] = round(net_profit, 2)
+            row["net_return_rate"] = round((net_profit / cost * 100) if cost else 0.0, 2)
+            total_net_profit += net_profit
+        return {
+            "net_profit_loss": total_net_profit,
+            "net_return_rate": (total_net_profit / total_cost * 100) if total_cost else 0.0,
+        }
+
+    def _allocation_drift(
+        self,
+        totals: dict[str, float],
+        total_value: float,
+        app_settings: Any,
+    ) -> dict[str, Any]:
+        """목표 배분 대비 드리프트와 리밸런스 제안 문구를 계산한다 (Phase 5-2)."""
+        targets = {
+            "domestic": float(app_settings.target_domestic_pct),
+            "global": float(app_settings.target_global_pct),
+            "cash": float(app_settings.target_cash_pct),
+        }
+        actuals = {
+            "domestic": (totals["domestic_value"] / total_value * 100) if total_value else 0.0,
+            "global": (totals["global_value"] / total_value * 100) if total_value else 0.0,
+            "cash": (totals["cash_value"] / total_value * 100) if total_value else 0.0,
+        }
+        band = float(app_settings.rebalance_band_pct)
+        drift_rows = []
+        suggestions = []
+        for key, label in ALLOCATION_BUCKET_LABELS.items():
+            drift_value = actuals[key] - targets[key]
+            exceeded = total_value > 0 and abs(drift_value) > band
+            drift_rows.append(
+                {
+                    "key": key,
+                    "label": label,
+                    "target_pct": round(targets[key], 2),
+                    "actual_pct": round(actuals[key], 2),
+                    "drift_pct": round(drift_value, 2),
+                    "exceeded": exceeded,
+                }
+            )
+            if not exceeded:
+                continue
+            gap = f"목표({targets[key]:.0f}%)보다 {abs(drift_value):.1f}%p"
+            if drift_value > 0:
+                advice = (
+                    "추천 후보 중심의 분할 매수를 검토하세요."
+                    if key == "cash"
+                    else "비중 축소를 검토하세요."
+                )
+                suggestions.append(f"{label} 비중이 {gap} 높습니다. {advice}")
+            else:
+                advice = (
+                    "현금 확보를 검토하세요."
+                    if key == "cash"
+                    else "분할 매수로 비중 확대를 검토하세요."
+                )
+                suggestions.append(f"{label} 비중이 {gap} 낮습니다. {advice}")
+        return {"rows": drift_rows, "suggestions": suggestions}
+
+    def _exposures(
+        self,
+        allocation: list[dict[str, Any]],
+        max_asset_pct: float,
+    ) -> dict[str, Any]:
+        """통화/시장/섹터 노출 비중과 집중도 경고를 계산한다 (Phase 4-3)."""
+
+        def grouped(key_fn: Any, label_fn: Any = None) -> list[dict[str, Any]]:
+            buckets: dict[str, dict[str, float]] = {}
+            for row in allocation:
+                key = key_fn(row)
+                bucket = buckets.setdefault(key, {"value": 0.0, "weight": 0.0})
+                bucket["value"] += float(row.get("market_value") or 0)
+                bucket["weight"] += float(row.get("weight") or 0)
+            return sorted(
+                [
+                    {
+                        "key": key,
+                        "label": label_fn(key) if label_fn else key,
+                        "value": round(bucket["value"], 2),
+                        "weight": round(bucket["weight"], 2),
+                    }
+                    for key, bucket in buckets.items()
+                ],
+                key=lambda item: item["value"],
+                reverse=True,
+            )
+
+        currency_exposure = grouped(lambda row: str(row.get("currency") or "KRW"))
+        market_exposure = grouped(
+            lambda row: str(row.get("market") or "기타"),
+            lambda key: MARKET_LABELS.get(key, key),
+        )
+        sector_exposure = grouped(
+            lambda row: (
+                "현금"
+                if row.get("market") == "CASH"
+                else str(row.get("sector") or UNCLASSIFIED_SECTOR)
+            )
+        )
+
+        warnings = []
+        for row in allocation:
+            weight = float(row.get("weight") or 0)
+            if row.get("market") != "CASH" and weight > max_asset_pct:
+                warnings.append(
+                    f"단일 종목 {row.get('ticker')} 비중이 {weight:.1f}%로 "
+                    f"{max_asset_pct:.0f}%를 초과합니다. 분산을 검토하세요."
+                )
+        for item in sector_exposure:
+            if item["key"] in {"현금", UNCLASSIFIED_SECTOR}:
+                continue
+            if item["weight"] > SINGLE_SECTOR_WEIGHT_WARNING:
+                warnings.append(
+                    f"{item['label']} 섹터 비중이 {item['weight']:.1f}%로 "
+                    f"{SINGLE_SECTOR_WEIGHT_WARNING:.0f}%를 초과합니다. 섹터 분산을 검토하세요."
+                )
+        return {
+            "currency": currency_exposure,
+            "market": market_exposure,
+            "sector": sector_exposure,
+            "warnings": warnings,
+        }
 
     def create_snapshot(self) -> dict[str, Any]:
         summary = self.get_summary()

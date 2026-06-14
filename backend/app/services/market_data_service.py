@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from io import StringIO
 import logging
 from typing import Any
 
@@ -7,6 +8,7 @@ import numpy as np
 import pandas as pd
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
+from app.utils.datetime import parse_iso_datetime
 from app.utils.logging import log_external_failure
 
 
@@ -26,11 +28,17 @@ class MarketDataService:
         kr_provider: Any | None = None,
         yf_module: Any | None = None,
         now_provider: Any | None = None,
+        repository: Any | None = None,
     ) -> None:
         self.kr_provider = kr_provider
         self.yf_module = yf_module
         self.now_provider = now_provider or (lambda: datetime.now(timezone.utc))
+        # repository가 주어지면 일중 캐시를 Supabase market_data_cache 테이블에 영속화해
+        # 콜드스타트 직후 외부 시세 재호출 폭주를 막는다.
+        self.repository = repository
         self._price_cache: dict[tuple[str, str, int, int, str], MarketDataResult] = {}
+        self._sector_cache: dict[tuple[str, str], str | None] = {}
+        self._event_cache: dict[tuple[str, int, str], dict[str, Any]] = {}
 
     def fetch_price_history(
         self,
@@ -61,6 +69,11 @@ class MarketDataService:
         if cache_key in self._price_cache:
             return self._price_cache[cache_key]
 
+        persisted = self._read_persistent_cache(cache_key)
+        if persisted is not None:
+            self._price_cache[cache_key] = persisted
+            return persisted
+
         provider = self._provider_name(normalized_market, normalized_ticker)
         try:
             if provider == "pykrx":
@@ -71,6 +84,7 @@ class MarketDataService:
                 raw, provider, stale_data_business_days, normalized_ticker
             )
             self._price_cache[cache_key] = result
+            self._write_persistent_cache(cache_key, result)
             return result
         except Exception as exc:
             log_external_failure(
@@ -121,6 +135,137 @@ class MarketDataService:
                 {"operation": "fetch_usd_krw_rate", "ticker": "KRW=X"},
             )
             return fallback
+
+    def fetch_sector(self, market: str, ticker: str) -> str | None:
+        """yfinance info 기반 섹터 조회 (Phase 4-3 노출 분석용).
+
+        KR 종목은 .KS → .KQ 순서로 yfinance 심볼을 시도한다. 실패하면 None.
+        """
+        normalized_market = market.upper()
+        if normalized_market == "CASH":
+            return None
+        normalized_ticker = self.normalize_ticker(normalized_market, ticker)
+        cache_key = (normalized_market, normalized_ticker)
+        if cache_key in self._sector_cache:
+            return self._sector_cache[cache_key]
+
+        symbols = (
+            [f"{normalized_ticker}.KS", f"{normalized_ticker}.KQ"]
+            if normalized_market == "KR"
+            else [normalized_ticker]
+        )
+        sector: str | None = None
+        for symbol in symbols:
+            try:
+                info = self._yf_module().Ticker(symbol).info or {}
+            except Exception as exc:
+                log_external_failure(
+                    "yfinance",
+                    exc,
+                    {"operation": "fetch_sector", "ticker": symbol},
+                )
+                continue
+            # 개별 주식은 sector, ETF는 category가 분류 정보를 담는다.
+            sector = info.get("sector") or info.get("category")
+            if sector:
+                break
+        self._sector_cache[cache_key] = sector
+        return sector
+
+    def fetch_asset_events(
+        self,
+        assets: list[dict[str, Any]],
+        days: int = 60,
+    ) -> dict[str, Any]:
+        """yfinance calendar 범위에서 보유 자산의 향후 실적/배당 일정을 수집한다."""
+        cache_key = (
+            ",".join(sorted(str(asset.get("ticker") or "") for asset in assets)),
+            days,
+            self.now_provider().date().isoformat(),
+        )
+        if cache_key in self._event_cache:
+            return self._event_cache[cache_key]
+        now = self.now_provider()
+        end = now + timedelta(days=days)
+        events = []
+        for asset in assets:
+            if asset.get("market") == "CASH" or not asset.get("ticker"):
+                continue
+            normalized_market = str(asset.get("market") or "US").upper()
+            normalized_ticker = self.normalize_ticker(normalized_market, str(asset["ticker"]))
+            symbols = (
+                [f"{normalized_ticker}.KS", f"{normalized_ticker}.KQ"]
+                if normalized_market == "KR"
+                else [normalized_ticker]
+            )
+            calendar = None
+            for symbol in symbols:
+                try:
+                    calendar = self._yf_module().Ticker(symbol).calendar
+                except Exception as exc:
+                    log_external_failure(
+                        "yfinance",
+                        exc,
+                        {"operation": "fetch_asset_calendar", "ticker": symbol},
+                    )
+                    continue
+                if calendar is not None:
+                    break
+            for event_type, label, date_value in self._calendar_events(calendar):
+                parsed = parse_iso_datetime(date_value)
+                if parsed is None:
+                    continue
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                if parsed < now or parsed > end:
+                    continue
+                events.append(
+                    {
+                        "ticker": asset["ticker"],
+                        "name": asset.get("name") or asset["ticker"],
+                        "event_type": event_type,
+                        "label": label,
+                        "date": parsed.isoformat(),
+                        "provider": "yfinance",
+                    }
+                )
+        result = {
+            "provider": "yfinance",
+            "status": "ok" if events else "empty",
+            "events": sorted(events, key=lambda row: row["date"]),
+            "window_days": days,
+        }
+        self._event_cache[cache_key] = result
+        return result
+
+    def _calendar_events(self, calendar: Any) -> list[tuple[str, str, Any]]:
+        if calendar is None:
+            return []
+        if isinstance(calendar, pd.DataFrame):
+            if calendar.empty:
+                return []
+            values = calendar.iloc[:, 0].to_dict()
+        elif isinstance(calendar, dict):
+            values = calendar
+        else:
+            return []
+        mappings = {
+            "Earnings Date": ("earnings", "실적 발표"),
+            "EarningsDate": ("earnings", "실적 발표"),
+            "Ex-Dividend Date": ("ex_dividend", "배당락"),
+            "ExDividendDate": ("ex_dividend", "배당락"),
+            "Dividend Date": ("dividend", "배당 지급"),
+            "DividendDate": ("dividend", "배당 지급"),
+        }
+        events = []
+        for key, raw_value in values.items():
+            mapping = mappings.get(str(key))
+            if mapping is None:
+                continue
+            date_values = raw_value if isinstance(raw_value, (list, tuple)) else [raw_value]
+            for value in date_values:
+                events.append((mapping[0], mapping[1], value))
+        return events
 
     def _provider_name(self, market: str, ticker: str) -> str:
         upper_ticker = ticker.upper()
@@ -197,6 +342,59 @@ class MarketDataService:
                 provider="pykrx",
                 data_quality_note="pykrx index failure; data-limited",
             )
+
+    def _persistent_cache_key(self, cache_key: tuple[str, str, int, int, str]) -> str:
+        return ":".join(str(part) for part in cache_key)
+
+    def _read_persistent_cache(
+        self, cache_key: tuple[str, str, int, int, str]
+    ) -> MarketDataResult | None:
+        if self.repository is None:
+            return None
+        try:
+            row = self.repository.get_market_data_cache(self._persistent_cache_key(cache_key))
+        except Exception as exc:
+            log_external_failure("market_data_cache", exc, {"operation": "read"})
+            return None
+        payload = (row or {}).get("payload")
+        if not payload:
+            return None
+        try:
+            frame = pd.read_json(StringIO(payload["frame"]), orient="split")
+            frame.index = pd.to_datetime(frame.index)
+            return MarketDataResult(
+                dataframe=frame,
+                last_trading_date=parse_iso_datetime(payload.get("last_trading_date")),
+                is_stale=bool(payload.get("is_stale")),
+                provider=str(payload.get("provider") or "cache"),
+                data_quality_note=str(payload.get("data_quality_note") or "ok"),
+                current_price=payload.get("current_price"),
+            )
+        except Exception as exc:
+            log_external_failure("market_data_cache", exc, {"operation": "deserialize"})
+            return None
+
+    def _write_persistent_cache(
+        self,
+        cache_key: tuple[str, str, int, int, str],
+        result: MarketDataResult,
+    ) -> None:
+        if self.repository is None or result.dataframe.empty:
+            return
+        try:
+            payload = {
+                "frame": result.dataframe.to_json(orient="split", date_format="iso"),
+                "last_trading_date": (
+                    result.last_trading_date.isoformat() if result.last_trading_date else None
+                ),
+                "is_stale": result.is_stale,
+                "provider": result.provider,
+                "data_quality_note": result.data_quality_note,
+                "current_price": result.current_price,
+            }
+            self.repository.upsert_market_data_cache(self._persistent_cache_key(cache_key), payload)
+        except Exception as exc:
+            log_external_failure("market_data_cache", exc, {"operation": "write"})
 
     def normalize_ticker(self, market: str, ticker: str) -> str:
         upper = ticker.strip().upper()

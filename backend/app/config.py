@@ -17,6 +17,41 @@ APPLICATION_DEFAULT_ENV_MAP = {
     "frontend_timezone": "FRONTEND_TIMEZONE",
     "stale_data_business_days": "STALE_DATA_BUSINESS_DAYS",
     "usd_krw_rate": "USD_KRW_RATE",
+    "target_domestic_pct": "TARGET_DOMESTIC_PCT",
+    "target_global_pct": "TARGET_GLOBAL_PCT",
+    "target_cash_pct": "TARGET_CASH_PCT",
+    "target_max_asset_pct": "TARGET_MAX_ASSET_PCT",
+    "rebalance_band_pct": "REBALANCE_BAND_PCT",
+    "risk_per_trade_pct": "RISK_PER_TRADE_PCT",
+    "fee_rate_pct": "FEE_RATE_PCT",
+    "kr_tax_rate_pct": "KR_TAX_RATE_PCT",
+    "fx_spread_pct": "FX_SPREAD_PCT",
+    "telegram_notify_report_completed": "TELEGRAM_NOTIFY_REPORT_COMPLETED",
+    "telegram_notify_target_hit": "TELEGRAM_NOTIFY_TARGET_HIT",
+    "telegram_notify_stop_hit": "TELEGRAM_NOTIFY_STOP_HIT",
+    "telegram_notify_cycle_closed": "TELEGRAM_NOTIFY_CYCLE_CLOSED",
+    "telegram_notify_drift_warning": "TELEGRAM_NOTIFY_DRIFT_WARNING",
+}
+
+INT_APPLICATION_FIELDS = {"stale_data_business_days"}
+FLOAT_APPLICATION_FIELDS = {
+    "usd_krw_rate",
+    "target_domestic_pct",
+    "target_global_pct",
+    "target_cash_pct",
+    "target_max_asset_pct",
+    "rebalance_band_pct",
+    "risk_per_trade_pct",
+    "fee_rate_pct",
+    "kr_tax_rate_pct",
+    "fx_spread_pct",
+}
+BOOL_APPLICATION_FIELDS = {
+    "telegram_notify_report_completed",
+    "telegram_notify_target_hit",
+    "telegram_notify_stop_hit",
+    "telegram_notify_cycle_closed",
+    "telegram_notify_drift_warning",
 }
 
 INFRASTRUCTURE_ENV_KEYS = (
@@ -28,6 +63,8 @@ INFRASTRUCTURE_ENV_KEYS = (
     "SCHEDULER_SECRET",
     "API_ACCESS_TOKEN",
     "FRONTEND_ORIGIN",
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_CHAT_ID",
 )
 
 
@@ -44,6 +81,8 @@ class EnvironmentSettings(BaseModel):
     frontend_origin: str | None
     market_data_provider_kr: str | None
     market_data_provider_us: str | None
+    telegram_bot_token: str | None
+    telegram_chat_id: str | None
 
 
 def _clean(value: str | None) -> str | None:
@@ -74,6 +113,8 @@ def get_environment_settings() -> EnvironmentSettings:
         frontend_origin=_clean(os.getenv("FRONTEND_ORIGIN")),
         market_data_provider_kr=_clean(os.getenv("MARKET_DATA_PROVIDER_KR")),
         market_data_provider_us=_clean(os.getenv("MARKET_DATA_PROVIDER_US")),
+        telegram_bot_token=_clean(os.getenv("TELEGRAM_BOT_TOKEN")),
+        telegram_chat_id=_clean(os.getenv("TELEGRAM_CHAT_ID")),
     )
 
 
@@ -84,10 +125,12 @@ def get_env_application_defaults() -> dict[str, Any]:
         raw_value = _clean(os.getenv(env_name))
         if raw_value is None:
             continue
-        if field_name == "stale_data_business_days":
+        if field_name in INT_APPLICATION_FIELDS:
             values[field_name] = int(raw_value)
-        elif field_name == "usd_krw_rate":
+        elif field_name in FLOAT_APPLICATION_FIELDS:
             values[field_name] = float(raw_value)
+        elif field_name in BOOL_APPLICATION_FIELDS:
+            values[field_name] = raw_value.lower() in {"1", "true", "yes", "on"}
         else:
             values[field_name] = raw_value
     return values

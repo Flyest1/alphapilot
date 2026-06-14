@@ -11,13 +11,18 @@ import {
   reportTypeLabel,
   splitStrategiesByAssets,
 } from "../api/reports.js";
+import ActionBriefing from "../components/dashboard/ActionBriefing.jsx";
+import AllocationChart from "../components/dashboard/AllocationChart.jsx";
+import AssetEventsPanel from "../components/dashboard/AssetEventsPanel.jsx";
+import ExposurePanel from "../components/dashboard/ExposurePanel.jsx";
+import RebalanceCard from "../components/dashboard/RebalanceCard.jsx";
+import SummaryCards from "../components/dashboard/SummaryCards.jsx";
+import TopStrategies from "../components/dashboard/TopStrategies.jsx";
+import TrendChart from "../components/dashboard/TrendChart.jsx";
 import KeyMessageList from "../components/KeyMessageList.jsx";
+import Skeleton from "../components/Skeleton.jsx";
 import StrategyTable from "../components/StrategyTable.jsx";
-import SummaryCard from "../components/SummaryCard.jsx";
-
-function money(value) {
-  return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
-}
+import { MESSAGES } from "../constants/strings.js";
 
 const DASHBOARD_CACHE_MS = 5 * 60 * 1000;
 
@@ -27,11 +32,14 @@ export default function Dashboard() {
   const cachedAssets = readApiCache("/api/assets", { maxAgeMs: DASHBOARD_CACHE_MS });
   const cachedPerformanceLogs =
     readApiCache("/api/performance-logs", { maxAgeMs: DASHBOARD_CACHE_MS }) || [];
+  const cachedCycles =
+    readApiCache("/api/recommendation-cycles", { maxAgeMs: DASHBOARD_CACHE_MS }) || [];
   const hasCachedData = Boolean(cachedSummary || cachedLatest || cachedAssets);
   const [summary, setSummary] = useState(cachedSummary);
   const [latest, setLatest] = useState(cachedLatest);
   const [assets, setAssets] = useState(cachedAssets || []);
   const [performanceLogs, setPerformanceLogs] = useState(cachedPerformanceLogs);
+  const [recommendationCycles, setRecommendationCycles] = useState(cachedCycles);
   const [isLoading, setIsLoading] = useState(!hasCachedData);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -46,17 +54,20 @@ export default function Dashboard() {
     } else {
       setIsLoading(true);
     }
-    Promise.all([
+    return Promise.all([
       api.portfolio.summary(),
       api.reports.latest(),
       api.assets.list(),
       api.performanceLogs.list(),
+      api.recommendationCycles.list(),
     ])
-      .then(([portfolio, reports, assetList, performanceLogList]) => {
+      .then(([portfolio, reports, assetList, performanceLogList, cycleList]) => {
         setSummary(portfolio);
         setLatest(reports);
         setAssets(assetList);
         setPerformanceLogs(performanceLogList);
+        setRecommendationCycles(cycleList);
+        setError("");
       })
       .catch((err) => setError(err.message))
       .finally(() => {
@@ -113,14 +124,6 @@ export default function Dashboard() {
     action,
     count: ownedStrategies.filter((strategy) => strategy.action === action).length,
   }));
-  const topStrategies = [...ownedStrategies]
-    .sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
-    .slice(0, 5);
-  const topCandidates = [...candidateStrategies]
-    .sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
-    .slice(0, 5);
-  const dailyChanges = (summary?.daily_asset_changes || []).slice(0, 8);
-  const chartPoints = (summary?.value_history || []).slice(chartRange === "7d" ? -7 : -30);
 
   return (
     <section className="page">
@@ -136,94 +139,34 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {error && <p className="alert">{error}</p>}
-      {snapshotStatus && <p className="notice">{snapshotStatus}</p>}
-      {isLoading && <p className="empty-state">포트폴리오 데이터를 불러오는 중입니다.</p>}
-      {isRefreshing && <p className="field-hint">최신 데이터를 확인하는 중입니다.</p>}
-
-      <div className="summary-grid">
-        <SummaryCard label="총 평가금액(KRW)" value={money(summary?.total_market_value)} />
-        <SummaryCard
-          label="평가손익(KRW)"
-          value={money(summary?.total_profit_loss)}
-          tone={summary?.total_profit_loss >= 0 ? "positive" : "negative"}
-        />
-        <SummaryCard
-          label="수익률"
-          value={`${summary?.total_return_rate ?? 0}%`}
-          tone={summary?.total_return_rate >= 0 ? "positive" : "negative"}
-        />
-        <SummaryCard label="현금(KRW)" value={money(summary?.cash_value)} />
-        <SummaryCard
-          label="1일 변동(KRW)"
-          value={money(summary?.daily_profit_loss)}
-          tone={summary?.daily_profit_loss >= 0 ? "positive" : "negative"}
-        />
-      </div>
-      {summary?.usd_krw_rate && (
-        <p className="field-hint">
-          USD 자산은 1 USD = {money(summary.usd_krw_rate)} KRW 기준으로 환산합니다.
-        </p>
+      {error && (
+        <div className="notice notice-with-action">
+          <span className="alert">{error}</span>
+          <button type="button" onClick={() => loadDashboard()}>
+            다시 시도
+          </button>
+        </div>
       )}
+      {snapshotStatus && <p className="notice">{snapshotStatus}</p>}
+      {isLoading && <Skeleton label={MESSAGES.loadingDashboard} lines={4} />}
+      {isRefreshing && <p className="field-hint">{MESSAGES.refreshing}</p>}
 
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <h2>일별 자산 변동</h2>
-            <p>
-              최신 거래일 종가와 직전 거래일 종가 차이를 KRW 기준으로 환산한 값입니다.
-            </p>
-          </div>
-          <div className="inline-metrics">
-            <span>{summary?.daily_return_rate ?? 0}%</span>
-            <span>현금 {money(summary?.cash_value)} KRW</span>
-          </div>
-        </div>
-        <div className="filter-row">
-          <button
-            className={chartRange === "7d" ? "active" : ""}
-            type="button"
-            onClick={() => setChartRange("7d")}
-          >
-            7일
-          </button>
-          <button
-            className={chartRange === "30d" ? "active" : ""}
-            type="button"
-            onClick={() => setChartRange("30d")}
-          >
-            1달
-          </button>
-        </div>
-        <PortfolioCharts points={chartPoints} />
-        <div className="daily-change-list">
-          {dailyChanges.length === 0 && (
-            <p className="empty-state">표시할 일별 변동 데이터가 아직 없습니다.</p>
-          )}
-          {dailyChanges.map((asset) => (
-            <div className="daily-change-row" key={`${asset.market}-${asset.ticker}`}>
-              <div>
-                <strong>{asset.ticker}</strong>
-                <span>{asset.name}</span>
-              </div>
-              <div className="daily-change-track">
-                <span
-                  className={asset.daily_profit_loss >= 0 ? "positive" : "negative"}
-                  style={{
-                    width: `${Math.min(
-                      100,
-                      Math.max(6, Math.abs(asset.daily_return_rate || 0) * 12),
-                    )}%`,
-                  }}
-                />
-              </div>
-              <em className={asset.daily_profit_loss >= 0 ? "positive-text" : "negative-text"}>
-                {money(asset.daily_profit_loss)} KRW · {asset.daily_return_rate}%
-              </em>
-            </div>
-          ))}
-        </div>
-      </section>
+      <ActionBriefing
+        assets={assets}
+        cycles={recommendationCycles}
+        report={report}
+        summary={summary}
+      />
+
+      <SummaryCards summary={summary} />
+
+      <RebalanceCard summary={summary} />
+
+      <ExposurePanel summary={summary} />
+
+      <AssetEventsPanel eventContext={report?.report_inputs?.asset_events} />
+
+      <TrendChart chartRange={chartRange} summary={summary} onChangeRange={setChartRange} />
 
       <section className="panel">
         <div className="section-heading">
@@ -252,23 +195,9 @@ export default function Dashboard() {
         </div>
         <div className="key-message-panel">
           <h3>핵심 매매 메시지</h3>
-          <KeyMessageList strategies={strategies} limit={6} performanceLogs={performanceLogs} />
+          <KeyMessageList limit={6} performanceLogs={performanceLogs} strategies={strategies} />
         </div>
-        <div className="top-strategy-list">
-          {topStrategies.length === 0 && <p className="empty-state">표시할 최신 전략이 없습니다.</p>}
-          {topStrategies.map((strategy) => (
-            <div className="top-strategy-row" key={`${strategy.ticker}-${strategy.action}`}>
-              <div>
-                <strong>{strategy.ticker}</strong>
-                <span>{strategy.name}</span>
-              </div>
-              <span className={`badge ${strategy.action.toLowerCase()}`}>
-                {actionLabel(strategy.action)}
-              </span>
-              <span>{strategy.confidence}%</span>
-            </div>
-          ))}
-        </div>
+        <TopStrategies emptyMessage="표시할 최신 전략이 없습니다." strategies={ownedStrategies} />
       </section>
 
       <section className="panel">
@@ -281,43 +210,14 @@ export default function Dashboard() {
             <span>{candidateStrategies.length}개 후보</span>
           </div>
         </div>
-        <div className="top-strategy-list">
-          {topCandidates.length === 0 && (
-            <p className="empty-state">현재 표시할 추가 매수 후보가 없습니다.</p>
-          )}
-          {topCandidates.map((strategy) => (
-            <div className="top-strategy-row" key={`${strategy.ticker}-${strategy.action}`}>
-              <div>
-                <strong>{strategy.ticker}</strong>
-                <span>{strategy.name}</span>
-              </div>
-              <span className={`badge ${strategy.action.toLowerCase()}`}>
-                {actionLabel(strategy.action)}
-              </span>
-              <span>{strategy.confidence}%</span>
-            </div>
-          ))}
-        </div>
+        <TopStrategies
+          emptyMessage="현재 표시할 추가 매수 후보가 없습니다."
+          strategies={candidateStrategies}
+        />
       </section>
 
       <div className="content-grid">
-        <section className="panel">
-          <h2>자산 비중</h2>
-          <div className="bars">
-            {(summary?.asset_allocation || []).map((asset) => (
-              <div className="bar-row" key={asset.ticker}>
-                <div>
-                  <strong>{asset.ticker}</strong>
-                  <span>{asset.name}</span>
-                </div>
-                <div className="bar-track">
-                  <span style={{ width: `${Math.min(asset.weight, 100)}%` }} />
-                </div>
-                <em>{asset.weight}%</em>
-              </div>
-            ))}
-          </div>
-        </section>
+        <AllocationChart allocation={summary?.asset_allocation || []} />
 
         <section className="panel">
           <h2>최신 리포트</h2>
@@ -343,61 +243,15 @@ export default function Dashboard() {
       <section className="panel">
         <h2>자산별 전략</h2>
         {isLoading ? (
-          <p className="empty-state">전략을 불러오는 중입니다.</p>
+          <Skeleton label={MESSAGES.loadingStrategies} />
         ) : (
-          <StrategyTable strategies={ownedStrategies} performanceLogs={performanceLogs} />
+          <StrategyTable
+            inputsByTicker={report?.report_inputs?.tickers}
+            performanceLogs={performanceLogs}
+            strategies={ownedStrategies}
+          />
         )}
       </section>
     </section>
-  );
-}
-
-function PortfolioCharts({ points = [] }) {
-  if (points.length < 2) {
-    return <p className="empty-state">차트로 표시할 기간 데이터가 아직 부족합니다.</p>;
-  }
-  const maxAbsChange = Math.max(
-    ...points.map((point) => Math.abs(Number(point.daily_profit_loss || 0))),
-    1,
-  );
-  const values = points.map((point) => Number(point.total_market_value || 0));
-  const minValue = Math.min(...values);
-  const maxValue = Math.max(...values);
-  const valueRange = Math.max(maxValue - minValue, 1);
-
-  return (
-    <div className="portfolio-chart-grid">
-      <div>
-        <h3>일간 변동 금액</h3>
-        <div className="change-chart">
-          {points.map((point) => {
-            const change = Number(point.daily_profit_loss || 0);
-            return (
-              <span
-                className={change >= 0 ? "positive" : "negative"}
-                key={`change-${point.date}`}
-                style={{ height: `${Math.max(4, (Math.abs(change) / maxAbsChange) * 100)}%` }}
-                title={`${point.date}: ${change.toLocaleString()} KRW`}
-              />
-            );
-          })}
-        </div>
-      </div>
-      <div>
-        <h3>총 평가금액</h3>
-        <div className="value-chart">
-          {points.map((point) => {
-            const value = Number(point.total_market_value || 0);
-            return (
-              <span
-                key={`value-${point.date}`}
-                style={{ height: `${Math.max(8, ((value - minValue) / valueRange) * 92 + 8)}%` }}
-                title={`${point.date}: ${value.toLocaleString()} KRW`}
-              />
-            );
-          })}
-        </div>
-      </div>
-    </div>
   );
 }

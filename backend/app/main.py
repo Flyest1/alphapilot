@@ -1,4 +1,5 @@
 import logging
+import secrets
 from collections.abc import Callable
 
 from fastapi import FastAPI, HTTPException, Request
@@ -7,9 +8,13 @@ from fastapi.responses import JSONResponse
 
 from app.api import (
     assets,
+    backtests,
+    candidate_universe,
     candidates,
+    notifications,
     performance,
     portfolio,
+    recommendation_stats,
     recommendations,
     reports,
     settings,
@@ -22,6 +27,7 @@ from app.services.report_job_service import ReportJobStore
 from app.utils.rate_limit import DailyEndpointRateLimiter
 
 SCHEDULER_ENDPOINTS = {
+    "/api/candidate-universe/refresh",
     "/api/reports/domestic/generate",
     "/api/reports/global/generate",
 }
@@ -53,7 +59,7 @@ def create_app(repository: Repository | None = None) -> FastAPI:
     app = FastAPI(title="AlphaPilot API", version="0.1.0")
     app.state.repository = repository or create_repository(env)
     app.state.rate_limiter = DailyEndpointRateLimiter(max_per_day=10)
-    app.state.market_data_service = MarketDataService()
+    app.state.market_data_service = MarketDataService(repository=app.state.repository)
     app.state.report_jobs = ReportJobStore(app.state.repository)
 
     origins = [env.frontend_origin] if env.frontend_origin else []
@@ -76,7 +82,12 @@ def create_app(repository: Repository | None = None) -> FastAPI:
             if request.url.path in SCHEDULER_ENDPOINTS
             else current_env.api_access_token
         )
-        if not expected_token or _bearer_token(request) != expected_token:
+        provided_token = _bearer_token(request)
+        if (
+            not expected_token
+            or provided_token is None
+            or not secrets.compare_digest(provided_token.encode(), expected_token.encode())
+        ):
             return JSONResponse(
                 {"detail": "unauthorized"},
                 status_code=401,
@@ -109,9 +120,13 @@ def create_app(repository: Repository | None = None) -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(assets.router)
+    app.include_router(backtests.router)
+    app.include_router(candidate_universe.router)
     app.include_router(candidates.router)
+    app.include_router(notifications.router)
     app.include_router(performance.router)
     app.include_router(portfolio.router)
+    app.include_router(recommendation_stats.router)
     app.include_router(recommendations.router)
     app.include_router(reports.router)
     app.include_router(settings.router)

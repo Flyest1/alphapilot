@@ -48,10 +48,13 @@ npm run build
 ## Current Product Phase
 
 ```text
-Phase: Post-MVP
-Status: MVP complete; Post-MVP Phases 1-3 implemented in code
-Primary goal now: improve analysis transparency, portfolio decision support, mobile UX, and security
+Phase: Post-MVP (development plan v2)
+Status: MVP complete; Track R and Post-MVP Phases 1-6, 8-9 implemented in code
+Primary goal now: keep improving reliability, signal quality, and daily usability.
+Phase 10 is documented in docs/phase10_multi_user_design.md but remains implementation-blocked.
 ```
+
+The detailed upgrade plan lives in `docs/development_plan_v2.md` and the code review baseline in `docs/code_review_2026_06.md`. When this file and the plan conflict, this file wins.
 
 The MVP already includes:
 
@@ -123,6 +126,7 @@ Forbidden recommendation language:
 - React 18.x
 - Vite 5.x
 - plain CSS / CSS modules only
+- Recharts (charting; approved in development plan v2 to replace hand-rolled SVG charts)
 - GitHub Pages deployment
 - `VITE_API_BASE_URL` for backend URL
 
@@ -148,6 +152,9 @@ Do not add Tailwind, MUI, Chakra, Bootstrap, Next.js, or other UI frameworks unl
 - ruff
 - black, line length 100
 - pytest
+- ESLint + Prettier (frontend, approved in development plan v2)
+- Vitest + React Testing Library (frontend tests, approved in development plan v2)
+- GitHub Actions CI workflow must run: `pytest backend/tests`, `ruff check .`, `black --check .`, frontend lint/test/build
 
 ### Forbidden Technical Analysis Libraries
 
@@ -170,27 +177,29 @@ Only these external services are allowed:
 ```text
 - OpenAI API                  (LLM)
 - Supabase                    (database, auth-disabled unless explicitly approved later)
-- Render                      (backend hosting, Free tier for current deployment)
+- Render                      (backend hosting; Free tier currently, paid tier upgrade pre-approved when a phase requires it)
 - GitHub Pages                (frontend hosting)
 - GitHub Actions              (scheduler)
 - pykrx                       (KR market data)
 - yfinance                    (US/ETF/FX market data)
 - GDELT DOC 2.0 API           (news/trend context)
+- Telegram Bot API            (notification channel, Phase 9; user must provide bot token via backend env var)
 ```
 
-Any new service requires explicit user approval and an AGENTS.md update before implementation.
+2026-06 decision: the user approved paid tiers and additional services in principle.
+Paid upgrades of already-allowed services (Render, Supabase, OpenAI usage) may proceed
+when a roadmap phase requires them; record the change in README. Entirely new providers
+(paid market data APIs, email providers, additional LLM providers, vector databases,
+file storage) are allowed in principle but the specific provider and cost must be
+confirmed with the user before implementation and added to this list.
 
-Examples requiring approval:
+Still requiring case-by-case approval before implementation:
 
-- paid market data APIs
-- email providers
-- push notification providers
-- Telegram/Discord/Slack bots
+- specific paid market data APIs
+- email/push providers other than Telegram
 - external cron/ping services
-- vector databases
 - alternative LLM providers
-- Supabase Auth login flow
-- file-storage services
+- Supabase Auth login flow (Phase 7/10 decision)
 
 ---
 
@@ -250,6 +259,8 @@ SUPABASE_ANON_KEY=your-anon-key
 OPENAI_API_KEY=your-openai-api-key
 SCHEDULER_SECRET=change-this-secret
 API_ACCESS_TOKEN=change-this-user-token
+TELEGRAM_BOT_TOKEN=your-telegram-bot-token
+TELEGRAM_CHAT_ID=your-telegram-chat-id
 ```
 
 ### Application Defaults
@@ -268,6 +279,11 @@ MARKET_DATA_PROVIDER_KR=pykrx
 MARKET_DATA_PROVIDER_US=yfinance
 STALE_DATA_BUSINESS_DAYS=2
 USD_KRW_RATE=1400
+TELEGRAM_NOTIFY_REPORT_COMPLETED=false
+TELEGRAM_NOTIFY_TARGET_HIT=false
+TELEGRAM_NOTIFY_STOP_HIT=false
+TELEGRAM_NOTIFY_CYCLE_CLOSED=false
+TELEGRAM_NOTIFY_DRIFT_WARNING=false
 ```
 
 Runtime resolution order:
@@ -388,6 +404,28 @@ GET /api/performance-logs
 GET /api/recommendation-cycles
 ```
 
+### Notifications
+
+```text
+GET  /api/notifications
+POST /api/notifications/{notification_id}/read
+POST /api/notifications/read-all
+```
+
+### Signal Quality
+
+Scheduler-protected:
+
+```text
+POST /api/candidate-universe/refresh
+```
+
+User-token protected:
+
+```text
+POST /api/backtests/rules/run
+```
+
 ### Settings
 
 ```text
@@ -478,11 +516,16 @@ Existing Supabase tables:
 - `report_jobs`
 - `portfolio_snapshots`
 - `recommendation_cycles`
+- `market_data_cache`
+- `candidate_universe`
+- `notifications`
 
 Existing additive settings columns:
 
 - `candidate_horizon`
 - `usd_krw_rate`
+- target allocation, rebalance, risk-per-trade, and cost-rate columns from migration 011
+- Telegram event opt-in columns from migration 013
 
 Do not alter or remove existing columns without explicit approval. New tables must be introduced through migration files under:
 
@@ -773,34 +816,59 @@ Rules:
 - A new cycle starts when action changes, target/stop changes by at least 5%, horizon changes, or the prior cycle is closed.
 - Current `performance_logs` remains preserved and runs in parallel.
 
-### Phase 4: Analysis Quality
+### Phase R (Track R): Structural Refactoring and Quality Infrastructure
 
-Goal: Improve the usefulness and transparency of recommendations.
+Status: implemented (2026-06).
+
+Goal: Remove structural debt before feature expansion. Behavior-preserving; public API contracts unchanged.
 
 Implement:
 
-- clearer confidence explanation
-- technical/news/portfolio contribution breakdown
-- candidate horizon-specific scoring display
-- sector/country/currency exposure summary
-- concentration risk warnings
-- data-quality badges
-- input snapshot stored with each report if schema is approved
+- split `backend/app/services/report_service.py` into `report/` package: pipeline orchestration, candidate screener, prompt builder, persistence, tracking (performance/cycle backfill)
+- single `app/utils/tickers.py` (normalize/infer market) and `app/utils/labels.py` (Korean labels); remove duplicates
+- backfill efficiency: query only unevaluated rows; reuse price history per ticker
+- persist intraday market data cache in Supabase (`market_data_cache`, additive migration)
+- replace plain token comparison with `secrets.compare_digest`
+- frontend: shared `src/utils/formatters.js`; split `Reports.jsx` and `Dashboard.jsx` into sub-components; ErrorBoundary, retry, skeleton loaders; API client timeout/cold-start retry; UI strings to constants module (no i18n library)
+- frontend tooling: ESLint, Prettier, Vitest + React Testing Library
+- replace hand-rolled SVG/CSS charts with Recharts
+- add `.github/workflows/ci.yml` running backend and frontend checks
+
+### Phase 4: Analysis Quality and Performance Feedback
+
+Status: implemented (2026-06). Migrations 009 (sector columns) and 010 (report_inputs) required.
+
+Goal: Feed accumulated `recommendation_cycles` outcomes back into confidence and transparency.
+
+Implement:
+
+- `GET /api/recommendation-stats`: win rate, average 5d/20d returns, sample size by action x horizon x score band
+- new frontend performance-analysis view for those stats
+- calibrated confidence: blend technical score with measured win rate once a band has >= 30 samples; otherwise keep current score and show an "uncalibrated (low sample)" badge
+- confidence explanation breakdown (technical/news/history contributions)
+- sector/country/currency exposure summary (`sector` column on assets/candidates, additive; filled from yfinance info / pykrx sectors)
+- concentration risk warnings (single asset >= 25%, single sector >= 40%, thresholds configurable)
+- data-quality badges (freshness, provider, news availability)
+- input snapshot stored with each report (`report_inputs` JSONB, additive)
 
 Do not add new data providers without approval.
 
 ### Phase 5: Portfolio Decision Support
 
+Status: implemented (2026-06) except sell/reduce condition checklist, which is folded into the
+Phase 6 action briefing. Migration 011 (allocation/cost settings columns) required.
+
 Goal: Move from reports to actionable portfolio management without execution.
 
-Potential features:
+Implement:
 
-- target allocation settings
-- rebalance suggestions
+- ATR(14)-based stop-loss/target in `StrategyService` (replace fixed percentages; ATR implemented from scratch in `technical_analysis_service.py`)
+- target allocation settings (domestic/global/cash %, per-asset cap; additive `settings` columns)
+- rebalance drift card and suggestions (threshold default 5 percentage points); drift context passed to the LLM
 - cash deployment suggestions
-- sell/reduce watchlist
-- position sizing guidance as decision support only
-- condition-based checklist
+- position sizing guidance as decision support only: fixed-fractional amount ranges, never share counts or order tickets
+- fee/tax-aware return estimates (commission, KR transaction tax, FX spread from settings)
+- sell/reduce watchlist and condition-based checklist
 
 Forbidden:
 
@@ -812,17 +880,22 @@ Forbidden:
 
 ### Phase 6: UX and Mobile Polish
 
+Status: implemented (2026-06). The service worker caches static assets only; offline last-report
+viewing relies on the existing localStorage API cache (tokens never enter SW caches).
+
 Goal: Make daily use comfortable on mobile.
 
 Implement:
 
-- mobile-first report cards
-- dashboard quick summary
+- "today's actions" briefing card on dashboard (stop/target hits, drift warnings, new BUY candidates, stale data)
+- report diff view versus the previous report (action changes, confidence changes, added/removed candidates)
+- mobile-first report cards with sorting
 - faster cached first paint
 - improved empty/loading/error states
-- PWA install support if it does not require new services
+- PWA install support (manifest + service worker caching static assets and the latest report; no external services)
+- CSV import/export for assets
 
-Notifications require approval because they may introduce external services.
+Web Push or any external notification channel requires approval (see Phase 9).
 
 ### Phase 7: Security Upgrade
 
@@ -831,10 +904,52 @@ Goal: Improve access control if the user decides AlphaPilot should be less expos
 Requires user decision:
 
 - token gate
-- server-side password/session
-- Supabase Auth
+- server-side password/session (recommended if staying single-user)
+- Supabase Auth (choose this directly if Phase 10 multi-user is intended)
 
 Do not implement until selected.
+
+### Phase 8: Signal Quality Engine
+
+Status: implemented (2026-06). Migration 012 (candidate_universe) required.
+
+Goal: Improve the quality of candidate screening and validate strategy rules with evidence.
+
+Implement:
+
+- move hardcoded `CANDIDATE_UNIVERSE` to a `candidate_universe` table (seed migration); periodic refresh job from pykrx market-cap ranks and major yfinance ETFs (no new external services)
+- offline rule backtest service validating score-to-action rules on historical prices; results shown in the performance-analysis view, clearly labeled as simulation, never as execution
+- dividend/earnings calendar for owned assets within yfinance capabilities, surfaced in report risks/opportunities and dashboard
+
+### Phase 9: Notification Center
+
+Status: implemented (2026-06). Migration 013 (notifications and Telegram opt-in settings)
+required.
+
+Goal: Surface important events without requiring the user to open every report.
+
+Implement:
+
+- `notifications` table (additive): report completed, target/stop hit, cycle closed, drift warning; populated during scheduled report generation
+- in-app notification badge and list with read state
+- Telegram Bot API delivery for the same events (approved 2026-06): backend env vars `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`, opt-in per event type in settings, graceful no-op when unset
+
+Other external channels (email, Web Push) still require provider-specific approval before implementation.
+
+### Phase 10 (Optional): Multi-User / Commercialization
+
+Status: design documented only in `docs/phase10_multi_user_design.md`; no implementation.
+
+Goal: Convert AlphaPilot into a multi-user (potentially paid) service. Design-only until explicitly approved.
+
+Requires before any implementation:
+
+- explicit user approval and a major AGENTS.md revision
+- security model C (Supabase Auth), `user_id` on all tables, RLS
+- hosting/cost plan (Render paid tier, per-user OpenAI budget caps)
+- legal review of Korean investment-advisory regulation
+
+Do not implement any part of this phase without approval.
 
 ---
 
@@ -848,10 +963,13 @@ Follow this order unless the user explicitly changes priority:
 4. Add portfolio snapshots. Done.
 5. Replace dashboard history with snapshot-backed history. Done.
 6. Design and implement recommendation lifecycle tracking. Done.
-7. Add confidence explanation and data-quality transparency.
-8. Add portfolio decision-support features.
-9. Improve mobile UX.
-10. Decide and implement stronger security if approved.
+7. Track R refactoring: backend report package split, shared utils, frontend component split, ESLint/Prettier/Vitest, Recharts, CI workflow.
+8. Phase 4: recommendation stats API/view, calibrated confidence, exposure/concentration analysis, data-quality badges.
+9. Phase 5: ATR-based risk levels, target allocation and rebalance drift, position sizing guidance, fee/tax-aware returns.
+10. Phase 6: today's-actions briefing, report diff view, mobile cards, PWA, CSV import/export.
+11. Phase 8: candidate universe table and refresh, rule backtest service, dividend/earnings calendar.
+12. Phase 9: in-app notification center.
+13. Decide and implement stronger security (Phase 7) if approved; Phase 10 only with explicit approval.
 
 Each step must include:
 
@@ -887,6 +1005,8 @@ Minimum coverage to preserve:
 - rate limiting
 
 New post-MVP modules must add tests in `backend/tests/`.
+
+Frontend (once Track R tooling lands): Vitest + React Testing Library tests are required for shared formatters, the API client, and any component containing filtering/sorting/calculation logic. UI-only presentational components may be excluded.
 
 ---
 

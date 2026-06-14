@@ -1,4 +1,5 @@
 import { formatStrategyMessageValue, importantStrategyMessages } from "../api/reports.js";
+import { formatReturn as formatReturnValue } from "../utils/formatters.js";
 
 function formatRange(strategy) {
   const low = formatStrategyMessageValue(strategy.buy_range_low);
@@ -33,9 +34,7 @@ function performanceFor(strategy, performanceLogs) {
 }
 
 function formatReturn(value) {
-  const numeric = numericValue(value);
-  if (numeric == null) return "-";
-  return `${numeric.toFixed(2)}%`;
+  return formatReturnValue(value);
 }
 
 function RangeLine({ strategy }) {
@@ -71,9 +70,13 @@ function ExitLine({ strategy }) {
   const target = formatStrategyMessageValue(strategy.target_price);
   const stop = formatStrategyMessageValue(strategy.stop_loss);
   const confidence =
-    strategy.confidence == null || strategy.confidence === "" ? "" : `신뢰도 ${strategy.confidence}%`;
+    strategy.confidence == null || strategy.confidence === ""
+      ? ""
+      : `신뢰도 ${strategy.confidence}%`;
   const parts = [
-    target ? `목표 ${target}${formatCurrentPercent(strategy.target_price, strategy.current_price)}` : "",
+    target
+      ? `목표 ${target}${formatCurrentPercent(strategy.target_price, strategy.current_price)}`
+      : "",
     stop ? `손절 ${stop}${formatCurrentPercent(strategy.stop_loss, strategy.current_price)}` : "",
     confidence,
   ].filter(Boolean);

@@ -5,6 +5,7 @@ from app.db.supabase_client import Repository
 from app.services.market_data_service import MarketDataService, MarketDataResult
 from app.utils.datetime import parse_iso_datetime
 from app.utils.logging import log_external_failure
+from app.utils.tickers import infer_market
 
 
 class BenchmarkService:
@@ -157,7 +158,7 @@ class BenchmarkService:
 
     def _cycle_market_result(self, ticker: str, lookback_days: int) -> MarketDataResult | None:
         try:
-            market = self._infer_market(ticker)
+            market = infer_market(ticker)
             return self.market_data_service.fetch_price_history(
                 market,
                 ticker,
@@ -171,14 +172,6 @@ class BenchmarkService:
                 {"operation": "cycle_market_result", "ticker": ticker},
             )
             return None
-
-    def _infer_market(self, ticker: str) -> str:
-        upper = ticker.upper()
-        if upper.startswith("^") or "." in upper:
-            return "US"
-        if len(upper) == 6 and upper.isalnum():
-            return "KR"
-        return "US"
 
     def _date_from_iso(self, value: Any) -> str:
         text = str(value or "")

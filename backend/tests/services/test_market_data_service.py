@@ -47,6 +47,13 @@ class FakeTicker:
     def history(self, **_kwargs):
         return self.frame
 
+    @property
+    def calendar(self):
+        return {
+            "Earnings Date": [datetime(2026, 6, 1, tzinfo=timezone.utc)],
+            "Ex-Dividend Date": datetime(2026, 6, 5, tzinfo=timezone.utc),
+        }
+
 
 class FakeYFinance:
     def __init__(self, frame):
@@ -161,3 +168,20 @@ def test_provider_failure_returns_stale_result():
 
     assert result.is_stale is True
     assert result.data_quality_note == "pykrx failure; data-limited"
+
+
+def test_fetch_asset_events_normalizes_yfinance_calendar():
+    yf = FakeYFinance(history())
+    service = MarketDataService(
+        yf_module=yf,
+        now_provider=lambda: datetime(2026, 5, 21, tzinfo=timezone.utc),
+    )
+
+    result = service.fetch_asset_events(
+        [{"market": "US", "ticker": "AAPL", "name": "Apple"}],
+        days=30,
+    )
+
+    assert result["status"] == "ok"
+    assert [event["event_type"] for event in result["events"]] == ["earnings", "ex_dividend"]
+    assert all(event["provider"] == "yfinance" for event in result["events"])

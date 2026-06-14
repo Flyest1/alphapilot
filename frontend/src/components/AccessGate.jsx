@@ -20,7 +20,7 @@ export default function AccessGate({ onUnlock }) {
       await apiRequest("/api/settings", { accessToken: trimmed });
       setApiAccessToken(trimmed);
       onUnlock();
-    } catch (err) {
+    } catch (_error) {
       setError("토큰이 맞지 않거나 백엔드에 연결할 수 없습니다.");
     } finally {
       setIsChecking(false);
@@ -33,7 +33,9 @@ export default function AccessGate({ onUnlock }) {
         <div>
           <strong>AlphaPilot</strong>
           <h1>접속 토큰 입력</h1>
-          <p>Render 환경 변수에 저장한 API_ACCESS_TOKEN을 입력해야 자산과 리포트를 볼 수 있습니다.</p>
+          <p>
+            Render 환경 변수에 저장한 API_ACCESS_TOKEN을 입력해야 자산과 리포트를 볼 수 있습니다.
+          </p>
         </div>
         <form onSubmit={submit}>
           <label>

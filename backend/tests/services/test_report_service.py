@@ -134,6 +134,17 @@ def seeded_repo():
             "currency": "KRW",
         }
     )
+    repo.upsert_candidate_universe(
+        {
+            "report_type": "domestic",
+            "market": "KR",
+            "ticker": "035420",
+            "name": "NAVER",
+            "currency": "KRW",
+            "source": "test",
+            "source_rank": 1,
+        }
+    )
     return repo
 
 

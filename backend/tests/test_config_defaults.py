@@ -53,3 +53,24 @@ def test_settings_row_overrides_env_defaults():
     assert resolved.risk_profile == "aggressive"
     assert resolved.candidate_horizon == "short"
     assert resolved.usd_krw_rate == 1450
+
+
+def test_notification_defaults_match_env_example_and_migration():
+    root = Path(__file__).resolve().parents[2]
+    env_text = (root / "backend" / ".env.example").read_text()
+    migration = (
+        root / "backend" / "app" / "db" / "migrations" / "013_create_notifications.sql"
+    ).read_text()
+    defaults = Settings()
+
+    for field in (
+        "telegram_notify_report_completed",
+        "telegram_notify_target_hit",
+        "telegram_notify_stop_hit",
+        "telegram_notify_cycle_closed",
+        "telegram_notify_drift_warning",
+    ):
+        env_name = field.upper()
+        assert getattr(defaults, field) is False
+        assert f"{env_name}=false" in env_text
+        assert f"add column if not exists {field} boolean default false" in migration

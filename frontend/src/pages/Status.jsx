@@ -72,7 +72,13 @@ export default function Status() {
               </div>
               <div>
                 <span>데이터베이스</span>
-                <strong>{status?.database?.status === "partial" ? "부분 확인" : databaseOk ? "정상" : "오류"}</strong>
+                <strong>
+                  {status?.database?.status === "partial"
+                    ? "부분 확인"
+                    : databaseOk
+                      ? "정상"
+                      : "오류"}
+                </strong>
               </div>
               <div>
                 <span>저장소</span>

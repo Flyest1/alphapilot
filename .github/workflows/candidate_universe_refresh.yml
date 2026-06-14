@@ -1,0 +1,28 @@
+name: Refresh Candidate Universe
+
+on:
+  schedule:
+    - cron: "0 21 * * 0"
+  workflow_dispatch:
+
+jobs:
+  call-api:
+    runs-on: ubuntu-latest
+    env:
+      BACKEND_URL: ${{ secrets.BACKEND_URL }}
+      SCHEDULER_SECRET: ${{ secrets.SCHEDULER_SECRET }}
+    steps:
+      - name: Warm up backend
+        run: |
+          BACKEND_URL="${BACKEND_URL%/}"
+          for i in 1 2 3 4 5; do
+            curl -fsS --max-time 30 "$BACKEND_URL/health" && exit 0
+            sleep 30
+          done
+          true
+      - name: Refresh candidate universe
+        run: |
+          BACKEND_URL="${BACKEND_URL%/}"
+          curl -fsS --max-time 300 -X POST \
+            "$BACKEND_URL/api/candidate-universe/refresh" \
+            -H "Authorization: Bearer $SCHEDULER_SECRET"
