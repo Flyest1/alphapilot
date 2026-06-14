@@ -95,6 +95,20 @@ class Repository(Protocol):
 
     def upsert_market_data_cache(self, cache_key: str, payload: dict[str, Any]) -> None: ...
 
+    def list_notifications(
+        self, unread_only: bool = False, limit: int | None = None
+    ) -> list[dict[str, Any]]: ...
+
+    def get_notification_by_event_key(self, event_key: str) -> dict[str, Any] | None: ...
+
+    def create_notification(self, data: dict[str, Any]) -> dict[str, Any]: ...
+
+    def update_notification(
+        self, notification_id: str, data: dict[str, Any]
+    ) -> dict[str, Any] | None: ...
+
+    def mark_all_notifications_read(self) -> int: ...
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -117,6 +131,7 @@ class InMemoryRepository:
         self.portfolio_snapshots: dict[str, dict[str, Any]] = {}
         self.recommendation_cycles: dict[str, dict[str, Any]] = {}
         self.market_data_cache: dict[str, dict[str, Any]] = {}
+        self.notifications: dict[str, dict[str, Any]] = {}
 
     def list_assets(self) -> list[dict[str, Any]]:
         return sorted(_copy_rows(self.assets.values()), key=lambda row: row["created_at"])
@@ -375,6 +390,55 @@ class InMemoryRepository:
             "payload": deepcopy(payload),
             "created_at": _now_iso(),
         }
+
+    def list_notifications(
+        self, unread_only: bool = False, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        rows = _copy_rows(self.notifications.values())
+        if unread_only:
+            rows = [row for row in rows if not row.get("is_read", False)]
+        rows = sorted(rows, key=lambda row: row.get("created_at") or "", reverse=True)
+        return rows[:limit] if limit is not None else rows
+
+    def get_notification_by_event_key(self, event_key: str) -> dict[str, Any] | None:
+        row = next(
+            (row for row in self.notifications.values() if row.get("event_key") == event_key),
+            None,
+        )
+        return deepcopy(row) if row else None
+
+    def create_notification(self, data: dict[str, Any]) -> dict[str, Any]:
+        row = deepcopy(data)
+        row["id"] = row.get("id") or str(uuid4())
+        now = _now_iso()
+        row["created_at"] = row.get("created_at") or now
+        row["updated_at"] = row.get("updated_at") or now
+        row["is_read"] = row.get("is_read", False)
+        row["metadata"] = row.get("metadata") or {}
+        row["telegram_status"] = row.get("telegram_status") or "not_requested"
+        self.notifications[row["id"]] = row
+        return deepcopy(row)
+
+    def update_notification(
+        self, notification_id: str, data: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        if notification_id not in self.notifications:
+            return None
+        self.notifications[notification_id].update(data)
+        self.notifications[notification_id]["updated_at"] = _now_iso()
+        return deepcopy(self.notifications[notification_id])
+
+    def mark_all_notifications_read(self) -> int:
+        now = _now_iso()
+        updated = 0
+        for row in self.notifications.values():
+            if row.get("is_read"):
+                continue
+            row["is_read"] = True
+            row["read_at"] = now
+            row["updated_at"] = now
+            updated += 1
+        return updated
 
 
 class SupabaseRepository:
@@ -652,6 +716,41 @@ class SupabaseRepository:
             on_conflict="cache_key",
         )
         self._run(builder, {"operation": "upsert_market_data_cache"})
+
+    def list_notifications(
+        self, unread_only: bool = False, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        builder = self.client.table("notifications").select("*").order("created_at", desc=True)
+        if unread_only:
+            builder = builder.eq("is_read", False)
+        if limit is not None:
+            builder = builder.limit(limit)
+        return self._run(builder, {"operation": "list_notifications", "unread_only": unread_only})
+
+    def get_notification_by_event_key(self, event_key: str) -> dict[str, Any] | None:
+        builder = self.client.table("notifications").select("*").eq("event_key", event_key).limit(1)
+        rows = self._run(builder, {"operation": "get_notification_by_event_key"})
+        return rows[0] if rows else None
+
+    def create_notification(self, data: dict[str, Any]) -> dict[str, Any]:
+        builder = self.client.table("notifications").insert(data)
+        rows = self._run(builder, {"operation": "create_notification"})
+        return rows[0]
+
+    def update_notification(
+        self, notification_id: str, data: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        builder = self.client.table("notifications").update(data).eq("id", notification_id)
+        rows = self._run(builder, {"operation": "update_notification"})
+        return rows[0] if rows else None
+
+    def mark_all_notifications_read(self) -> int:
+        builder = (
+            self.client.table("notifications")
+            .update({"is_read": True, "read_at": _now_iso()})
+            .eq("is_read", False)
+        )
+        return len(self._run(builder, {"operation": "mark_all_notifications_read"}))
 
 
 def create_repository(env: EnvironmentSettings | None = None) -> Repository:

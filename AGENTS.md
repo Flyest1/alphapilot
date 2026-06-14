@@ -49,8 +49,8 @@ npm run build
 
 ```text
 Phase: Post-MVP (development plan v2)
-Status: MVP complete; Track R and Post-MVP Phases 1-6, 8 implemented in code
-Primary goal now: implement Phase 9 notification center, then keep improving reliability,
+Status: MVP complete; Track R and Post-MVP Phases 1-6, 8-9 implemented in code
+Primary goal now: document Phase 10 design only, then keep improving reliability,
 signal quality, and daily usability per docs/development_plan_v2.md
 ```
 
@@ -259,6 +259,8 @@ SUPABASE_ANON_KEY=your-anon-key
 OPENAI_API_KEY=your-openai-api-key
 SCHEDULER_SECRET=change-this-secret
 API_ACCESS_TOKEN=change-this-user-token
+TELEGRAM_BOT_TOKEN=your-telegram-bot-token
+TELEGRAM_CHAT_ID=your-telegram-chat-id
 ```
 
 ### Application Defaults
@@ -277,6 +279,11 @@ MARKET_DATA_PROVIDER_KR=pykrx
 MARKET_DATA_PROVIDER_US=yfinance
 STALE_DATA_BUSINESS_DAYS=2
 USD_KRW_RATE=1400
+TELEGRAM_NOTIFY_REPORT_COMPLETED=false
+TELEGRAM_NOTIFY_TARGET_HIT=false
+TELEGRAM_NOTIFY_STOP_HIT=false
+TELEGRAM_NOTIFY_CYCLE_CLOSED=false
+TELEGRAM_NOTIFY_DRIFT_WARNING=false
 ```
 
 Runtime resolution order:
@@ -397,6 +404,14 @@ GET /api/performance-logs
 GET /api/recommendation-cycles
 ```
 
+### Notifications
+
+```text
+GET  /api/notifications
+POST /api/notifications/{notification_id}/read
+POST /api/notifications/read-all
+```
+
 ### Signal Quality
 
 Scheduler-protected:
@@ -501,11 +516,16 @@ Existing Supabase tables:
 - `report_jobs`
 - `portfolio_snapshots`
 - `recommendation_cycles`
+- `market_data_cache`
+- `candidate_universe`
+- `notifications`
 
 Existing additive settings columns:
 
 - `candidate_horizon`
 - `usd_krw_rate`
+- target allocation, rebalance, risk-per-trade, and cost-rate columns from migration 011
+- Telegram event opt-in columns from migration 013
 
 Do not alter or remove existing columns without explicit approval. New tables must be introduced through migration files under:
 
@@ -902,6 +922,9 @@ Implement:
 - dividend/earnings calendar for owned assets within yfinance capabilities, surfaced in report risks/opportunities and dashboard
 
 ### Phase 9: Notification Center
+
+Status: implemented (2026-06). Migration 013 (notifications and Telegram opt-in settings)
+required.
 
 Goal: Surface important events without requiring the user to open every report.
 

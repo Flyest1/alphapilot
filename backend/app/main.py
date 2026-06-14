@@ -11,6 +11,7 @@ from app.api import (
     backtests,
     candidate_universe,
     candidates,
+    notifications,
     performance,
     portfolio,
     recommendation_stats,
@@ -122,6 +123,7 @@ def create_app(repository: Repository | None = None) -> FastAPI:
     app.include_router(backtests.router)
     app.include_router(candidate_universe.router)
     app.include_router(candidates.router)
+    app.include_router(notifications.router)
     app.include_router(performance.router)
     app.include_router(portfolio.router)
     app.include_router(recommendation_stats.router)

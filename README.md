@@ -89,6 +89,8 @@ SUPABASE_ANON_KEY=your-anon-key
 OPENAI_API_KEY=your-openai-api-key
 SCHEDULER_SECRET=change-this-secret
 API_ACCESS_TOKEN=change-this-user-token
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
 
 DOMESTIC_REPORT_TIME=08:30
 GLOBAL_REPORT_TIME=22:30
@@ -101,6 +103,11 @@ MARKET_DATA_PROVIDER_KR=pykrx
 MARKET_DATA_PROVIDER_US=yfinance
 STALE_DATA_BUSINESS_DAYS=2
 USD_KRW_RATE=1400
+TELEGRAM_NOTIFY_REPORT_COMPLETED=false
+TELEGRAM_NOTIFY_TARGET_HIT=false
+TELEGRAM_NOTIFY_STOP_HIT=false
+TELEGRAM_NOTIFY_CYCLE_CLOSED=false
+TELEGRAM_NOTIFY_DRIFT_WARNING=false
 ```
 
 애플리케이션 기본값은 `settings` 테이블 값을 우선 사용하고, 값이 없으면 `.env`, 그 다음 Pydantic 기본값을 사용합니다.
@@ -221,6 +228,15 @@ backend/app/db/migrations/012_create_candidate_universe.sql
 012는 기존 하드코딩 후보군을 `candidate_universe` 테이블의 seed 데이터로 이전합니다. 기존
 자산·리포트 데이터는 변경하지 않습니다.
 
+Phase 9(알림 센터)를 사용하려면 아래 파일도 실행합니다.
+
+```text
+backend/app/db/migrations/013_create_notifications.sql
+```
+
+013은 `notifications` 테이블과 Telegram 이벤트별 opt-in 설정 컬럼을 추가합니다. 모두
+additive이며 기존 데이터는 변경하지 않습니다.
+
 Supabase service role key는 RLS를 우회합니다. 반드시 백엔드 서버 환경변수에만 보관하고, 프론트엔드나 에러 메시지에 노출하지 마세요.
 
 ## Render 배포
@@ -236,6 +252,8 @@ SUPABASE_ANON_KEY
 OPENAI_API_KEY
 SCHEDULER_SECRET
 API_ACCESS_TOKEN
+TELEGRAM_BOT_TOKEN
+TELEGRAM_CHAT_ID
 ```
 
 Render Free는 유휴 상태 후 cold start가 발생할 수 있습니다. GitHub Actions는 리포트 생성 전에 `/health`를 호출해 백엔드를 깨웁니다.
@@ -369,6 +387,17 @@ curl -X POST "$env:BACKEND_URL/api/reports/domestic/generate" `
   보장하지 않습니다.
 - **배당·실적 일정**: yfinance가 제공하는 향후 60일 보유 자산 일정을 리포트 위험·기회와
   대시보드에 표시합니다. 공급자 데이터가 없거나 지연되면 일정이 표시되지 않을 수 있습니다.
+
+## 알림 센터 (Phase 9)
+
+- **인앱 알림**: 스케줄 리포트가 완료되면 리포트 완료, 목표/손절 도달, 추천 cycle 종료,
+  리밸런스 드리프트 경고를 `notifications`에 저장합니다. 알림 화면에서 개별 또는 전체 읽음
+  처리를 할 수 있습니다.
+- **수동 리포트 제외**: 사용자가 화면에서 생성한 수동 리포트는 알림을 만들지 않습니다.
+- **Telegram 선택 전송**: Render 백엔드 환경변수 `TELEGRAM_BOT_TOKEN`,
+  `TELEGRAM_CHAT_ID`를 설정하고 설정 화면에서 이벤트별 전송을 켜면 동일 이벤트를 Telegram
+  Bot API로 보냅니다. 환경변수가 없거나 전송에 실패해도 인앱 알림과 리포트 생성은 계속됩니다.
+- **보안**: Telegram token과 Chat ID는 프론트엔드 번들/API 응답에 포함되지 않습니다.
 
 ## 보안 범위
 

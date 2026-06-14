@@ -27,6 +27,11 @@ class Settings(BaseModel):
     fee_rate_pct: float = Field(default=0.015, ge=0, le=5)
     kr_tax_rate_pct: float = Field(default=0.18, ge=0, le=5)
     fx_spread_pct: float = Field(default=0.5, ge=0, le=5)
+    telegram_notify_report_completed: bool = False
+    telegram_notify_target_hit: bool = False
+    telegram_notify_stop_hit: bool = False
+    telegram_notify_cycle_closed: bool = False
+    telegram_notify_drift_warning: bool = False
     created_at: str | None = None
     updated_at: str | None = None
 
@@ -52,3 +57,8 @@ class SettingsUpdate(BaseModel):
     fee_rate_pct: float | None = Field(default=None, ge=0, le=5)
     kr_tax_rate_pct: float | None = Field(default=None, ge=0, le=5)
     fx_spread_pct: float | None = Field(default=None, ge=0, le=5)
+    telegram_notify_report_completed: bool | None = None
+    telegram_notify_target_hit: bool | None = None
+    telegram_notify_stop_hit: bool | None = None
+    telegram_notify_cycle_closed: bool | None = None
+    telegram_notify_drift_warning: bool | None = None

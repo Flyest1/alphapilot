@@ -26,6 +26,11 @@ APPLICATION_DEFAULT_ENV_MAP = {
     "fee_rate_pct": "FEE_RATE_PCT",
     "kr_tax_rate_pct": "KR_TAX_RATE_PCT",
     "fx_spread_pct": "FX_SPREAD_PCT",
+    "telegram_notify_report_completed": "TELEGRAM_NOTIFY_REPORT_COMPLETED",
+    "telegram_notify_target_hit": "TELEGRAM_NOTIFY_TARGET_HIT",
+    "telegram_notify_stop_hit": "TELEGRAM_NOTIFY_STOP_HIT",
+    "telegram_notify_cycle_closed": "TELEGRAM_NOTIFY_CYCLE_CLOSED",
+    "telegram_notify_drift_warning": "TELEGRAM_NOTIFY_DRIFT_WARNING",
 }
 
 INT_APPLICATION_FIELDS = {"stale_data_business_days"}
@@ -41,6 +46,13 @@ FLOAT_APPLICATION_FIELDS = {
     "kr_tax_rate_pct",
     "fx_spread_pct",
 }
+BOOL_APPLICATION_FIELDS = {
+    "telegram_notify_report_completed",
+    "telegram_notify_target_hit",
+    "telegram_notify_stop_hit",
+    "telegram_notify_cycle_closed",
+    "telegram_notify_drift_warning",
+}
 
 INFRASTRUCTURE_ENV_KEYS = (
     "APP_ENV",
@@ -51,6 +63,8 @@ INFRASTRUCTURE_ENV_KEYS = (
     "SCHEDULER_SECRET",
     "API_ACCESS_TOKEN",
     "FRONTEND_ORIGIN",
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_CHAT_ID",
 )
 
 
@@ -67,6 +81,8 @@ class EnvironmentSettings(BaseModel):
     frontend_origin: str | None
     market_data_provider_kr: str | None
     market_data_provider_us: str | None
+    telegram_bot_token: str | None
+    telegram_chat_id: str | None
 
 
 def _clean(value: str | None) -> str | None:
@@ -97,6 +113,8 @@ def get_environment_settings() -> EnvironmentSettings:
         frontend_origin=_clean(os.getenv("FRONTEND_ORIGIN")),
         market_data_provider_kr=_clean(os.getenv("MARKET_DATA_PROVIDER_KR")),
         market_data_provider_us=_clean(os.getenv("MARKET_DATA_PROVIDER_US")),
+        telegram_bot_token=_clean(os.getenv("TELEGRAM_BOT_TOKEN")),
+        telegram_chat_id=_clean(os.getenv("TELEGRAM_CHAT_ID")),
     )
 
 
@@ -111,6 +129,8 @@ def get_env_application_defaults() -> dict[str, Any]:
             values[field_name] = int(raw_value)
         elif field_name in FLOAT_APPLICATION_FIELDS:
             values[field_name] = float(raw_value)
+        elif field_name in BOOL_APPLICATION_FIELDS:
+            values[field_name] = raw_value.lower() in {"1", "true", "yes", "on"}
         else:
             values[field_name] = raw_value
     return values

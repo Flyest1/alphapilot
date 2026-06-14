@@ -4,6 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 
 from app.api.dependencies import get_repository
 from app.db.supabase_client import Repository
+from app.services.notification_service import NotificationService
 from app.services.report_service import ReportService
 from app.utils.logging import log_external_failure
 
@@ -15,8 +16,11 @@ def _run_manual_report_job(
     repository: Repository,
     report_type: str,
     job_id: str,
+    scheduled: bool = False,
 ) -> None:
     app_state.report_jobs.mark_running(job_id)
+    notification_service = NotificationService(repository, app_state.market_data_service)
+    previous_cycle_states = notification_service.capture_cycle_states() if scheduled else {}
     try:
         report = ReportService(
             repository=repository,
@@ -25,6 +29,18 @@ def _run_manual_report_job(
             report_job_id=job_id,
         ).generate_report(report_type)
         app_state.report_jobs.mark_completed(job_id, report.get("id"))
+        if scheduled:
+            try:
+                notification_service.create_scheduled_report_notifications(
+                    report,
+                    previous_cycle_states,
+                )
+            except Exception as exc:
+                log_external_failure(
+                    "notifications",
+                    exc,
+                    {"operation": "scheduled_report_notifications", "report_type": report_type},
+                )
     except Exception as exc:
         log_external_failure(
             "manual_report_job",
@@ -39,6 +55,7 @@ def _start_manual_report_job(
     endpoint_key: str,
     request: Request,
     background_tasks: BackgroundTasks,
+    scheduled: bool = False,
 ) -> dict[str, Any]:
     if not request.app.state.rate_limiter.allow(endpoint_key):
         raise HTTPException(
@@ -52,6 +69,7 @@ def _start_manual_report_job(
             request.app.state.repository,
             report_type,
             job.job_id,
+            scheduled,
         )
     return job.to_dict()
 
@@ -66,6 +84,7 @@ def generate_domestic_report(
         "/api/reports/domestic/generate",
         request,
         background_tasks,
+        scheduled=True,
     )
 
 
@@ -79,6 +98,7 @@ def generate_global_report(
         "/api/reports/global/generate",
         request,
         background_tasks,
+        scheduled=True,
     )
 
 

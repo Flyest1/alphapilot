@@ -73,6 +73,25 @@ nav button,
   text-align: left;
 }
 
+nav button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.notification-badge {
+  display: inline-flex;
+  min-width: 20px;
+  justify-content: center;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
 nav button.active,
 nav button:hover {
   background: #243447;
@@ -1389,6 +1408,44 @@ form button,
 
 .compact-table {
   min-width: 640px;
+}
+
+.notification-list {
+  display: grid;
+  gap: 10px;
+}
+
+.notification-card {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid #d7dee8;
+  border-radius: 8px;
+  background: #fff;
+  color: #17202a;
+  padding: 14px;
+  text-align: left;
+}
+
+.notification-card.unread {
+  border-color: #5eead4;
+  background: #f0fdfa;
+}
+
+.notification-card.read {
+  opacity: 0.75;
+}
+
+.notification-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.notification-card span,
+.notification-card small {
+  color: #64748b;
 }
 
 @media (max-width: 640px) {

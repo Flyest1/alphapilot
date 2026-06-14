@@ -57,3 +57,20 @@ def test_candidate_universe_upsert_and_report_type_filter():
 
     assert [row["ticker"] for row in repo.list_candidate_universe("domestic")] == ["005930"]
     assert {row["ticker"] for row in repo.list_candidate_universe()} == {"005930", "QQQ"}
+
+
+def test_notification_repository_read_state_and_dedup_lookup():
+    repo = InMemoryRepository()
+    row = repo.create_notification(
+        {
+            "event_key": "report_completed:1",
+            "event_type": "report_completed",
+            "title": "완료",
+            "message": "완료",
+        }
+    )
+
+    assert repo.get_notification_by_event_key("report_completed:1")["id"] == row["id"]
+    assert len(repo.list_notifications(unread_only=True)) == 1
+    assert repo.mark_all_notifications_read() == 1
+    assert repo.list_notifications(unread_only=True) == []

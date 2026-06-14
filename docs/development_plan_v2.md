@@ -149,6 +149,8 @@ backend/app/utils/labels.py   # action/trend/risk 한국어 라벨 단일화
 
 ## 7. 트랙 B — Phase 9: 알림 센터
 
+상태: 구현 완료 (2026-06). `013_create_notifications.sql` 적용 및 Telegram 환경변수 선택 설정 필요.
+
 - 인앱 알림 센터(`notifications` 테이블, additive): 리포트 생성 완료, 목표/손절 도달,
   사이클 종료(hit_target/hit_stop/expired), 드리프트 경고를 스케줄 리포트 생성 시 적재.
 - 프론트 헤더에 알림 뱃지 + 목록. 읽음 처리.

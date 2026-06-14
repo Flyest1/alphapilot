@@ -54,6 +54,11 @@ export default function Settings() {
         fee_rate_pct: Number(settings.fee_rate_pct),
         kr_tax_rate_pct: Number(settings.kr_tax_rate_pct),
         fx_spread_pct: Number(settings.fx_spread_pct),
+        telegram_notify_report_completed: Boolean(settings.telegram_notify_report_completed),
+        telegram_notify_target_hit: Boolean(settings.telegram_notify_target_hit),
+        telegram_notify_stop_hit: Boolean(settings.telegram_notify_stop_hit),
+        telegram_notify_cycle_closed: Boolean(settings.telegram_notify_cycle_closed),
+        telegram_notify_drift_warning: Boolean(settings.telegram_notify_drift_warning),
       });
       setSettings(normalizeSettings(saved));
       setStatus("설정을 저장했습니다.");
@@ -282,6 +287,33 @@ export default function Settings() {
         </form>
       </section>
       <CandidateAssetsPanel />
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h2>Telegram 알림 (Phase 9)</h2>
+            <p>백엔드에 Bot token과 Chat ID가 설정된 경우 선택한 이벤트만 전송합니다.</p>
+          </div>
+        </div>
+        <form className="settings-form" onSubmit={save}>
+          {[
+            ["telegram_notify_report_completed", "리포트 생성 완료"],
+            ["telegram_notify_target_hit", "목표가 도달"],
+            ["telegram_notify_stop_hit", "손절가 도달"],
+            ["telegram_notify_cycle_closed", "추천 cycle 종료"],
+            ["telegram_notify_drift_warning", "리밸런스 드리프트 경고"],
+          ].map(([field, label]) => (
+            <label className="checkbox-label" key={field}>
+              <input
+                checked={Boolean(settings[field])}
+                type="checkbox"
+                onChange={(event) => update(field, event.target.checked)}
+              />
+              {label}
+            </label>
+          ))}
+          <button type="submit">Telegram 알림 설정 저장</button>
+        </form>
+      </section>
     </section>
   );
 }

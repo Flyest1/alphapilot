@@ -189,6 +189,12 @@ export const api = {
   recommendationStats: {
     get: () => apiRequest("/api/recommendation-stats"),
   },
+  notifications: {
+    list: (unreadOnly = false, limit = 100) =>
+      apiRequest(`/api/notifications?unread_only=${unreadOnly}&limit=${limit}`),
+    read: (id) => apiRequest(`/api/notifications/${id}/read`, { method: "POST" }),
+    readAll: () => apiRequest("/api/notifications/read-all", { method: "POST" }),
+  },
   backtests: {
     runRules: (reportType, limit = 12) =>
       apiRequest(`/api/backtests/rules/run?report_type=${reportType}&limit=${limit}`, {
