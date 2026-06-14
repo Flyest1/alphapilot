@@ -399,6 +399,13 @@ curl -X POST "$env:BACKEND_URL/api/reports/domestic/generate" `
   Bot API로 보냅니다. 환경변수가 없거나 전송에 실패해도 인앱 알림과 리포트 생성은 계속됩니다.
 - **보안**: Telegram token과 Chat ID는 프론트엔드 번들/API 응답에 포함되지 않습니다.
 
+## Phase 10 설계 상태
+
+멀티유저/상업화는 구현하지 않았습니다. 목표 인증/RLS 구조, 기존 데이터 이관, 사용자별 비용
+통제, 스케줄 worker 선택, 법률 검토 게이트는
+`docs/phase10_multi_user_design.md`에 설계만 정리되어 있습니다. 명시적 승인과
+`AGENTS.md` 대개정 전에는 Supabase Auth, `user_id`, RLS, 결제 기능을 추가하지 않습니다.
+
 ## 보안 범위
 
 이 MVP는 단일 사용자용입니다. Supabase Auth, 로그인/회원가입, 사용자별 권한 분리는 구현하지 않았습니다.

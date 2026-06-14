@@ -50,8 +50,8 @@ npm run build
 ```text
 Phase: Post-MVP (development plan v2)
 Status: MVP complete; Track R and Post-MVP Phases 1-6, 8-9 implemented in code
-Primary goal now: document Phase 10 design only, then keep improving reliability,
-signal quality, and daily usability per docs/development_plan_v2.md
+Primary goal now: keep improving reliability, signal quality, and daily usability.
+Phase 10 is documented in docs/phase10_multi_user_design.md but remains implementation-blocked.
 ```
 
 The detailed upgrade plan lives in `docs/development_plan_v2.md` and the code review baseline in `docs/code_review_2026_06.md`. When this file and the plan conflict, this file wins.
@@ -937,6 +937,8 @@ Implement:
 Other external channels (email, Web Push) still require provider-specific approval before implementation.
 
 ### Phase 10 (Optional): Multi-User / Commercialization
+
+Status: design documented only in `docs/phase10_multi_user_design.md`; no implementation.
 
 Goal: Convert AlphaPilot into a multi-user (potentially paid) service. Design-only until explicitly approved.
 

@@ -168,6 +168,8 @@ backend/app/utils/labels.py   # action/trend/risk 한국어 라벨 단일화
 
 ### Phase 10 (선택): 멀티유저/상업화
 
+상태: `docs/phase10_multi_user_design.md`에 설계만 작성됨. 구현 승인 전 변경 금지.
+
 서비스 수익화(구독/과금)를 원할 경우의 전환 트랙. **착수 전 명시적 승인 + 지침서 대개정 필요.**
 
 - Supabase Auth + 전 테이블 `user_id` + RLS, Render 유료 플랜, OpenAI 비용 사용자별 한도,
