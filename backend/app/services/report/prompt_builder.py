@@ -34,6 +34,8 @@ def build_prompt(report_type: str) -> str:
         "for waitlisted ideas. "
         "context.candidate_horizon is the target holding/profit-taking horizon for those "
         "candidate ideas. context.news_context contains recent GDELT news/trend headlines. "
+        "context.asset_events contains upcoming owned-asset earnings/dividend dates from "
+        "yfinance. Surface relevant event risk/opportunity only in existing allowed fields. "
         "Use it only when relevant inside allowed fields such as macro_factors, key_risks, "
         "opportunities, reasoning, and risk. Do not cite unsupported details or create a "
         "separate news section."
@@ -50,6 +52,7 @@ def build_context(
     owned_tickers: list[str],
     stale_tickers: list[str],
     news_context: dict[str, Any],
+    asset_events: dict[str, Any],
     generated_at: str,
 ) -> dict[str, Any]:
     return {
@@ -67,6 +70,7 @@ def build_context(
         "candidate_horizon": app_settings.get("candidate_horizon", "medium"),
         "stale_tickers": stale_tickers,
         "news_context": news_context,
+        "asset_events": asset_events,
         "generated_at": generated_at,
         "asset_context": [
             {

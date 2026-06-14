@@ -86,6 +86,8 @@ class ReportService:
                 self.repository,
                 self.market_data_service,
             ).get_summary()
+        with self._timed_step("asset_events"):
+            asset_events = self._build_asset_events(all_assets)
         with self._timed_step("owned_asset_analysis"):
             analysis_rows = self._build_analysis_rows(
                 assets,
@@ -127,6 +129,7 @@ class ReportService:
                 technical_strategies=technical_strategies,
                 stale_tickers=stale_tickers,
                 news_context=news_context,
+                asset_events=asset_events,
             )
         if content is None:
             content = self._technical_only_report(
@@ -141,6 +144,7 @@ class ReportService:
         else:
             content = self._enforce_stale_rules(content, analysis_rows, stale_tickers)
         content = self._append_news_context_note(content, news_context)
+        content = self._append_asset_event_notes(content, asset_events)
         with self._timed_step("confidence_calibration"):
             content = self._apply_confidence_calibration(
                 content, app_settings.candidate_horizon, news_context
@@ -159,7 +163,12 @@ class ReportService:
                 app_settings.candidate_horizon,
                 portfolio_summary.model_dump(mode="json"),
                 app_settings.frontend_timezone,
-                report_inputs=self._build_report_inputs(analysis_rows, news_context, app_settings),
+                report_inputs=self._build_report_inputs(
+                    analysis_rows,
+                    news_context,
+                    asset_events,
+                    app_settings,
+                ),
             )
         with self._timed_step("performance_backfill"):
             self.backfill_performance_logs()
@@ -191,6 +200,7 @@ class ReportService:
         technical_strategies: list[AssetStrategy],
         stale_tickers: list[str],
         news_context: dict[str, Any],
+        asset_events: dict[str, Any],
     ) -> ReportContent | None:
         try:
             provider = self.ai_provider or self._build_ai_provider(app_settings)
@@ -210,6 +220,7 @@ class ReportService:
             ],
             stale_tickers=stale_tickers,
             news_context=news_context,
+            asset_events=asset_events,
             generated_at=self._now(app_settings["frontend_timezone"]),
         )
 
@@ -533,6 +544,7 @@ class ReportService:
         self,
         analysis_rows: list[dict[str, Any]],
         news_context: dict[str, Any],
+        asset_events: dict[str, Any],
         app_settings: Any,
     ) -> dict[str, Any]:
         """리포트 입력 스냅샷(데이터 품질 배지/사후 검증용, Phase 4-4)."""
@@ -557,12 +569,33 @@ class ReportService:
                 "status": news_context.get("status"),
                 "article_count": len(news_context.get("articles") or []),
             },
+            "asset_events": asset_events,
             "settings": {
                 "risk_profile": app_settings.risk_profile,
                 "candidate_horizon": app_settings.candidate_horizon,
                 "stale_data_business_days": app_settings.stale_data_business_days,
             },
         }
+
+    def _build_asset_events(self, assets: list[dict[str, Any]]) -> dict[str, Any]:
+        fetch_events = getattr(self.market_data_service, "fetch_asset_events", None)
+        if fetch_events is None:
+            return {
+                "provider": "yfinance",
+                "status": "unavailable",
+                "events": [],
+                "window_days": 60,
+            }
+        try:
+            return fetch_events(assets, days=60)
+        except Exception as exc:
+            log_external_failure("yfinance", exc, {"operation": "build_asset_events"})
+            return {
+                "provider": "yfinance",
+                "status": "unavailable",
+                "events": [],
+                "window_days": 60,
+            }
 
     def _build_news_context(
         self,
@@ -626,6 +659,30 @@ class ReportService:
                     update={"macro_factors": macro_factors}
                 ),
                 "key_risks": key_risks,
+            }
+        )
+
+    def _append_asset_event_notes(
+        self,
+        content: ReportContent,
+        asset_events: dict[str, Any],
+    ) -> ReportContent:
+        events = asset_events.get("events") or []
+        key_risks = list(content.key_risks)
+        opportunities = list(content.opportunities)
+        for event in events[:8]:
+            date_text = str(event.get("date") or "")[:10]
+            note = (
+                f"{event.get('ticker')} {event.get('label')} 예정({date_text}): "
+                "일정 전후 변동성과 발표 내용을 확인하세요."
+            )
+            target = key_risks if event.get("event_type") == "earnings" else opportunities
+            if note not in target:
+                target.append(note)
+        return content.model_copy(
+            update={
+                "key_risks": key_risks,
+                "opportunities": opportunities,
             }
         )
 

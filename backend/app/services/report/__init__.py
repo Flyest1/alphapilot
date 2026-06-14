@@ -9,7 +9,6 @@
 
 from app.services.report.candidate_screener import (
     CANDIDATE_HORIZON_RULES,
-    CANDIDATE_UNIVERSE,
     MAX_RECOMMENDED_CANDIDATES,
 )
 from app.services.report.persistence import RECOMMENDATION_PRICE_CHANGE_THRESHOLD
@@ -18,7 +17,6 @@ from app.services.report.prompt_builder import DISCLAIMER
 
 __all__ = [
     "CANDIDATE_HORIZON_RULES",
-    "CANDIDATE_UNIVERSE",
     "DISCLAIMER",
     "MAX_RECOMMENDED_CANDIDATES",
     "RECOMMENDATION_PRICE_CHANGE_THRESHOLD",

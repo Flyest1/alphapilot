@@ -189,6 +189,12 @@ export const api = {
   recommendationStats: {
     get: () => apiRequest("/api/recommendation-stats"),
   },
+  backtests: {
+    runRules: (reportType, limit = 12) =>
+      apiRequest(`/api/backtests/rules/run?report_type=${reportType}&limit=${limit}`, {
+        method: "POST",
+      }),
+  },
   settings: {
     get: () => apiRequest("/api/settings"),
     save: (payload) =>

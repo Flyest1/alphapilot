@@ -38,6 +38,7 @@ class MarketDataService:
         self.repository = repository
         self._price_cache: dict[tuple[str, str, int, int, str], MarketDataResult] = {}
         self._sector_cache: dict[tuple[str, str], str | None] = {}
+        self._event_cache: dict[tuple[str, int, str], dict[str, Any]] = {}
 
     def fetch_price_history(
         self,
@@ -170,6 +171,101 @@ class MarketDataService:
                 break
         self._sector_cache[cache_key] = sector
         return sector
+
+    def fetch_asset_events(
+        self,
+        assets: list[dict[str, Any]],
+        days: int = 60,
+    ) -> dict[str, Any]:
+        """yfinance calendar 범위에서 보유 자산의 향후 실적/배당 일정을 수집한다."""
+        cache_key = (
+            ",".join(sorted(str(asset.get("ticker") or "") for asset in assets)),
+            days,
+            self.now_provider().date().isoformat(),
+        )
+        if cache_key in self._event_cache:
+            return self._event_cache[cache_key]
+        now = self.now_provider()
+        end = now + timedelta(days=days)
+        events = []
+        for asset in assets:
+            if asset.get("market") == "CASH" or not asset.get("ticker"):
+                continue
+            normalized_market = str(asset.get("market") or "US").upper()
+            normalized_ticker = self.normalize_ticker(normalized_market, str(asset["ticker"]))
+            symbols = (
+                [f"{normalized_ticker}.KS", f"{normalized_ticker}.KQ"]
+                if normalized_market == "KR"
+                else [normalized_ticker]
+            )
+            calendar = None
+            for symbol in symbols:
+                try:
+                    calendar = self._yf_module().Ticker(symbol).calendar
+                except Exception as exc:
+                    log_external_failure(
+                        "yfinance",
+                        exc,
+                        {"operation": "fetch_asset_calendar", "ticker": symbol},
+                    )
+                    continue
+                if calendar is not None:
+                    break
+            for event_type, label, date_value in self._calendar_events(calendar):
+                parsed = parse_iso_datetime(date_value)
+                if parsed is None:
+                    continue
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                if parsed < now or parsed > end:
+                    continue
+                events.append(
+                    {
+                        "ticker": asset["ticker"],
+                        "name": asset.get("name") or asset["ticker"],
+                        "event_type": event_type,
+                        "label": label,
+                        "date": parsed.isoformat(),
+                        "provider": "yfinance",
+                    }
+                )
+        result = {
+            "provider": "yfinance",
+            "status": "ok" if events else "empty",
+            "events": sorted(events, key=lambda row: row["date"]),
+            "window_days": days,
+        }
+        self._event_cache[cache_key] = result
+        return result
+
+    def _calendar_events(self, calendar: Any) -> list[tuple[str, str, Any]]:
+        if calendar is None:
+            return []
+        if isinstance(calendar, pd.DataFrame):
+            if calendar.empty:
+                return []
+            values = calendar.iloc[:, 0].to_dict()
+        elif isinstance(calendar, dict):
+            values = calendar
+        else:
+            return []
+        mappings = {
+            "Earnings Date": ("earnings", "실적 발표"),
+            "EarningsDate": ("earnings", "실적 발표"),
+            "Ex-Dividend Date": ("ex_dividend", "배당락"),
+            "ExDividendDate": ("ex_dividend", "배당락"),
+            "Dividend Date": ("dividend", "배당 지급"),
+            "DividendDate": ("dividend", "배당 지급"),
+        }
+        events = []
+        for key, raw_value in values.items():
+            mapping = mappings.get(str(key))
+            if mapping is None:
+                continue
+            date_values = raw_value if isinstance(raw_value, (list, tuple)) else [raw_value]
+            for value in date_values:
+                events.append((mapping[0], mapping[1], value))
+        return events
 
     def _provider_name(self, market: str, ticker: str) -> str:
         upper_ticker = ticker.upper()

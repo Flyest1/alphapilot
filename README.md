@@ -212,6 +212,15 @@ backend/app/db/migrations/011_add_allocation_and_cost_settings.sql
 1회 리스크 한도, 수수료/거래세/환전 스프레드 컬럼을 추가합니다 (additive, 기본값 포함).
 **주의: 011 미적용 상태에서는 설정 저장(POST /api/settings)이 실패할 수 있으므로 함께 실행하세요.**
 
+Phase 8(신호 품질 엔진)의 DB 기반 후보 유니버스를 사용하려면 아래 파일도 실행합니다.
+
+```text
+backend/app/db/migrations/012_create_candidate_universe.sql
+```
+
+012는 기존 하드코딩 후보군을 `candidate_universe` 테이블의 seed 데이터로 이전합니다. 기존
+자산·리포트 데이터는 변경하지 않습니다.
+
 Supabase service role key는 RLS를 우회합니다. 반드시 백엔드 서버 환경변수에만 보관하고, 프론트엔드나 에러 메시지에 노출하지 마세요.
 
 ## Render 배포
@@ -347,6 +356,19 @@ curl -X POST "$env:BACKEND_URL/api/reports/domestic/generate" `
   잘못된 행은 건너뛰고 행 번호와 함께 사유를 보여줍니다.
 - **대시보드 차트 Recharts 전환**: 일별 자산 변동 차트가 막대(일간 변동)+선(총 평가금액)
   복합 차트로 바뀌어 툴팁과 반응형을 지원합니다.
+
+## 신호 품질 엔진 (Phase 8)
+
+- **DB 후보 유니버스**: 리포트 후보 스크리너는 `candidate_universe` 테이블을 사용합니다.
+  사용자가 직접 등록한 활성 후보가 있으면 기존처럼 해당 후보를 우선합니다.
+- **주간 후보 갱신**: `Refresh Candidate Universe` GitHub Actions가 매주 일요일 21:00 UTC에
+  `POST /api/candidate-universe/refresh`를 호출합니다. pykrx 시가총액 상위 종목과 주요
+  yfinance ETF 정보를 갱신하며, `BACKEND_URL`과 `SCHEDULER_SECRET`을 사용합니다.
+- **규칙 백테스트**: 성과 분석 화면에서 국내/글로벌 점수 규칙 시뮬레이션을 수동 실행할 수
+  있습니다. 과거 종가 기반이며 실제 체결·수수료·세금·슬리피지를 반영하지 않고 미래 수익을
+  보장하지 않습니다.
+- **배당·실적 일정**: yfinance가 제공하는 향후 60일 보유 자산 일정을 리포트 위험·기회와
+  대시보드에 표시합니다. 공급자 데이터가 없거나 지연되면 일정이 표시되지 않을 수 있습니다.
 
 ## 보안 범위
 

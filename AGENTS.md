@@ -49,10 +49,9 @@ npm run build
 
 ```text
 Phase: Post-MVP (development plan v2)
-Status: MVP complete; Post-MVP Phases 1-3 implemented in code
-Primary goal now: refactor structural debt (Track R), then maximize investment return support
-(calibrated confidence, decision support, signal quality) and daily usability (mobile/PWA, alerts)
-per docs/development_plan_v2.md
+Status: MVP complete; Track R and Post-MVP Phases 1-6, 8 implemented in code
+Primary goal now: implement Phase 9 notification center, then keep improving reliability,
+signal quality, and daily usability per docs/development_plan_v2.md
 ```
 
 The detailed upgrade plan lives in `docs/development_plan_v2.md` and the code review baseline in `docs/code_review_2026_06.md`. When this file and the plan conflict, this file wins.
@@ -396,6 +395,20 @@ GET /api/performance-logs
 
 ```text
 GET /api/recommendation-cycles
+```
+
+### Signal Quality
+
+Scheduler-protected:
+
+```text
+POST /api/candidate-universe/refresh
+```
+
+User-token protected:
+
+```text
+POST /api/backtests/rules/run
 ```
 
 ### Settings
@@ -877,6 +890,8 @@ Requires user decision:
 Do not implement until selected.
 
 ### Phase 8: Signal Quality Engine
+
+Status: implemented (2026-06). Migration 012 (candidate_universe) required.
 
 Goal: Improve the quality of candidate screening and validate strategy rules with evidence.
 

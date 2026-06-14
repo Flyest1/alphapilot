@@ -25,6 +25,8 @@ export default function Performance() {
   const [stats, setStats] = useState(cached);
   const [isLoading, setIsLoading] = useState(!cached);
   const [error, setError] = useState("");
+  const [backtest, setBacktest] = useState(null);
+  const [backtestLoading, setBacktestLoading] = useState(false);
 
   function loadStats() {
     setIsLoading(true);
@@ -43,6 +45,18 @@ export default function Performance() {
       loadStats();
     }
   }, []);
+
+  async function runBacktest(reportType) {
+    setBacktestLoading(true);
+    setError("");
+    try {
+      setBacktest(await api.backtests.runRules(reportType));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBacktestLoading(false);
+    }
+  }
 
   const totals = stats?.totals || {};
   const groups = stats?.groups || [];
@@ -97,6 +111,65 @@ export default function Performance() {
           종료 표본이 {minSample}건 이상인 그룹은 리포트 신뢰도에 실측 승률 보정계수가 곱해집니다.
           과거 성과는 미래 수익을 보장하지 않습니다.
         </p>
+      </section>
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h2>점수 규칙 백테스트</h2>
+            <p>후보 유니버스 과거 가격으로 점수→액션 규칙을 별도 시뮬레이션합니다.</p>
+          </div>
+          <div className="header-actions">
+            <button
+              disabled={backtestLoading}
+              type="button"
+              onClick={() => runBacktest("domestic")}
+            >
+              국내 규칙 검증
+            </button>
+            <button disabled={backtestLoading} type="button" onClick={() => runBacktest("global")}>
+              글로벌 규칙 검증
+            </button>
+          </div>
+        </div>
+        {backtestLoading && <Skeleton label="과거 가격 규칙을 검증하는 중입니다." lines={3} />}
+        {!backtestLoading && !backtest && (
+          <p className="empty-state">
+            버튼을 눌러 리포트 생성과 분리된 규칙 시뮬레이션을 실행하세요.
+          </p>
+        )}
+        {backtest && (
+          <>
+            <div className="inline-metrics">
+              <span>{backtest.tickers_tested.length}개 종목</span>
+              <span>{backtest.sample_count}개 표본</span>
+              <span>{backtest.forward_days}거래일 후 수익률</span>
+            </div>
+            <div className="table-wrap">
+              <table className="compact-table">
+                <thead>
+                  <tr>
+                    <th>규칙 액션</th>
+                    <th>표본</th>
+                    <th>평균 향후 수익률</th>
+                    <th>방향 적중률</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {backtest.groups.map((group) => (
+                    <tr key={group.action}>
+                      <td>{group.action}</td>
+                      <td>{group.sample_count}</td>
+                      <td>{formatReturn(group.avg_forward_return)}</td>
+                      <td>{formatWinRate(group.directional_success_rate)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="field-hint">{backtest.disclaimer}</p>
+          </>
+        )}
       </section>
 
       <section className="panel">

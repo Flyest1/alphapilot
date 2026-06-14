@@ -82,6 +82,16 @@ def build_service(repo):
 def seeded_repo(cash=1_000_000):
     repo = InMemoryRepository()
     repo.upsert_settings({"usd_krw_rate": 1000, "risk_per_trade_pct": 1.0})
+    repo.upsert_candidate_universe(
+        {
+            "report_type": "domestic",
+            "market": "KR",
+            "ticker": "035420",
+            "name": "NAVER",
+            "currency": "KRW",
+            "source": "test",
+        }
+    )
     repo.create_asset(
         {
             "market": "KR",

@@ -33,6 +33,10 @@ class Repository(Protocol):
 
     def delete_candidate_asset(self, candidate_id: str) -> bool: ...
 
+    def list_candidate_universe(self, report_type: str | None = None) -> list[dict[str, Any]]: ...
+
+    def upsert_candidate_universe(self, data: dict[str, Any]) -> dict[str, Any]: ...
+
     def get_settings(self) -> dict[str, Any] | None: ...
 
     def upsert_settings(self, data: dict[str, Any]) -> dict[str, Any]: ...
@@ -104,6 +108,7 @@ class InMemoryRepository:
     def __init__(self) -> None:
         self.assets: dict[str, dict[str, Any]] = {}
         self.candidate_assets: dict[str, dict[str, Any]] = {}
+        self.candidate_universe: dict[str, dict[str, Any]] = {}
         self.settings: dict[str, Any] | None = None
         self.reports: dict[str, dict[str, Any]] = {}
         self.strategies: dict[str, dict[str, Any]] = {}
@@ -169,6 +174,35 @@ class InMemoryRepository:
 
     def delete_candidate_asset(self, candidate_id: str) -> bool:
         return self.candidate_assets.pop(candidate_id, None) is not None
+
+    def list_candidate_universe(self, report_type: str | None = None) -> list[dict[str, Any]]:
+        rows = [
+            row
+            for row in _copy_rows(self.candidate_universe.values())
+            if row.get("is_active", True)
+            and (report_type is None or row.get("report_type") == report_type)
+        ]
+        return sorted(
+            rows,
+            key=lambda row: (
+                row.get("report_type") or "",
+                row.get("source_rank") if row.get("source_rank") is not None else 999999,
+                row.get("ticker") or "",
+            ),
+        )
+
+    def upsert_candidate_universe(self, data: dict[str, Any]) -> dict[str, Any]:
+        row = deepcopy(data)
+        key = f"{row['market']}:{row['ticker']}"
+        existing = self.candidate_universe.get(key, {})
+        now = _now_iso()
+        row["id"] = existing.get("id") or row.get("id") or str(uuid4())
+        row["created_at"] = existing.get("created_at") or row.get("created_at") or now
+        row["updated_at"] = now
+        row["refreshed_at"] = row.get("refreshed_at") or now
+        row["is_active"] = row.get("is_active", True)
+        self.candidate_universe[key] = {**existing, **row}
+        return deepcopy(self.candidate_universe[key])
 
     def get_settings(self) -> dict[str, Any] | None:
         return deepcopy(self.settings) if self.settings else None
@@ -431,6 +465,29 @@ class SupabaseRepository:
             {"operation": "delete_candidate_asset", "candidate_id": candidate_id},
         )
         return bool(rows)
+
+    def list_candidate_universe(self, report_type: str | None = None) -> list[dict[str, Any]]:
+        builder = (
+            self.client.table("candidate_universe")
+            .select("*")
+            .eq("is_active", True)
+            .order("source_rank")
+            .order("ticker")
+        )
+        if report_type is not None:
+            builder = builder.eq("report_type", report_type)
+        return self._run(
+            builder,
+            {"operation": "list_candidate_universe", "report_type": report_type},
+        )
+
+    def upsert_candidate_universe(self, data: dict[str, Any]) -> dict[str, Any]:
+        builder = self.client.table("candidate_universe").upsert(
+            data,
+            on_conflict="market,ticker",
+        )
+        rows = self._run(builder, {"operation": "upsert_candidate_universe"})
+        return rows[0]
 
     def get_settings(self) -> dict[str, Any] | None:
         builder = self.client.table("settings").select("*").limit(1)

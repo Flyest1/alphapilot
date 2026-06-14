@@ -1363,3 +1363,37 @@ form button,
 .action-briefing-list li {
   line-height: 1.5;
 }
+
+.event-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.event-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 8px;
+}
+
+.event-row > div {
+  display: grid;
+}
+
+.event-row span {
+  color: #64748b;
+}
+
+.compact-table {
+  min-width: 640px;
+}
+
+@media (max-width: 640px) {
+  .event-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}

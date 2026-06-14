@@ -30,3 +30,30 @@ def test_market_data_cache_roundtrip():
 
     assert row["payload"] == {"frame": "{}"}
     assert repo.get_market_data_cache("missing") is None
+
+
+def test_candidate_universe_upsert_and_report_type_filter():
+    repo = InMemoryRepository()
+    repo.upsert_candidate_universe(
+        {
+            "report_type": "domestic",
+            "market": "KR",
+            "ticker": "005930",
+            "name": "삼성전자",
+            "source": "seed",
+            "source_rank": 2,
+        }
+    )
+    repo.upsert_candidate_universe(
+        {
+            "report_type": "global",
+            "market": "ETF",
+            "ticker": "QQQ",
+            "name": "QQQ",
+            "source": "seed",
+            "source_rank": 1,
+        }
+    )
+
+    assert [row["ticker"] for row in repo.list_candidate_universe("domestic")] == ["005930"]
+    assert {row["ticker"] for row in repo.list_candidate_universe()} == {"005930", "QQQ"}

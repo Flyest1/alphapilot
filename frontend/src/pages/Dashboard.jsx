@@ -13,6 +13,7 @@ import {
 } from "../api/reports.js";
 import ActionBriefing from "../components/dashboard/ActionBriefing.jsx";
 import AllocationChart from "../components/dashboard/AllocationChart.jsx";
+import AssetEventsPanel from "../components/dashboard/AssetEventsPanel.jsx";
 import ExposurePanel from "../components/dashboard/ExposurePanel.jsx";
 import RebalanceCard from "../components/dashboard/RebalanceCard.jsx";
 import SummaryCards from "../components/dashboard/SummaryCards.jsx";
@@ -162,6 +163,8 @@ export default function Dashboard() {
       <RebalanceCard summary={summary} />
 
       <ExposurePanel summary={summary} />
+
+      <AssetEventsPanel eventContext={report?.report_inputs?.asset_events} />
 
       <TrendChart chartRange={chartRange} summary={summary} onChangeRange={setChartRange} />
 

@@ -8,6 +8,8 @@ from fastapi.responses import JSONResponse
 
 from app.api import (
     assets,
+    backtests,
+    candidate_universe,
     candidates,
     performance,
     portfolio,
@@ -24,6 +26,7 @@ from app.services.report_job_service import ReportJobStore
 from app.utils.rate_limit import DailyEndpointRateLimiter
 
 SCHEDULER_ENDPOINTS = {
+    "/api/candidate-universe/refresh",
     "/api/reports/domestic/generate",
     "/api/reports/global/generate",
 }
@@ -116,6 +119,8 @@ def create_app(repository: Repository | None = None) -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(assets.router)
+    app.include_router(backtests.router)
+    app.include_router(candidate_universe.router)
     app.include_router(candidates.router)
     app.include_router(performance.router)
     app.include_router(portfolio.router)

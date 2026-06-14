@@ -126,6 +126,8 @@ backend/app/utils/labels.py   # action/trend/risk 한국어 라벨 단일화
 
 ## 5. 트랙 A — Phase 8: 신호 품질 엔진 (수익 극대화 3단계)
 
+상태: 구현 완료 (2026-06). `012_create_candidate_universe.sql` 적용 필요.
+
 - **후보 유니버스 확장**: 하드코딩 45종목 → `candidate_universe` 테이블(seed 마이그레이션)로 이전,
   pykrx 시가총액 상위 N / yfinance 주요 ETF 구성으로 주기 갱신(스케줄러 잡, 외부 서비스 불필요).
 - **룰 백테스트 검증**: 기술 점수 → 액션 규칙을 과거 가격 이력으로 검증하는

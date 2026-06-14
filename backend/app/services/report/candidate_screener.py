@@ -13,71 +13,6 @@ CANDIDATE_HORIZON_RULES = {
     "medium": {"min_score": 64, "label": "중기 20거래일", "target_days": 20},
     "long": {"min_score": 60, "label": "장기 60거래일", "target_days": 60},
 }
-CANDIDATE_UNIVERSE: dict[str, list[dict[str, str]]] = {
-    "domestic": [
-        {"market": "KR", "ticker": "005930", "name": "삼성전자", "currency": "KRW"},
-        {"market": "KR", "ticker": "000660", "name": "SK하이닉스", "currency": "KRW"},
-        {"market": "KR", "ticker": "005380", "name": "현대차", "currency": "KRW"},
-        {"market": "KR", "ticker": "000270", "name": "Kia", "currency": "KRW"},
-        {"market": "KR", "ticker": "035420", "name": "NAVER", "currency": "KRW"},
-        {"market": "KR", "ticker": "035720", "name": "Kakao", "currency": "KRW"},
-        {"market": "KR", "ticker": "068270", "name": "셀트리온", "currency": "KRW"},
-        {"market": "KR", "ticker": "105560", "name": "KB금융", "currency": "KRW"},
-        {"market": "KR", "ticker": "055550", "name": "Shinhan Financial", "currency": "KRW"},
-        {"market": "KR", "ticker": "006400", "name": "Samsung SDI", "currency": "KRW"},
-        {"market": "KR", "ticker": "051910", "name": "LG Chem", "currency": "KRW"},
-        {"market": "KR", "ticker": "012450", "name": "Hanwha Aerospace", "currency": "KRW"},
-        {"market": "KR", "ticker": "064350", "name": "Hyundai Rotem", "currency": "KRW"},
-        {"market": "KR", "ticker": "034020", "name": "Doosan Enerbility", "currency": "KRW"},
-        {"market": "KR", "ticker": "069500", "name": "KODEX 200", "currency": "KRW"},
-        {"market": "KR", "ticker": "091160", "name": "KODEX 반도체", "currency": "KRW"},
-        {"market": "KR", "ticker": "305720", "name": "KODEX Battery", "currency": "KRW"},
-        {"market": "KR", "ticker": "360750", "name": "TIGER US S&P500", "currency": "KRW"},
-        {"market": "KR", "ticker": "133690", "name": "TIGER NASDAQ100", "currency": "KRW"},
-    ],
-    "global": [
-        {"market": "US", "ticker": "NVDA", "name": "NVIDIA", "currency": "USD"},
-        {"market": "US", "ticker": "MSFT", "name": "Microsoft", "currency": "USD"},
-        {"market": "US", "ticker": "AAPL", "name": "Apple", "currency": "USD"},
-        {"market": "US", "ticker": "AMZN", "name": "Amazon", "currency": "USD"},
-        {"market": "US", "ticker": "GOOGL", "name": "Alphabet", "currency": "USD"},
-        {"market": "US", "ticker": "META", "name": "Meta Platforms", "currency": "USD"},
-        {"market": "US", "ticker": "TSLA", "name": "Tesla", "currency": "USD"},
-        {"market": "US", "ticker": "AVGO", "name": "Broadcom", "currency": "USD"},
-        {"market": "US", "ticker": "AMD", "name": "AMD", "currency": "USD"},
-        {"market": "US", "ticker": "NFLX", "name": "Netflix", "currency": "USD"},
-        {"market": "US", "ticker": "COST", "name": "Costco", "currency": "USD"},
-        {"market": "US", "ticker": "JPM", "name": "JPMorgan Chase", "currency": "USD"},
-        {"market": "US", "ticker": "LLY", "name": "Eli Lilly", "currency": "USD"},
-        {"market": "US", "ticker": "V", "name": "Visa", "currency": "USD"},
-        {"market": "US", "ticker": "BRK.B", "name": "Berkshire Hathaway", "currency": "USD"},
-        {"market": "ETF", "ticker": "VOO", "name": "Vanguard S&P 500 ETF", "currency": "USD"},
-        {"market": "ETF", "ticker": "SPY", "name": "SPDR S&P 500 ETF", "currency": "USD"},
-        {"market": "ETF", "ticker": "QQQ", "name": "Invesco QQQ Trust", "currency": "USD"},
-        {"market": "ETF", "ticker": "SMH", "name": "VanEck Semiconductor ETF", "currency": "USD"},
-        {"market": "ETF", "ticker": "SCHD", "name": "Schwab US Dividend ETF", "currency": "USD"},
-        {
-            "market": "ETF",
-            "ticker": "VTI",
-            "name": "Vanguard Total Stock Market ETF",
-            "currency": "USD",
-        },
-        {"market": "ETF", "ticker": "IWM", "name": "iShares Russell 2000 ETF", "currency": "USD"},
-        {
-            "market": "ETF",
-            "ticker": "XLK",
-            "name": "Technology Select Sector SPDR",
-            "currency": "USD",
-        },
-        {"market": "ETF", "ticker": "GLD", "name": "SPDR Gold Shares", "currency": "USD"},
-        {
-            "market": "ETF",
-            "ticker": "TLT",
-            "name": "iShares 20+ Year Treasury Bond ETF",
-            "currency": "USD",
-        },
-    ],
-}
 
 
 def horizon_rule(candidate_horizon: str) -> dict[str, Any]:
@@ -113,7 +48,7 @@ def candidate_horizon_score(
 
 
 def candidate_assets(repository: Repository, report_type: str) -> list[dict[str, Any]]:
-    """사용자 구성 후보(candidate_assets)를 우선하고, 없으면 기본 유니버스를 사용한다."""
+    """사용자 구성 후보(candidate_assets)를 우선하고, 없으면 DB 유니버스를 사용한다."""
     market_filter = {"KR"} if report_type == "domestic" else {"US", "ETF"}
     try:
         candidate_rows = repository.list_candidate_assets()
@@ -143,15 +78,27 @@ def candidate_assets(repository: Repository, report_type: str) -> list[dict[str,
             }
             for candidate in configured_candidates
         ]
+    try:
+        universe_rows = repository.list_candidate_universe(report_type)
+    except Exception as exc:
+        log_external_failure(
+            "candidate_universe",
+            exc,
+            {"operation": "list_candidate_universe_for_report", "report_type": report_type},
+        )
+        universe_rows = []
     return [
         {
-            **candidate,
             "id": None,
+            "market": candidate["market"],
+            "ticker": candidate["ticker"],
+            "name": candidate["name"],
+            "currency": candidate.get("currency") or "KRW",
             "quantity": 0,
             "avg_price": 0,
-            "memo": "보유 외 추천 후보",
+            "memo": "DB 후보 유니버스",
         }
-        for candidate in CANDIDATE_UNIVERSE.get(report_type, [])
+        for candidate in universe_rows
     ]
 
 
