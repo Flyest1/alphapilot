@@ -19,6 +19,7 @@ from app.api import (
     reports,
     settings,
     system,
+    toss,
 )
 from app.config import get_environment_settings
 from app.db.supabase_client import Repository, create_repository
@@ -131,6 +132,7 @@ def create_app(repository: Repository | None = None) -> FastAPI:
     app.include_router(reports.router)
     app.include_router(settings.router)
     app.include_router(system.router)
+    app.include_router(toss.router)
     return app
 
 

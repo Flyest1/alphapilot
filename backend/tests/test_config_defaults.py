@@ -74,3 +74,17 @@ def test_notification_defaults_match_env_example_and_migration():
         assert getattr(defaults, field) is False
         assert f"{env_name}=false" in env_text
         assert f"add column if not exists {field} boolean default false" in migration
+
+
+def test_toss_invest_infrastructure_env_keys_are_documented():
+    root = Path(__file__).resolve().parents[2]
+    env_text = (root / "backend" / ".env.example").read_text()
+    agents_text = (root / "AGENTS.md").read_text()
+
+    for name in (
+        "TOSS_INVEST_CLIENT_ID",
+        "TOSS_INVEST_CLIENT_SECRET",
+        "TOSS_INVEST_ACCOUNT_ID",
+    ):
+        assert f"{name}=" in env_text
+        assert name in agents_text

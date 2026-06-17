@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, apiRequest } from "./client.js";
+import { ApiError, api, apiRequest } from "./client.js";
 
 function jsonResponse(body, { ok = true, status = 200 } = {}) {
   return {
@@ -83,5 +83,18 @@ describe("apiRequest", () => {
       ApiError,
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls the Toss sync endpoint as a non-retried POST request", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ synced_count: 1 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const data = await api.toss.sync();
+
+    expect(data).toEqual({ synced_count: 1 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/api/toss/sync");
+    expect(init.method).toBe("POST");
   });
 });

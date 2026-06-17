@@ -1,8 +1,9 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 Market = Literal["KR", "US", "CASH", "ETF"]
+AssetSource = Literal["manual", "toss_api"]
 
 
 class AssetCreate(BaseModel):
@@ -33,5 +34,11 @@ class AssetUpdate(BaseModel):
 
 class AssetRead(AssetCreate):
     id: str
+    source: AssetSource = "manual"
+    external_provider: str | None = None
+    external_account_id: str | None = None
+    external_asset_key: str | None = None
+    synced_at: str | None = None
+    external_payload: dict[str, Any] = Field(default_factory=dict)
     created_at: str | None = None
     updated_at: str | None = None

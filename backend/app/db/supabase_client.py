@@ -21,6 +21,15 @@ class Repository(Protocol):
 
     def delete_asset(self, asset_id: str) -> bool: ...
 
+    def get_asset_by_external_key(
+        self,
+        provider: str,
+        account_id: str,
+        asset_key: str,
+    ) -> dict[str, Any] | None: ...
+
+    def upsert_external_asset(self, data: dict[str, Any]) -> dict[str, Any]: ...
+
     def list_candidate_assets(self) -> list[dict[str, Any]]: ...
 
     def get_candidate_asset(self, candidate_id: str) -> dict[str, Any] | None: ...
@@ -159,6 +168,31 @@ class InMemoryRepository:
 
     def delete_asset(self, asset_id: str) -> bool:
         return self.assets.pop(asset_id, None) is not None
+
+    def get_asset_by_external_key(
+        self,
+        provider: str,
+        account_id: str,
+        asset_key: str,
+    ) -> dict[str, Any] | None:
+        for row in self.assets.values():
+            if (
+                row.get("external_provider") == provider
+                and row.get("external_account_id") == account_id
+                and row.get("external_asset_key") == asset_key
+            ):
+                return deepcopy(row)
+        return None
+
+    def upsert_external_asset(self, data: dict[str, Any]) -> dict[str, Any]:
+        existing = self.get_asset_by_external_key(
+            str(data.get("external_provider") or ""),
+            str(data.get("external_account_id") or ""),
+            str(data.get("external_asset_key") or ""),
+        )
+        if existing:
+            return self.update_asset(existing["id"], data) or existing
+        return self.create_asset(data)
 
     def list_candidate_assets(self) -> list[dict[str, Any]]:
         return sorted(_copy_rows(self.candidate_assets.values()), key=lambda row: row["created_at"])
@@ -493,6 +527,42 @@ class SupabaseRepository:
         builder = self.client.table("assets").delete().eq("id", asset_id)
         rows = self._run(builder, {"operation": "delete_asset", "asset_id": asset_id})
         return bool(rows)
+
+    def get_asset_by_external_key(
+        self,
+        provider: str,
+        account_id: str,
+        asset_key: str,
+    ) -> dict[str, Any] | None:
+        builder = (
+            self.client.table("assets")
+            .select("*")
+            .eq("external_provider", provider)
+            .eq("external_account_id", account_id)
+            .eq("external_asset_key", asset_key)
+            .limit(1)
+        )
+        rows = self._run(
+            builder,
+            {
+                "operation": "get_asset_by_external_key",
+                "provider": provider,
+                "account_id": account_id,
+                "asset_key": asset_key,
+            },
+        )
+        return rows[0] if rows else None
+
+    def upsert_external_asset(self, data: dict[str, Any]) -> dict[str, Any]:
+        existing = self.get_asset_by_external_key(
+            str(data.get("external_provider") or ""),
+            str(data.get("external_account_id") or ""),
+            str(data.get("external_asset_key") or ""),
+        )
+        if existing:
+            updated = self.update_asset(existing["id"], data)
+            return updated or existing
+        return self.create_asset(data)
 
     def list_candidate_assets(self) -> list[dict[str, Any]]:
         builder = self.client.table("candidate_assets").select("*").order("created_at")
