@@ -153,6 +153,10 @@ export const api = {
       }),
     remove: (id) => apiRequest(`/api/assets/${id}`, { method: "DELETE" }),
   },
+  toss: {
+    status: () => apiRequest("/api/toss/status"),
+    sync: () => apiRequest("/api/toss/sync", { method: "POST", timeoutMs: 90 * 1000 }),
+  },
   candidates: {
     list: () => apiRequest("/api/candidates"),
     create: (payload) =>

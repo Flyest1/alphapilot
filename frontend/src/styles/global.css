@@ -482,6 +482,44 @@ td:first-child {
   color: #c2410c;
 }
 
+.source-pill {
+  display: inline-flex;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.source-pill.manual {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.source-pill.api {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.sync-result {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  background: #f0fdf4;
+  padding: 12px;
+}
+
+.sync-result p {
+  margin-bottom: 0;
+}
+
+.sync-result ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
 .asset-form,
 .settings-form {
   display: grid;

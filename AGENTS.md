@@ -23,7 +23,7 @@ All recommendations are decision-support information only. They must never imply
 3. **Whitelist enforcement.** Do not introduce libraries, external services, hosting providers, API providers, scraping methods, schedulers, or UI frameworks that are not explicitly allowed here.
 4. **No silent omission.** If a documented requirement cannot be implemented in the current environment, state it clearly and keep the implementation locally testable with mocks where appropriate.
 5. **Code-as-spec wins over prose.** Pydantic models, SQL schemas, public API contracts, and JSON examples in this document are authoritative.
-6. **No trading code.** Do not create functions, classes, modules, routes, buttons, placeholders, or stubs for broker APIs, order placement, trade execution, or automatic trading.
+6. **No trading code.** Do not create functions, classes, modules, routes, buttons, placeholders, or stubs for order placement, trade execution, or automatic trading. Broker API usage is allowed only for the explicitly approved read-only Toss Invest account/holdings sync described below.
 7. **Commit discipline.** Use Conventional Commits. Keep commits scoped to the current roadmap step.
 8. **Test before commit.** Code changes must pass:
 
@@ -89,7 +89,7 @@ Future work must preserve these capabilities while improving reliability and inv
 AlphaPilot must not:
 
 - place orders
-- connect to broker APIs
+- connect to broker APIs except the explicitly approved read-only Toss Invest account/holdings sync
 - implement paper trading as if it were execution
 - create trade execution stubs
 - promise guaranteed profit
@@ -184,7 +184,16 @@ Only these external services are allowed:
 - yfinance                    (US/ETF/FX market data)
 - GDELT DOC 2.0 API           (news/trend context)
 - Telegram Bot API            (notification channel, Phase 9; user must provide bot token via backend env var)
+- Toss Invest Open API        (read-only account/holdings sync only; no order endpoints)
 ```
+
+Toss Invest Open API exception (approved 2026-06):
+
+- Allowed only for read-only account and holdings synchronization.
+- API-linked assets must be visibly marked separately from manually entered assets.
+- Manual assets must remain supported so the user can delete duplicates after sync review.
+- Toss credentials must live only in backend environment variables or `.env`, never in frontend code, localStorage, Supabase, GitHub Pages, or committed files.
+- Do not implement or call order create, order modify, order cancel, broker execution, automatic trading, order preview, buying-power checks for execution, sellable-quantity checks for execution, or any route/button/stub that could become a trading workflow.
 
 2026-06 decision: the user approved paid tiers and additional services in principle.
 Paid upgrades of already-allowed services (Render, Supabase, OpenAI usage) may proceed
@@ -261,6 +270,9 @@ SCHEDULER_SECRET=change-this-secret
 API_ACCESS_TOKEN=change-this-user-token
 TELEGRAM_BOT_TOKEN=your-telegram-bot-token
 TELEGRAM_CHAT_ID=your-telegram-chat-id
+TOSS_INVEST_CLIENT_ID=your-toss-invest-client-id
+TOSS_INVEST_CLIENT_SECRET=your-toss-invest-client-secret
+TOSS_INVEST_ACCOUNT_ID=your-toss-invest-account-id
 ```
 
 ### Application Defaults

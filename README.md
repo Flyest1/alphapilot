@@ -2,7 +2,7 @@
 
 AlphaPilot은 개인 자산을 등록하고, 국내/글로벌 시장 데이터와 기술 지표를 기반으로 AI 투자 전략 리포트를 생성하는 단일 사용자용 MVP입니다.
 
-자동 매매, 주문 실행, 브로커 API 연결은 포함하지 않습니다. 모든 리포트는 투자 의사결정 지원용이며 수익을 보장하지 않습니다.
+자동 매매와 주문 실행은 포함하지 않습니다. 브로커 API는 Toss Invest Open API의 조회 전용 계좌/보유주식 동기화만 지원합니다. 모든 리포트는 투자 의사결정 지원용이며 수익을 보장하지 않습니다.
 
 ## 구성
 
@@ -14,18 +14,21 @@ Scheduler: GitHub Actions
 AI: OpenAI API
 Market Data: pykrx, yfinance
 News/Trend Context: GDELT DOC 2.0 API
+Broker Sync: Toss Invest Open API (조회 전용)
 ```
 
 ## 사용 방법
 
 1. GitHub Pages 주소에 접속합니다.
 2. 첫 화면에 Render 환경변수 `API_ACCESS_TOKEN` 값을 입력합니다.
-3. `자산` 화면에서 보유 종목을 추가합니다.
+3. `자산` 화면에서 보유 종목을 추가합니다. Toss Invest 환경변수를 설정한 경우 `Toss 보유주식 동기화`로 API 연동 자산을 가져올 수 있습니다.
 4. `설정` 화면에서 AI 모델, 위험 성향, 추가 매수 후보 목표 기간, USD-KRW 환율을 조정합니다.
 5. `설정` 화면에서 보유 외 추가 매수 후보군을 직접 추가하거나 비활성화합니다.
 6. `상태` 화면에서 백엔드, Supabase, OpenAI 설정과 최근 리포트 상태를 확인합니다.
 7. `리포트` 화면에서 국내/글로벌 리포트를 수동 생성하거나, GitHub Actions 정기 실행 결과를 확인합니다.
 8. `성과 추적`은 리포트 생성 이후 1일, 5일, 20일 가격 데이터가 쌓이면 표시됩니다.
+
+Toss Invest로 동기화된 자산은 `Toss 연동` 배지와 동기화 시간이 표시됩니다. 기존에 같은 종목을 수동으로 입력해 둔 경우 동기화 결과에 중복 후보가 표시되며, 확인 후 수동 자산을 직접 삭제해 중복 계산을 피할 수 있습니다.
 
 대시보드 총액은 KRW 기준입니다. USD 주식, 미국 ETF, USD 현금은 `설정`의 USD-KRW 환율로 환산합니다. 리포트 생성 시 yfinance의 `KRW=X` 최신 값을 가져올 수 있으면 해당 환율이 설정에 반영되고, 실패하면 기존 설정값을 그대로 사용합니다.
 
@@ -91,6 +94,9 @@ SCHEDULER_SECRET=change-this-secret
 API_ACCESS_TOKEN=change-this-user-token
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
+TOSS_INVEST_CLIENT_ID=
+TOSS_INVEST_CLIENT_SECRET=
+TOSS_INVEST_ACCOUNT_ID=
 
 DOMESTIC_REPORT_TIME=08:30
 GLOBAL_REPORT_TIME=22:30
@@ -237,6 +243,16 @@ backend/app/db/migrations/013_create_notifications.sql
 013은 `notifications` 테이블과 Telegram 이벤트별 opt-in 설정 컬럼을 추가합니다. 모두
 additive이며 기존 데이터는 변경하지 않습니다.
 
+Toss Invest 조회 전용 자산 연동을 사용하려면 아래 파일도 실행합니다.
+
+```text
+backend/app/db/migrations/014_add_asset_external_sync_fields.sql
+```
+
+014는 `assets` 테이블에 수동/외부 연동 출처, 외부 계좌/종목 키, 동기화 시간, 원본 payload
+컬럼과 중복 방지 인덱스를 추가합니다. 기존 수동 자산은 `source='manual'` 기본값을 가지며,
+삭제되거나 수정되지 않습니다.
+
 Supabase service role key는 RLS를 우회합니다. 반드시 백엔드 서버 환경변수에만 보관하고, 프론트엔드나 에러 메시지에 노출하지 마세요.
 
 ## Render 배포
@@ -254,9 +270,16 @@ SCHEDULER_SECRET
 API_ACCESS_TOKEN
 TELEGRAM_BOT_TOKEN
 TELEGRAM_CHAT_ID
+TOSS_INVEST_CLIENT_ID
+TOSS_INVEST_CLIENT_SECRET
+TOSS_INVEST_ACCOUNT_ID
 ```
 
 Render Free는 유휴 상태 후 cold start가 발생할 수 있습니다. GitHub Actions는 리포트 생성 전에 `/health`를 호출해 백엔드를 깨웁니다.
+
+Toss Invest 연동을 쓰지 않으면 `TOSS_INVEST_*` 값은 비워둘 수 있습니다. 연동을 쓰는 경우
+client id, client secret, 조회할 계좌 식별값을 Render 환경변수에만 저장하세요. 프론트엔드
+환경변수, GitHub Pages secret, Supabase 테이블에는 저장하지 않습니다.
 
 ## GitHub Pages 배포
 
@@ -399,6 +422,20 @@ curl -X POST "$env:BACKEND_URL/api/reports/domestic/generate" `
   Bot API로 보냅니다. 환경변수가 없거나 전송에 실패해도 인앱 알림과 리포트 생성은 계속됩니다.
 - **보안**: Telegram token과 Chat ID는 프론트엔드 번들/API 응답에 포함되지 않습니다.
 
+## Toss Invest 조회 전용 연동
+
+- **목적**: Toss Invest Open API에서 계좌 목록과 보유주식만 조회해 AlphaPilot의 `assets`에
+  `Toss 연동` 자산으로 저장합니다. 수동 자산은 계속 별도로 관리할 수 있습니다.
+- **API**: `GET /api/toss/status`는 백엔드 환경변수 설정 여부만 반환하고,
+  `POST /api/toss/sync`는 `/oauth2/token`, `/api/v1/accounts`, `/api/v1/holdings`만 호출합니다.
+- **중복 처리**: 같은 시장/티커의 수동 자산이 있으면 동기화 결과에 중복 후보로 표시합니다.
+  자동 삭제하지 않으므로 사용자가 확인 후 수동 자산을 삭제해야 합니다.
+- **보안**: `TOSS_INVEST_CLIENT_ID`, `TOSS_INVEST_CLIENT_SECRET`,
+  `TOSS_INVEST_ACCOUNT_ID`는 Render 또는 로컬 `backend/.env`에만 저장합니다. 프론트엔드,
+  localStorage, Supabase, GitHub Pages 빌드에는 넣지 않습니다.
+- **금지 범위**: 주문 생성/정정/취소, 주문 내역, 매수 가능금액, 매도 가능수량, 주문 미리보기,
+  자동 리밸런스, 자동 매매는 구현하지 않습니다.
+
 ## Phase 10 설계 상태
 
 멀티유저/상업화는 구현하지 않았습니다. 목표 인증/RLS 구조, 기존 데이터 이관, 사용자별 비용
@@ -417,12 +454,14 @@ curl -X POST "$env:BACKEND_URL/api/reports/domestic/generate" `
 - 일반 API와 수동 리포트 생성은 `API_ACCESS_TOKEN`을 사용합니다.
 - 두 값은 반드시 서로 다르게 설정하세요. 같게 설정하면 스케줄러 시크릿으로 일반 API까지 호출할 수 있습니다.
 - GitHub Pages 정적 URL 자체는 public일 수 있지만, 토큰 없이는 백엔드 데이터 API를 호출할 수 없습니다.
+- Toss Invest credential은 백엔드 환경변수에만 두며 API 응답에는 credential 값을 반환하지 않습니다.
 
 주의: `API_ACCESS_TOKEN`이 유출되면 해당 토큰을 가진 사람이 자산과 리포트 데이터에 접근할 수 있습니다. 이 방식은 production-grade 인증이 아니라 단일 사용자 MVP용 접근 게이트입니다.
 
 ## 제한 사항
 
 - 자동 매매와 주문 실행 없음
+- Toss Invest 연동은 조회 전용 보유주식 동기화만 지원
 - 수익 보장 없음
 - 뉴스/동향 컨텍스트는 GDELT DOC 2.0 API에 한정되며 누락될 수 있음
 - pykrx/yfinance 데이터는 지연되거나 실패할 수 있음

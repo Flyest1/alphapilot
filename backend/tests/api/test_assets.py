@@ -22,6 +22,7 @@ def test_asset_crud_endpoints():
     assert created.status_code == 201
     asset = created.json()
     assert asset["ticker"] == "AAPL"
+    assert asset["source"] == "manual"
 
     listed = test_client.get("/api/assets", headers=AUTH)
     assert listed.status_code == 200

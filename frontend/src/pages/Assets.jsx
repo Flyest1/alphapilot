@@ -83,11 +83,15 @@ function validateAsset(payload) {
 
 export default function Assets() {
   const cachedAssets = readApiCache("/api/assets") || [];
+  const hasInitialCachedAssets = useRef(cachedAssets.length > 0);
   const [assets, setAssets] = useState(cachedAssets);
+  const [tossStatus, setTossStatus] = useState(null);
+  const [tossSyncResult, setTossSyncResult] = useState(null);
   const [form, setForm] = useState(blankAsset);
   const [editingId, setEditingId] = useState(null);
   const [isLoading, setIsLoading] = useState(cachedAssets.length === 0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSyncingToss, setIsSyncingToss] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [isImporting, setIsImporting] = useState(false);
@@ -111,9 +115,36 @@ export default function Assets() {
       });
   }
 
+  function loadTossStatus() {
+    api.toss
+      .status()
+      .then(setTossStatus)
+      .catch(() => setTossStatus({ configured: false, mode: "read_only" }));
+  }
+
   useEffect(() => {
-    loadAssets({ background: cachedAssets.length > 0 });
+    loadAssets({ background: hasInitialCachedAssets.current });
+    loadTossStatus();
   }, []);
+
+  async function syncTossHoldings() {
+    setError("");
+    setStatus("");
+    setTossSyncResult(null);
+    setIsSyncingToss(true);
+    try {
+      const result = await api.toss.sync();
+      setTossSyncResult(result);
+      setStatus(
+        `Toss 보유주식 ${result.synced_count}개를 동기화했습니다. 수동 중복 ${result.duplicate_manual_assets.length}개를 확인하세요.`,
+      );
+      loadAssets();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsSyncingToss(false);
+    }
+  }
 
   function updateField(field, value) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -229,6 +260,10 @@ export default function Assets() {
   function startEdit(asset) {
     setError("");
     setStatus("");
+    if (asset.source === "toss_api") {
+      setError("Toss 연동 자산은 API 동기화로 갱신됩니다. 직접 수정하지 않습니다.");
+      return;
+    }
     setEditingId(asset.id);
     setForm({
       market: asset.market,
@@ -239,6 +274,14 @@ export default function Assets() {
       currency: asset.currency,
       memo: asset.memo || "",
     });
+  }
+
+  function sourceLabel(asset) {
+    return asset.source === "toss_api" ? "Toss 연동" : "수동";
+  }
+
+  function sourceClass(asset) {
+    return asset.source === "toss_api" ? "source-pill api" : "source-pill manual";
   }
 
   return (
@@ -259,6 +302,13 @@ export default function Assets() {
           <button disabled={!assets.length} type="button" onClick={exportCsv}>
             CSV 내보내기
           </button>
+          <button
+            disabled={!tossStatus?.configured || isSyncingToss}
+            type="button"
+            onClick={syncTossHoldings}
+          >
+            {isSyncingToss ? "Toss 동기화 중" : "Toss 보유주식 동기화"}
+          </button>
           <input
             accept=".csv,text/csv"
             hidden
@@ -270,7 +320,48 @@ export default function Assets() {
       </header>
       {error && <p className="alert">{error}</p>}
       {status && <p className="notice">{status}</p>}
+      {tossStatus && !tossStatus.configured && (
+        <p className="alert">
+          Toss API 연동을 사용하려면 백엔드 환경변수 TOSS_INVEST_CLIENT_ID,
+          TOSS_INVEST_CLIENT_SECRET, TOSS_INVEST_ACCOUNT_ID를 설정하세요.
+        </p>
+      )}
       {isRefreshing && <p className="field-hint">최신 자산 정보를 확인하는 중입니다.</p>}
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h2>Toss 보유주식 연동</h2>
+            <p>
+              조회 전용으로 계좌 보유주식을 동기화합니다. 주문, 정정, 취소 기능은 제공하지 않습니다.
+            </p>
+          </div>
+          <div className="inline-metrics">
+            <span>{tossStatus?.configured ? "설정됨" : "미설정"}</span>
+            <span>{tossStatus?.mode || "read_only"}</span>
+          </div>
+        </div>
+        {tossSyncResult && (
+          <div className="sync-result">
+            <p>
+              생성 {tossSyncResult.created_count}개, 갱신 {tossSyncResult.updated_count}개, 보유
+              해제 반영 {tossSyncResult.stale_count}개
+            </p>
+            {!!tossSyncResult.duplicate_manual_assets.length && (
+              <>
+                <strong>중복 가능 수동 자산</strong>
+                <ul>
+                  {tossSyncResult.duplicate_manual_assets.map((asset) => (
+                    <li key={asset.id}>
+                      {asset.market} {asset.ticker} {asset.name} - 수량 {asset.quantity}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+        )}
+      </section>
 
       <section className="panel">
         <form className="asset-form" onSubmit={submit}>
@@ -369,7 +460,10 @@ export default function Assets() {
                   <strong>{asset.ticker}</strong>
                   <span>{asset.name}</span>
                 </div>
-                <span className="market-pill">{asset.market}</span>
+                <div className="badge-stack">
+                  <span className="market-pill">{asset.market}</span>
+                  <span className={sourceClass(asset)}>{sourceLabel(asset)}</span>
+                </div>
               </div>
               <dl>
                 <div>
@@ -388,6 +482,12 @@ export default function Assets() {
                   <dt>메모</dt>
                   <dd>{asset.memo || "-"}</dd>
                 </div>
+                <div>
+                  <dt>동기화</dt>
+                  <dd>
+                    {asset.synced_at ? new Date(asset.synced_at).toLocaleString("ko-KR") : "-"}
+                  </dd>
+                </div>
               </dl>
               <div className="row-actions">
                 <button type="button" onClick={() => startEdit(asset)}>
@@ -405,11 +505,13 @@ export default function Assets() {
             <thead>
               <tr>
                 <th>시장</th>
+                <th>출처</th>
                 <th>티커</th>
                 <th>이름</th>
                 <th>수량</th>
                 <th>평균 매입가</th>
                 <th>통화</th>
+                <th>동기화</th>
                 <th>메모</th>
                 <th>관리</th>
               </tr>
@@ -418,11 +520,17 @@ export default function Assets() {
               {assets.map((asset) => (
                 <tr key={asset.id}>
                   <td>{asset.market}</td>
+                  <td>
+                    <span className={sourceClass(asset)}>{sourceLabel(asset)}</span>
+                  </td>
                   <td>{asset.ticker}</td>
                   <td>{asset.name}</td>
                   <td>{asset.quantity}</td>
                   <td>{asset.avg_price}</td>
                   <td>{asset.currency}</td>
+                  <td>
+                    {asset.synced_at ? new Date(asset.synced_at).toLocaleString("ko-KR") : "-"}
+                  </td>
                   <td>{asset.memo}</td>
                   <td className="row-actions">
                     <button type="button" onClick={() => startEdit(asset)}>

@@ -65,6 +65,9 @@ INFRASTRUCTURE_ENV_KEYS = (
     "FRONTEND_ORIGIN",
     "TELEGRAM_BOT_TOKEN",
     "TELEGRAM_CHAT_ID",
+    "TOSS_INVEST_CLIENT_ID",
+    "TOSS_INVEST_CLIENT_SECRET",
+    "TOSS_INVEST_ACCOUNT_ID",
 )
 
 
@@ -83,6 +86,9 @@ class EnvironmentSettings(BaseModel):
     market_data_provider_us: str | None
     telegram_bot_token: str | None
     telegram_chat_id: str | None
+    toss_invest_client_id: str | None
+    toss_invest_client_secret: str | None
+    toss_invest_account_id: str | None
 
 
 def _clean(value: str | None) -> str | None:
@@ -115,6 +121,9 @@ def get_environment_settings() -> EnvironmentSettings:
         market_data_provider_us=_clean(os.getenv("MARKET_DATA_PROVIDER_US")),
         telegram_bot_token=_clean(os.getenv("TELEGRAM_BOT_TOKEN")),
         telegram_chat_id=_clean(os.getenv("TELEGRAM_CHAT_ID")),
+        toss_invest_client_id=_clean(os.getenv("TOSS_INVEST_CLIENT_ID")),
+        toss_invest_client_secret=_clean(os.getenv("TOSS_INVEST_CLIENT_SECRET")),
+        toss_invest_account_id=_clean(os.getenv("TOSS_INVEST_ACCOUNT_ID")),
     )
 
 
