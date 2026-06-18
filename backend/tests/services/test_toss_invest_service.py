@@ -1,6 +1,12 @@
+from io import BytesIO
+from urllib.error import HTTPError
+
+import pytest
+
+import app.services.toss_invest_service as toss_module
 from app.config import EnvironmentSettings
 from app.db.supabase_client import InMemoryRepository
-from app.services.toss_invest_service import TossInvestService
+from app.services.toss_invest_service import TossInvestError, TossInvestService
 
 
 def _env(account_id: str | None = "1") -> EnvironmentSettings:
@@ -120,3 +126,69 @@ def test_toss_status_does_not_expose_credentials():
         "provider": "toss_invest",
         "mode": "read_only",
     }
+
+
+class _FakeResponse:
+    def __init__(self, payload: bytes) -> None:
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def read(self) -> bytes:
+        return self.payload
+
+
+def test_toss_http_error_includes_operation_and_oauth_detail(monkeypatch):
+    repository = InMemoryRepository()
+
+    def fake_urlopen(_request, timeout=30):
+        raise HTTPError(
+            url="https://openapi.tossinvest.com/oauth2/token",
+            code=403,
+            msg="Forbidden",
+            hdrs=None,
+            fp=BytesIO(b'{"error":"access_denied"}'),
+        )
+
+    monkeypatch.setattr(toss_module, "urlopen", fake_urlopen)
+    service = TossInvestService(repository, env=_env())
+
+    with pytest.raises(TossInvestError) as exc_info:
+        service.sync_holdings()
+
+    assert "POST /oauth2/token" in str(exc_info.value)
+    assert "403 access_denied" in str(exc_info.value)
+
+
+def test_toss_http_error_parses_nested_api_error_detail(monkeypatch):
+    repository = InMemoryRepository()
+
+    def fake_urlopen(request, timeout=30):
+        if request.full_url.endswith("/oauth2/token"):
+            return _FakeResponse(
+                b'{"access_token":"token","token_type":"Bearer","expires_in":86400}'
+            )
+        raise HTTPError(
+            url="https://openapi.tossinvest.com/api/v1/accounts",
+            code=403,
+            msg="Forbidden",
+            hdrs=None,
+            fp=BytesIO(
+                b'{"error":{"code":"forbidden","message":"insufficient permission",'
+                b'"requestId":"req-123"}}'
+            ),
+        )
+
+    monkeypatch.setattr(toss_module, "urlopen", fake_urlopen)
+    service = TossInvestService(repository, env=_env())
+
+    with pytest.raises(TossInvestError) as exc_info:
+        service.sync_holdings()
+
+    message = str(exc_info.value)
+    assert "GET /api/v1/accounts" in message
+    assert "403 forbidden insufficient permission req-123" in message

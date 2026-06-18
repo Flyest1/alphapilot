@@ -279,7 +279,10 @@ class TossInvestService:
                 raw = response.read().decode("utf-8")
         except HTTPError as exc:
             detail = _safe_error_detail(exc)
-            raise TossInvestError(f"Toss Invest API request failed: {exc.code} {detail}") from exc
+            operation = f"{method} {path}"
+            raise TossInvestError(
+                f"Toss Invest API request failed at {operation}: {exc.code} {detail}".strip()
+            ) from exc
         except URLError as exc:
             raise TossInvestError("Toss Invest API connection failed.") from exc
         return json.loads(raw or "{}")
@@ -302,5 +305,27 @@ def _safe_error_detail(exc: HTTPError) -> str:
     except json.JSONDecodeError:
         return body[:200]
     if isinstance(parsed, dict):
-        return str(parsed.get("error") or parsed.get("message") or parsed.get("detail") or "")
+        error = parsed.get("error")
+        if isinstance(error, dict):
+            parts = [
+                str(value)
+                for value in (
+                    error.get("code"),
+                    error.get("message"),
+                    error.get("requestId"),
+                )
+                if value
+            ]
+            return " ".join(parts)
+        parts = [
+            str(value)
+            for value in (
+                error,
+                parsed.get("error_description"),
+                parsed.get("message"),
+                parsed.get("detail"),
+            )
+            if value
+        ]
+        return " ".join(parts)
     return ""
