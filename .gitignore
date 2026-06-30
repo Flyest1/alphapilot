@@ -13,4 +13,6 @@ node_modules/
 frontend/node_modules/
 frontend/dist/
 dist/
+backend/uvicorn-*.log
+frontend/vite-*.log
 .DS_Store

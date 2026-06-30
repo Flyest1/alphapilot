@@ -216,12 +216,53 @@ function PerformanceTable({ logs = [] }) {
   );
 }
 
-// 추천 생애주기 + 성과 로그 패널.
-export default function PerformancePanel({ cycles = [], logs = [], isLoading = false }) {
+// 추천 생애주기 + 성과 로그 패널. 무거운 데이터라 사용자가 요청할 때만 연결한다.
+export default function PerformancePanel({
+  cycles = [],
+  error = "",
+  isLoaded = false,
+  isLoading = false,
+  logs = [],
+  selectedTickerCount = 0,
+  onLoad,
+}) {
+  if (!isLoaded) {
+    return (
+      <section className="panel lazy-data-panel">
+        <div className="section-heading">
+          <div>
+            <h2>성과 추적 데이터</h2>
+            <p>추천 생애주기와 기존 성과 로그는 데이터가 커질 수 있어 필요할 때만 연결합니다.</p>
+          </div>
+          <div className="inline-metrics">
+            <span>{selectedTickerCount}개 선택 종목</span>
+            <span>지연 로딩</span>
+          </div>
+        </div>
+        {error && <p className="alert">{error}</p>}
+        {isLoading ? (
+          <Skeleton label="성과 데이터를 연결하는 중입니다." />
+        ) : (
+          <button className="secondary-action" type="button" onClick={onLoad}>
+            추천 생애주기와 성과 로그 보기
+          </button>
+        )}
+      </section>
+    );
+  }
+
   return (
     <>
       <section className="panel">
-        <h2>추천 생애주기</h2>
+        <div className="section-heading">
+          <div>
+            <h2>추천 생애주기</h2>
+            <p>선택한 리포트 종목과 연결된 추천 추적 상태입니다.</p>
+          </div>
+          <div className="inline-metrics">
+            <span>{cycles.length}개 연결</span>
+          </div>
+        </div>
         {isLoading ? (
           <Skeleton label="추천 cycle을 불러오는 중입니다." />
         ) : (
@@ -230,7 +271,15 @@ export default function PerformancePanel({ cycles = [], logs = [], isLoading = f
       </section>
 
       <section className="panel">
-        <h2>기존 성과 로그</h2>
+        <div className="section-heading">
+          <div>
+            <h2>기존 성과 로그</h2>
+            <p>선택한 리포트 종목의 과거 추천 성과 로그입니다.</p>
+          </div>
+          <div className="inline-metrics">
+            <span>{logs.length}개 연결</span>
+          </div>
+        </div>
         {isLoading ? (
           <Skeleton label="성과 로그를 불러오는 중입니다." />
         ) : (

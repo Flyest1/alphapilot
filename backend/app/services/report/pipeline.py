@@ -568,6 +568,8 @@ class ReportService:
                 "provider": news_context.get("provider"),
                 "status": news_context.get("status"),
                 "article_count": len(news_context.get("articles") or []),
+                "failure_count": news_context.get("failure_count", 0),
+                "failure_reasons": news_context.get("failure_reasons", []),
             },
             "asset_events": asset_events,
             "settings": {

@@ -1,25 +1,40 @@
 import json
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 from datetime import datetime, timezone
 from typing import Any
+from urllib.error import HTTPError
 from urllib.parse import urlencode
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from app.utils.logging import log_external_failure
 
 GDELT_DOC_API_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
-MAX_NEWS_QUERIES = 8
+MAX_NEWS_QUERIES = 6
 MAX_ARTICLES_PER_QUERY = 3
 MAX_CONTEXT_ARTICLES = 18
 NEWS_TIMESPAN = "3d"
+NEWS_QUERY_PAUSE_SECONDS = 0.5
+RETRYABLE_HTTP_STATUS = {408, 425, 429, 500, 502, 503, 504}
+
+
+def _is_retryable_news_error(exc: BaseException) -> bool:
+    if isinstance(exc, HTTPError):
+        return exc.code in RETRYABLE_HTTP_STATUS
+    return isinstance(exc, (ConnectionError, TimeoutError, OSError, json.JSONDecodeError))
 
 
 class NewsService:
-    def __init__(self, opener: Any | None = None, timeout_seconds: int = 8) -> None:
+    def __init__(
+        self,
+        opener: Any | None = None,
+        timeout_seconds: int = 5,
+        pause_seconds: float = NEWS_QUERY_PAUSE_SECONDS,
+    ) -> None:
         self.opener = opener or urlopen
         self.timeout_seconds = timeout_seconds
+        self.pause_seconds = pause_seconds
 
     def fetch_report_context(
         self,
@@ -29,20 +44,23 @@ class NewsService:
         queries = self._build_queries(report_type, assets)
         articles: list[dict[str, Any]] = []
         failures = 0
+        failure_reasons: list[str] = []
 
-        with ThreadPoolExecutor(max_workers=min(4, max(1, len(queries)))) as executor:
-            futures = {executor.submit(self._fetch_articles, query): query for query in queries}
-            for future in as_completed(futures):
-                query = futures[future]
-                try:
-                    articles.extend(future.result())
-                except Exception as exc:
-                    failures += 1
-                    log_external_failure(
-                        "gdelt",
-                        exc,
-                        {"operation": "fetch_news", "query": query},
-                    )
+        for index, query in enumerate(queries):
+            try:
+                articles.extend(self._fetch_articles(query))
+            except Exception as exc:
+                failures += 1
+                reason = _failure_reason(exc)
+                if reason not in failure_reasons:
+                    failure_reasons.append(reason)
+                log_external_failure(
+                    "gdelt",
+                    exc,
+                    {"operation": "fetch_news", "query": query},
+                )
+            if self.pause_seconds > 0 and index < len(queries) - 1:
+                time.sleep(self.pause_seconds)
 
         deduped_articles = self._dedupe_articles(articles)[:MAX_CONTEXT_ARTICLES]
         status = "ok" if deduped_articles else "empty"
@@ -56,6 +74,8 @@ class NewsService:
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "queries": queries,
             "articles": deduped_articles,
+            "failure_count": failures,
+            "failure_reasons": failure_reasons,
             "usage_note": (
                 "Use this as recent news and trend context only when relevant. "
                 "Do not add a separate news_factors field."
@@ -109,10 +129,8 @@ class NewsService:
 
     @retry(
         stop=stop_after_attempt(2),
-        wait=wait_exponential(multiplier=1, min=1, max=4),
-        retry=retry_if_exception_type(
-            (ConnectionError, TimeoutError, OSError, json.JSONDecodeError)
-        ),
+        wait=wait_exponential(multiplier=1, min=1, max=3),
+        retry=retry_if_exception(_is_retryable_news_error),
         reraise=True,
     )
     def _fetch_articles(self, query: str) -> list[dict[str, Any]]:
@@ -126,7 +144,14 @@ class NewsService:
                 "sort": "HybridRel",
             }
         )
-        with self.opener(f"{GDELT_DOC_API_URL}?{params}", timeout=self.timeout_seconds) as response:
+        request = Request(
+            f"{GDELT_DOC_API_URL}?{params}",
+            headers={
+                "User-Agent": "AlphaPilot/0.1 investment-decision-support",
+                "Accept": "application/json",
+            },
+        )
+        with self.opener(request, timeout=self.timeout_seconds) as response:
             payload = json.loads(response.read().decode("utf-8"))
         return [self._normalize_article(query, row) for row in payload.get("articles", [])]
 
@@ -151,3 +176,13 @@ class NewsService:
             seen.add(marker)
             deduped.append(article)
         return deduped
+
+
+def _failure_reason(exc: BaseException) -> str:
+    if isinstance(exc, HTTPError):
+        if exc.code == 429:
+            return "rate_limited"
+        return f"http_{exc.code}"
+    if isinstance(exc, json.JSONDecodeError):
+        return "invalid_json"
+    return exc.__class__.__name__

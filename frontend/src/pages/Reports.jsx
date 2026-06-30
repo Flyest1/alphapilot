@@ -89,18 +89,17 @@ export default function Reports() {
   const cachedLatest = readApiCache("/api/reports/latest", { maxAgeMs: REPORTS_CACHE_MS }) || {};
   const cachedReports = readApiCache("/api/reports", { maxAgeMs: REPORTS_CACHE_MS }) || [];
   const cachedAssets = readApiCache("/api/assets", { maxAgeMs: REPORTS_CACHE_MS }) || [];
-  const cachedPerformanceLogs =
-    readApiCache("/api/performance-logs", { maxAgeMs: REPORTS_CACHE_MS }) || [];
-  const cachedRecommendationCycles =
-    readApiCache("/api/recommendation-cycles", { maxAgeMs: REPORTS_CACHE_MS }) || [];
   const cachedSettings = readApiCache("/api/settings", { maxAgeMs: REPORTS_CACHE_MS });
   const cachedSelected = pickReportWithStrategies(cachedLatest) || cachedReports[0] || null;
   const hasCachedData = Boolean(cachedSelected || cachedReports.length || cachedAssets.length);
   const [latest, setLatest] = useState(cachedLatest);
   const [reports, setReports] = useState(cachedReports);
   const [assets, setAssets] = useState(cachedAssets);
-  const [performanceLogs, setPerformanceLogs] = useState(cachedPerformanceLogs);
-  const [recommendationCycles, setRecommendationCycles] = useState(cachedRecommendationCycles);
+  const [performanceLogs, setPerformanceLogs] = useState([]);
+  const [recommendationCycles, setRecommendationCycles] = useState([]);
+  const [performanceDataLoaded, setPerformanceDataLoaded] = useState(false);
+  const [isPerformanceLoading, setIsPerformanceLoading] = useState(false);
+  const [performanceError, setPerformanceError] = useState("");
   const [settings, setSettings] = useState(cachedSettings);
   const [selected, setSelected] = useState(cachedSelected);
   const [activeType, setActiveType] = useState("domestic");
@@ -127,37 +126,24 @@ export default function Reports() {
     return Promise.all([
       api.reports.latest(),
       api.reports.list(),
-      api.performanceLogs.list(),
-      api.recommendationCycles.list(),
       api.assets.list(),
       api.settings.get(),
     ])
-      .then(
-        ([
-          latestReports,
-          reportList,
-          performanceLogList,
-          recommendationCycleList,
-          assetList,
-          appSettings,
-        ]) => {
-          const initialReport = pickReportWithStrategies(latestReports) || reportList[0] || null;
-          setLatest(latestReports);
-          setReports(reportList);
-          setPerformanceLogs(performanceLogList);
-          setRecommendationCycles(recommendationCycleList);
-          setAssets(assetList);
-          setSettings(appSettings);
-          const preferredReport =
-            preferredReportId && reportList.find((report) => report.id === preferredReportId);
-          const nextReport =
-            preferredReport ||
-            (selected ? reportList.find((report) => report.id === selected.id) : null) ||
-            initialReport;
-          setSelected(nextReport);
-          if (nextReport) setActiveType(nextReport.report_type);
-        },
-      )
+      .then(([latestReports, reportList, assetList, appSettings]) => {
+        const initialReport = pickReportWithStrategies(latestReports) || reportList[0] || null;
+        setLatest(latestReports);
+        setReports(reportList);
+        setAssets(assetList);
+        setSettings(appSettings);
+        const preferredReport =
+          preferredReportId && reportList.find((report) => report.id === preferredReportId);
+        const nextReport =
+          preferredReport ||
+          (selected ? reportList.find((report) => report.id === selected.id) : null) ||
+          initialReport;
+        setSelected(nextReport);
+        if (nextReport) setActiveType(nextReport.report_type);
+      })
       .catch((err) => setError(err.message))
       .finally(() => {
         setIsLoading(false);
@@ -165,11 +151,39 @@ export default function Reports() {
       });
   }
 
+  function loadPerformanceData() {
+    if (performanceDataLoaded || isPerformanceLoading) return Promise.resolve();
+
+    const logsFresh = isApiCacheFresh("/api/performance-logs", REPORTS_CACHE_MS);
+    const cyclesFresh = isApiCacheFresh("/api/recommendation-cycles", REPORTS_CACHE_MS);
+    if (logsFresh && cyclesFresh) {
+      setPerformanceLogs(
+        readApiCache("/api/performance-logs", { maxAgeMs: REPORTS_CACHE_MS }) || [],
+      );
+      setRecommendationCycles(
+        readApiCache("/api/recommendation-cycles", { maxAgeMs: REPORTS_CACHE_MS }) || [],
+      );
+      setPerformanceDataLoaded(true);
+      setPerformanceError("");
+      return Promise.resolve();
+    }
+
+    setIsPerformanceLoading(true);
+    setPerformanceError("");
+    return Promise.all([api.performanceLogs.list(), api.recommendationCycles.list()])
+      .then(([performanceLogList, recommendationCycleList]) => {
+        setPerformanceLogs(performanceLogList);
+        setRecommendationCycles(recommendationCycleList);
+        setPerformanceDataLoaded(true);
+      })
+      .catch((err) => setPerformanceError(err.message))
+      .finally(() => setIsPerformanceLoading(false));
+  }
+
   useEffect(() => {
     const cacheFresh =
       isApiCacheFresh("/api/reports/latest", REPORTS_CACHE_MS) &&
       isApiCacheFresh("/api/reports", REPORTS_CACHE_MS) &&
-      isApiCacheFresh("/api/recommendation-cycles", REPORTS_CACHE_MS) &&
       isApiCacheFresh("/api/assets", REPORTS_CACHE_MS) &&
       isApiCacheFresh("/api/settings", REPORTS_CACHE_MS);
     if (!cacheFresh) {
@@ -188,6 +202,8 @@ export default function Reports() {
       window.removeEventListener("focus", refreshOnReturn);
       document.removeEventListener("visibilitychange", refreshOnReturn);
     };
+    // 초기 로드와 포커스 복귀 리스너는 한 번만 등록한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -229,6 +245,8 @@ export default function Reports() {
       cancelled = true;
       window.clearInterval(intervalId);
     };
+    // job id가 바뀔 때만 polling을 재시작한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [generationJob?.job_id]);
 
   const content = selected?.content || {};
@@ -246,7 +264,7 @@ export default function Reports() {
   const filteredStrategies = sortStrategies(
     filterStrategies(selectedStrategyGroup, strategyFilter),
     strategySort,
-    performanceLogs,
+    performanceDataLoaded ? performanceLogs : [],
   );
   const previousReport = findPreviousReport(selected, reports);
   const selectedTickers = new Set(strategies.map((strategy) => strategy.ticker));
@@ -254,6 +272,13 @@ export default function Reports() {
   const selectedRecommendationCycles = recommendationCycles.filter((row) =>
     selectedTickers.has(row.ticker),
   );
+
+  function changeStrategySort(nextSort) {
+    setStrategySort(nextSort);
+    if (nextSort === "return20d" && !performanceDataLoaded && !isPerformanceLoading) {
+      loadPerformanceData();
+    }
+  }
 
   function selectType(type) {
     setActiveType(type);
@@ -344,6 +369,7 @@ export default function Reports() {
         dataLimitedCountValue={dataLimitedCount(selected)}
         ownedCount={ownedStrategies.length}
         performanceLogs={performanceLogs}
+        performanceDataLoaded={performanceDataLoaded}
         selected={selected}
         technicalOnly={isTechnicalOnlyReport(selected)}
       />
@@ -359,6 +385,18 @@ export default function Reports() {
           <div className="inline-metrics">
             <span>{ownedStrategies.length}개 보유</span>
             <span>{candidateStrategies.length}개 후보</span>
+            {performanceDataLoaded ? (
+              <span>성과 연결됨</span>
+            ) : (
+              <button
+                className="secondary-action compact-action"
+                disabled={isPerformanceLoading}
+                type="button"
+                onClick={loadPerformanceData}
+              >
+                {isPerformanceLoading ? "성과 연결 중" : "성과 데이터 연결"}
+              </button>
+            )}
           </div>
         </div>
         {isLoading ? (
@@ -371,11 +409,11 @@ export default function Reports() {
               strategySort={strategySort}
               onFilterChange={setStrategyFilter}
               onGroupChange={setStrategyGroup}
-              onSortChange={setStrategySort}
+              onSortChange={changeStrategySort}
             />
             <StrategyTable
               inputsByTicker={selected?.report_inputs?.tickers}
-              performanceLogs={performanceLogs}
+              performanceLogs={performanceDataLoaded ? performanceLogs : []}
               strategies={filteredStrategies}
             />
           </>
@@ -384,8 +422,12 @@ export default function Reports() {
 
       <PerformancePanel
         cycles={selectedRecommendationCycles}
-        isLoading={isLoading}
+        error={performanceError}
+        isLoaded={performanceDataLoaded}
+        isLoading={isPerformanceLoading}
         logs={selectedPerformanceLogs}
+        selectedTickerCount={selectedTickers.size}
+        onLoad={loadPerformanceData}
       />
     </section>
   );

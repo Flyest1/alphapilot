@@ -24,6 +24,8 @@ const colorByKey = {
 };
 
 const rangeOptions = [
+  { label: "5일", value: 5 },
+  { label: "10일", value: 10 },
   { label: "30일", value: 30 },
   { label: "60일", value: 60 },
   { label: "120일", value: 120 },
@@ -55,7 +57,7 @@ export default function Comparison() {
       })
       .catch((err) => setError(err.message))
       .finally(() => setIsLoading(false));
-  }, [days]);
+  }, [cachePath, days]);
 
   useEffect(() => {
     if (!data?.series?.length) return;
@@ -68,7 +70,10 @@ export default function Comparison() {
     });
   }, [data]);
 
-  const visibleSeries = (data?.series || []).filter((row) => enabled[row.key] !== false);
+  const visibleSeries = useMemo(
+    () => (data?.series || []).filter((row) => enabled[row.key] !== false),
+    [data, enabled],
+  );
 
   const chartData = useMemo(() => {
     const byDate = new Map();
@@ -82,7 +87,7 @@ export default function Comparison() {
       });
     });
     return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
-  }, [data, enabled]);
+  }, [visibleSeries]);
 
   const labelByKey = useMemo(
     () => Object.fromEntries((data?.series || []).map((row) => [row.key, row.label])),

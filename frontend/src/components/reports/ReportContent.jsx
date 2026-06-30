@@ -1,6 +1,25 @@
 import { displayText, formatReportTime, reportTitle, trendLabel } from "../../api/reports.js";
 import KeyMessageList from "../KeyMessageList.jsx";
 
+function newsStatusLabel(newsContext) {
+  const status = newsContext?.status;
+  const count = Number(newsContext?.article_count || 0);
+  if (status === "ok") return `뉴스 ${count}건 반영`;
+  if (status === "empty") return "뉴스 결과 없음";
+  if (status === "unavailable") {
+    const reasons = newsContext?.failure_reasons || [];
+    if (reasons.includes("rate_limited")) return "뉴스 제한: GDELT 호출량 초과";
+    return "뉴스 연결 제한";
+  }
+  return "뉴스 상태 미기록";
+}
+
+function newsStatusClass(newsContext) {
+  if (newsContext?.status === "ok") return "ok";
+  if (newsContext?.status === "unavailable") return "warning";
+  return "";
+}
+
 // 선택된 리포트의 본문(핵심 메시지, 시장 요약, 기회/위험)을 렌더링한다.
 export default function ReportContent({
   selected,
@@ -9,9 +28,11 @@ export default function ReportContent({
   dataLimitedCountValue,
   technicalOnly,
   performanceLogs,
+  performanceDataLoaded = false,
 }) {
   const content = selected?.content || {};
   const strategies = content.asset_strategies || [];
+  const newsContext = selected?.report_inputs?.news_context;
 
   return (
     <section className="panel">
@@ -25,11 +46,20 @@ export default function ReportContent({
           <span>{candidateCount}개 추가 후보</span>
           <span>{dataLimitedCountValue}개 데이터 제한</span>
           {technicalOnly && <span>기술 지표만</span>}
+          <span className={`status-pill ${newsStatusClass(newsContext)}`}>
+            {newsStatusLabel(newsContext)}
+          </span>
         </div>
       </div>
       <div className="key-message-panel">
-        <h3>핵심 매매 메시지</h3>
-        <KeyMessageList performanceLogs={performanceLogs} strategies={strategies} />
+        <div className="subsection-heading">
+          <h3>핵심 매매 메시지</h3>
+          {!performanceDataLoaded && <span>성과 수익률은 성과 데이터 연결 후 표시</span>}
+        </div>
+        <KeyMessageList
+          performanceLogs={performanceDataLoaded ? performanceLogs : []}
+          strategies={strategies}
+        />
       </div>
       <p>{displayText(content.market_summary?.summary) || "표시할 리포트 내용이 없습니다."}</p>
       {!!content.market_summary?.macro_factors?.length && (

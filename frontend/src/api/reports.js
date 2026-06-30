@@ -159,6 +159,10 @@ const TEXT_REPLACEMENTS = new Map([
     "AI reasoning unavailable for this report",
     "AI 추론을 사용할 수 없어 기술 지표 기반으로 생성했습니다.",
   ],
+  [
+    "recent news context unavailable for this report",
+    "최근 뉴스 컨텍스트를 가져오지 못해 기술·시장 데이터 비중을 높였습니다.",
+  ],
   ["cash reserve; no market data fetch", "현금성 자산이라 시장 데이터 조회를 건너뜁니다."],
   [
     "cash allocation can reduce upside participation",

@@ -38,6 +38,8 @@ export default function Status() {
     if (!isApiCacheFresh("/api/system/status", STATUS_CACHE_MS)) {
       loadStatus({ background: Boolean(cachedStatus) });
     }
+    // 상태 화면 진입 시 캐시 여부만 한 번 확인한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const databaseOk = ["ok", "partial"].includes(status?.database?.status);

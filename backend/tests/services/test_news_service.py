@@ -20,8 +20,8 @@ class FakeResponse:
 def test_news_service_fetches_and_normalizes_gdelt_articles():
     calls = []
 
-    def opener(url, timeout):
-        calls.append((url, timeout))
+    def opener(request, timeout):
+        calls.append((request, timeout))
         return FakeResponse(
             {
                 "articles": [
@@ -37,7 +37,7 @@ def test_news_service_fetches_and_normalizes_gdelt_articles():
             }
         )
 
-    service = NewsService(opener=opener, timeout_seconds=3)
+    service = NewsService(opener=opener, timeout_seconds=3, pause_seconds=0)
 
     context = service.fetch_report_context(
         "global",
@@ -50,10 +50,11 @@ def test_news_service_fetches_and_normalizes_gdelt_articles():
     assert context["articles"][0]["source_country"] == "United States"
     assert calls
     assert calls[0][1] == 3
+    assert calls[0][0].headers["User-agent"] == "AlphaPilot/0.1 investment-decision-support"
 
 
 def test_news_service_deduplicates_articles_and_handles_failures():
-    def opener(_url, timeout):
+    def opener(_request, timeout):
         assert timeout
         return FakeResponse(
             {
@@ -64,7 +65,7 @@ def test_news_service_deduplicates_articles_and_handles_failures():
             }
         )
 
-    service = NewsService(opener=opener)
+    service = NewsService(opener=opener, pause_seconds=0)
 
     context = service.fetch_report_context("domestic", [])
 
@@ -73,7 +74,7 @@ def test_news_service_deduplicates_articles_and_handles_failures():
 
 
 def test_news_service_returns_unavailable_when_provider_fails():
-    service = NewsService()
+    service = NewsService(pause_seconds=0)
 
     def fail(_query):
         raise OSError("network down")
@@ -84,3 +85,5 @@ def test_news_service_returns_unavailable_when_provider_fails():
 
     assert context["status"] == "unavailable"
     assert context["articles"] == []
+    assert context["failure_count"] > 0
+    assert "OSError" in context["failure_reasons"]

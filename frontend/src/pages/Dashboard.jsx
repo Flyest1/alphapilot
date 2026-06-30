@@ -114,6 +114,8 @@ export default function Dashboard() {
       window.removeEventListener("focus", refreshOnReturn);
       document.removeEventListener("visibilitychange", refreshOnReturn);
     };
+    // 초기 로드와 포커스 복귀 리스너는 한 번만 등록한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const report = pickReportWithStrategies(latest);
