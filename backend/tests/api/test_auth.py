@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from app.config import clear_settings_cache
 from app.db.supabase_client import InMemoryRepository
 from app.main import create_app
 from app.services.report_service import ReportService
@@ -33,6 +34,27 @@ def test_api_endpoints_reject_missing_and_invalid_api_token():
     )
     assert response.status_code == 401
     assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
+def test_cors_accepts_comma_separated_frontend_origins(monkeypatch):
+    monkeypatch.setenv(
+        "FRONTEND_ORIGIN",
+        "http://localhost:5173,http://127.0.0.1:5175",
+    )
+    clear_settings_cache()
+    test_client = client()
+
+    response = test_client.options(
+        "/api/settings",
+        headers={
+            "Origin": "http://127.0.0.1:5175",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "authorization,content-type",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:5175"
 
 
 def test_api_endpoint_accepts_valid_api_token():

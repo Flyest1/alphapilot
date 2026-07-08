@@ -46,12 +46,18 @@ def _bearer_token(request: Request) -> str | None:
 def _cors_headers_for_request(request: Request) -> dict[str, str]:
     env = get_environment_settings()
     origin = request.headers.get("origin")
-    if origin and env.frontend_origin and origin == env.frontend_origin:
+    if origin and origin in _frontend_origins(env.frontend_origin):
         return {
             "Access-Control-Allow-Origin": origin,
             "Vary": "Origin",
         }
     return {}
+
+
+def _frontend_origins(frontend_origin: str | None) -> list[str]:
+    if not frontend_origin:
+        return []
+    return [origin.strip().rstrip("/") for origin in frontend_origin.split(",") if origin.strip()]
 
 
 def create_app(repository: Repository | None = None) -> FastAPI:
@@ -63,7 +69,7 @@ def create_app(repository: Repository | None = None) -> FastAPI:
     app.state.market_data_service = MarketDataService(repository=app.state.repository)
     app.state.report_jobs = ReportJobStore(app.state.repository)
 
-    origins = [env.frontend_origin] if env.frontend_origin else []
+    origins = _frontend_origins(env.frontend_origin)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,

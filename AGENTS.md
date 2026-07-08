@@ -266,7 +266,7 @@ These live only in `.env` or hosting environment variables:
 
 ```env
 APP_ENV=development
-FRONTEND_ORIGIN=http://localhost:5173
+FRONTEND_ORIGIN=http://localhost:5173,http://127.0.0.1:5173
 
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key

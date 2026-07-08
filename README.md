@@ -77,13 +77,16 @@ npm run dev
 
 Supabase 설정이 없으면 백엔드는 로컬 메모리 저장소로 실행됩니다. 실제 배포 환경에서는 Supabase 설정이 필요합니다.
 
+로컬 프론트엔드 포트를 바꿔 실행할 때는 백엔드 `FRONTEND_ORIGIN`에 해당 origin을 쉼표로 추가하세요.
+예: `FRONTEND_ORIGIN=http://localhost:5173,http://127.0.0.1:5175`
+
 ## 백엔드 환경변수
 
 Render 또는 로컬 `backend/.env`에 설정합니다. 실제 키는 커밋하지 마세요.
 
 ```text
 APP_ENV=development
-FRONTEND_ORIGIN=http://localhost:5173
+FRONTEND_ORIGIN=http://localhost:5173,http://127.0.0.1:5173
 
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
