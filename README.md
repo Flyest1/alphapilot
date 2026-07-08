@@ -7,7 +7,7 @@ AlphaPilot은 개인 자산을 등록하고, 국내/글로벌 시장 데이터�
 ## 구성
 
 ```text
-Frontend: GitHub Pages + React + Vite
+Frontend: GitHub Pages + React + Vite + Tailwind CSS + GSAP
 Backend: Render Free + FastAPI
 Database: Supabase PostgreSQL
 Scheduler: GitHub Actions
@@ -499,4 +499,5 @@ npm run build
 - 프론트엔드 공용 숫자 포맷은 `frontend/src/utils/formatters.js`, 공용 UI 문자열은
   `frontend/src/constants/strings.js`에 있습니다. 대시보드/리포트 화면은
   `components/dashboard/`, `components/reports/` 하위 컴포넌트로 분리되어 있습니다.
-- 프론트엔드 도구: ESLint + Prettier + Vitest(+ React Testing Library), 차트는 Recharts를 사용합니다.
+- 프론트엔드 도구: ESLint + Prettier + Vitest(+ React Testing Library), Tailwind CSS,
+  GSAP, Recharts를 사용합니다.

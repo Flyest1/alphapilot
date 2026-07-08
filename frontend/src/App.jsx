@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import gsap from "gsap";
 
 import { api, clearApiAccessToken, getApiAccessToken } from "./api/client.js";
 import AccessGate from "./components/AccessGate.jsx";
@@ -22,6 +23,10 @@ const tabs = [
   { id: "status", label: "상태" },
   { id: "settings", label: "설정" },
 ];
+
+function shouldReduceMotion() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -57,6 +62,46 @@ export default function App() {
     };
   }, [isUnlocked]);
 
+  useEffect(() => {
+    if (!isUnlocked || shouldReduceMotion()) return undefined;
+
+    const ctx = gsap.context(() => {
+      gsap.fromTo(
+        ".motion-sidebar",
+        { autoAlpha: 0, x: -18 },
+        { autoAlpha: 1, x: 0, duration: 0.45, ease: "power3.out" },
+      );
+      gsap.fromTo(
+        ".motion-content",
+        { autoAlpha: 0, y: 14 },
+        { autoAlpha: 1, y: 0, duration: 0.55, ease: "power3.out" },
+      );
+    });
+
+    return () => ctx.revert();
+  }, [isUnlocked]);
+
+  useEffect(() => {
+    if (!isUnlocked || shouldReduceMotion()) return undefined;
+
+    const ctx = gsap.context(() => {
+      gsap.fromTo(
+        ".motion-content .page > *",
+        { autoAlpha: 0, y: 16, filter: "blur(4px)" },
+        {
+          autoAlpha: 1,
+          y: 0,
+          filter: "blur(0px)",
+          duration: 0.42,
+          ease: "power3.out",
+          stagger: 0.035,
+        },
+      );
+    });
+
+    return () => ctx.revert();
+  }, [activeTab, isUnlocked]);
+
   if (!isUnlocked) {
     return <AccessGate onUnlock={() => setIsUnlocked(true)} />;
   }
@@ -69,7 +114,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <aside className="sidebar motion-sidebar">
         <div className="brand">
           <strong>AlphaPilot</strong>
           <span>개인 투자 전략가</span>
@@ -93,7 +138,7 @@ export default function App() {
           잠금
         </button>
       </aside>
-      <main>
+      <main className="motion-content">
         <ErrorBoundary resetKey={activeTab}>
           <Page onUnreadCountChange={setUnreadCount} />
         </ErrorBoundary>

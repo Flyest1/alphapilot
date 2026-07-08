@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
   color: #17202a;
   background: #eef2f5;
@@ -2246,5 +2250,513 @@ tbody tr:hover td {
 
   .panel {
     padding: 14px;
+  }
+}
+
+/* Tailwind + GSAP-ready Apple system redesign */
+body {
+  @apply min-h-screen min-w-[320px] bg-apple-canvas font-sans text-apple-ink antialiased;
+  background: linear-gradient(180deg, #f5f5f7 0%, #fbfbfd 42%, #f5f5f7 100%);
+  text-rendering: optimizelegibility;
+}
+
+button,
+input,
+select {
+  @apply font-sans tracking-normal;
+}
+
+button {
+  @apply transition duration-200 ease-out;
+}
+
+button:hover:not(:disabled) {
+  @apply -translate-y-0.5;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  @apply outline-none ring-4 ring-apple-blue/25;
+}
+
+.app-shell {
+  @apply min-h-screen bg-transparent text-apple-ink;
+  grid-template-columns: 240px minmax(0, 1fr);
+}
+
+.sidebar {
+  @apply sticky top-0 min-h-screen border-r border-apple-line bg-white/80 text-apple-ink shadow-sm backdrop-blur-2xl;
+  box-shadow: inset 1px 0 0 rgb(255 255 255 / 0.7);
+}
+
+.brand {
+  @apply mb-3 gap-1 border-b border-apple-line px-2 pb-[18px] pt-1;
+}
+
+.brand strong {
+  @apply text-2xl font-extrabold tracking-normal text-apple-ink;
+}
+
+.brand span {
+  @apply text-[13px] font-semibold text-apple-muted;
+}
+
+nav {
+  @apply gap-1.5;
+}
+
+nav button {
+  @apply min-h-11 rounded-lg border-transparent font-bold text-[#515154];
+}
+
+nav button.active {
+  @apply bg-apple-blue text-white shadow-apple-blue;
+}
+
+nav button:hover:not(.active) {
+  @apply bg-[#ececf0] text-apple-ink;
+}
+
+.notification-badge {
+  @apply bg-[#ff3b30] text-xs font-extrabold text-white;
+}
+
+.lock-button {
+  @apply rounded-lg border-apple-hairline bg-apple-canvas/70 font-bold text-[#515154];
+}
+
+.lock-button:hover {
+  @apply bg-[#ececf0] text-apple-ink;
+}
+
+main {
+  @apply mx-auto w-full max-w-[1520px] px-9 py-[34px];
+}
+
+.access-screen {
+  @apply bg-gradient-to-b from-apple-raised to-apple-canvas;
+}
+
+.access-panel {
+  @apply border-apple-hairline bg-white/90 shadow-apple-lg backdrop-blur-xl;
+}
+
+.access-panel strong {
+  @apply text-apple-blue;
+}
+
+.page {
+  @apply gap-[18px];
+}
+
+.page-header {
+  @apply items-end border-b border-apple-line pb-2.5 pt-1;
+}
+
+h1 {
+  @apply mb-1 text-[32px] font-extrabold tracking-normal text-apple-ink;
+}
+
+h2 {
+  @apply text-xl font-extrabold tracking-normal text-apple-ink;
+}
+
+h3 {
+  @apply text-sm font-extrabold tracking-normal text-apple-ink;
+}
+
+p,
+li {
+  @apply leading-relaxed;
+}
+
+.page-header p,
+.empty-state,
+.summary-card span,
+td span,
+.bar-row span,
+.report-list span,
+.latest-list span,
+.field-hint,
+.form-hint,
+.asset-guide p,
+.section-heading p,
+.metric-grid span,
+.notification-card span,
+.notification-card small {
+  @apply text-apple-muted;
+}
+
+.header-actions button,
+form button,
+.row-actions button {
+  @apply rounded-lg border border-transparent bg-apple-blue font-bold text-white shadow-apple-blue;
+}
+
+.header-actions button:hover:not(:disabled),
+form button:hover:not(:disabled),
+.row-actions button:hover:not(:disabled) {
+  @apply bg-apple-blueHover shadow-apple-blue;
+}
+
+.secondary-action,
+.notice-with-action button {
+  @apply rounded-lg border-apple-hairline bg-white text-apple-blue shadow-none;
+}
+
+.secondary-action:hover:not(:disabled),
+.notice-with-action button:hover:not(:disabled) {
+  @apply border-apple-blue/40 bg-apple-blueSoft;
+}
+
+.row-actions button:last-child {
+  @apply bg-apple-red shadow-none;
+}
+
+.row-actions button:last-child:hover:not(:disabled) {
+  @apply bg-[#c40013];
+}
+
+.summary-card,
+.panel,
+.asset-card,
+.strategy-card,
+.performance-card,
+.strategy-detail,
+.notification-card,
+.benchmark-chart-wrap,
+.chart-tooltip {
+  @apply rounded-lg border border-apple-hairline bg-white/90 shadow-apple backdrop-blur-2xl;
+}
+
+.summary-card {
+  @apply min-h-[98px] p-[17px];
+}
+
+.summary-card strong {
+  @apply text-[25px] font-extrabold tracking-normal text-apple-ink;
+}
+
+.summary-card.positive strong,
+.positive-text {
+  @apply text-apple-green;
+}
+
+.summary-card.negative strong,
+.negative-text {
+  @apply text-apple-red;
+}
+
+.panel {
+  @apply p-5;
+}
+
+.metric-grid > div,
+.action-summary-grid > div {
+  @apply rounded-lg border-apple-line bg-apple-raised;
+}
+
+.action-summary-grid strong {
+  @apply font-extrabold text-apple-ink;
+}
+
+.bar-track,
+.daily-change-track {
+  @apply bg-[#e8e8ed];
+}
+
+.bar-track span,
+.value-chart span {
+  @apply bg-apple-blue;
+}
+
+.daily-change-track .positive,
+.change-chart .positive {
+  @apply bg-[#34c759];
+}
+
+.daily-change-track .negative,
+.change-chart .negative {
+  @apply bg-[#ff3b30];
+}
+
+.change-chart,
+.value-chart {
+  @apply border-apple-line bg-gradient-to-b from-white to-apple-canvas;
+}
+
+input,
+select {
+  @apply min-h-[42px] rounded-lg border-apple-hairline bg-apple-raised text-apple-ink;
+}
+
+input:focus,
+select:focus {
+  @apply border-apple-blue shadow-none ring-4 ring-apple-blue/10;
+}
+
+label {
+  @apply font-bold text-[#515154];
+}
+
+.asset-guide {
+  @apply border-[#bfd7ff] bg-[#f7faff];
+}
+
+.asset-guide ul {
+  @apply text-[#515154];
+}
+
+.alert,
+.notice {
+  @apply rounded-lg border;
+}
+
+.alert {
+  @apply border-apple-red/10 bg-apple-redSoft text-apple-red;
+}
+
+.notice {
+  @apply border-apple-green/15 bg-apple-greenSoft text-apple-green;
+}
+
+.notice-with-action {
+  @apply bg-white/90 text-apple-ink;
+}
+
+.report-list button,
+.latest-list button {
+  @apply border-apple-hairline bg-apple-raised text-apple-ink;
+}
+
+.report-list button:hover,
+.latest-list button:hover {
+  @apply border-apple-blue/40 bg-apple-blueSoft;
+}
+
+.report-list button.active {
+  @apply border-apple-blue bg-apple-blueSoft text-apple-blue;
+}
+
+.segmented-control {
+  @apply gap-[3px] rounded-lg border border-apple-line bg-[#e9e9ed] p-[3px];
+}
+
+.segmented-control button {
+  @apply rounded-[7px] border-0 bg-transparent text-[#515154] shadow-none;
+}
+
+.segmented-control button.active {
+  @apply border-0 bg-white text-apple-blue shadow-sm;
+}
+
+.segmented-control span {
+  @apply text-apple-muted;
+}
+
+.inline-metrics span,
+.index-list span {
+  @apply bg-[#eeeef2] text-[#515154];
+}
+
+.status-pill,
+.source-pill {
+  @apply rounded-full;
+}
+
+.status-pill {
+  @apply bg-apple-greenSoft text-apple-green;
+}
+
+.status-pill.warning {
+  @apply bg-apple-yellowSoft text-apple-yellow;
+}
+
+.source-pill.manual {
+  @apply bg-[#eeeef2] text-[#515154];
+}
+
+.source-pill.api {
+  @apply bg-apple-greenSoft text-apple-green;
+}
+
+.badge {
+  @apply min-w-16 bg-[#eeeef2] font-extrabold text-[#515154];
+}
+
+.badge.buy {
+  @apply bg-apple-greenSoft text-apple-green;
+}
+
+.badge.hold,
+.badge.watch {
+  @apply bg-apple-blueSoft text-apple-blue;
+}
+
+.badge.reduce {
+  @apply bg-apple-yellowSoft text-apple-yellow;
+}
+
+.badge.sell {
+  @apply bg-apple-redSoft text-apple-red;
+}
+
+.filter-row button {
+  @apply border-apple-hairline bg-white text-[#515154];
+}
+
+.filter-row button.active,
+.filter-row button:hover {
+  @apply border-apple-blue bg-apple-blueSoft text-apple-blue;
+}
+
+.lazy-data-panel {
+  @apply border-[#bfd7ff] bg-gradient-to-b from-[#f7faff] to-white;
+}
+
+.key-message-item {
+  @apply border-[#bfd7ff] bg-[#f7faff];
+}
+
+.key-message-item[open] {
+  @apply border-apple-blue bg-white;
+}
+
+.key-message-item summary strong,
+.key-message-detail-notes strong {
+  @apply text-apple-blue;
+}
+
+.key-message-range-current,
+.key-message-detail-grid dd {
+  @apply text-apple-ink;
+}
+
+.strategy-detail summary {
+  @apply min-h-[58px];
+}
+
+.strategy-detail[open] {
+  @apply shadow-apple-lg;
+}
+
+.strategy-detail.data-limited,
+.strategy-card.data-limited {
+  @apply border-apple-yellow/30 bg-gradient-to-b from-[#fffaf0] to-white;
+}
+
+.market-pill {
+  @apply bg-apple-blueSoft text-apple-blue;
+}
+
+table {
+  @apply border-separate border-spacing-0;
+}
+
+th {
+  @apply border-apple-hairline font-extrabold normal-case tracking-normal text-apple-muted;
+}
+
+td {
+  @apply border-apple-line text-apple-ink;
+}
+
+tbody tr:hover td {
+  @apply bg-apple-canvas/80;
+}
+
+.event-row,
+.top-strategy-row {
+  @apply border-apple-line;
+}
+
+.notification-card.unread {
+  @apply border-apple-blue bg-[#f7faff];
+}
+
+.notification-card.read {
+  @apply opacity-70;
+}
+
+.skeleton-line {
+  background: linear-gradient(90deg, #e5e5ea 25%, #f5f5f7 50%, #e5e5ea 75%);
+  background-size: 200% 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  button:hover:not(:disabled) {
+    @apply translate-y-0;
+  }
+}
+
+@media (max-width: 900px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    @apply min-h-0 border-b border-r-0 border-apple-line p-3.5;
+  }
+
+  .brand {
+    @apply px-1 pb-3 pt-0;
+  }
+
+  main {
+    @apply p-[22px];
+  }
+}
+
+@media (max-width: 640px) {
+  body {
+    @apply bg-apple-canvas;
+  }
+
+  main {
+    @apply p-3;
+  }
+
+  .page-header {
+    @apply items-start pb-3;
+  }
+
+  h1 {
+    @apply text-2xl;
+  }
+
+  h2 {
+    @apply text-lg;
+  }
+
+  .sidebar {
+    @apply p-2.5;
+  }
+
+  nav button,
+  .lock-button {
+    @apply min-h-[42px];
+  }
+
+  .summary-card {
+    @apply min-h-[82px] p-[13px];
+  }
+
+  .summary-card strong {
+    @apply text-[19px];
+  }
+
+  .panel {
+    @apply p-3.5;
   }
 }

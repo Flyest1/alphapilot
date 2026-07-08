@@ -125,12 +125,19 @@ Forbidden recommendation language:
 
 - React 18.x
 - Vite 5.x
-- plain CSS / CSS modules only
+- plain CSS / CSS modules
+- Tailwind CSS 3.x (approved 2026-07 for frontend styling)
+- GSAP 3.x (approved 2026-07 for UI motion only)
 - Recharts (charting; approved in development plan v2 to replace hand-rolled SVG charts)
 - GitHub Pages deployment
 - `VITE_API_BASE_URL` for backend URL
 
-Do not add Tailwind, MUI, Chakra, Bootstrap, Next.js, or other UI frameworks unless the user explicitly approves an AGENTS.md update.
+Tailwind may be used for utility styling, component layers, and design tokens. GSAP may be used only for
+non-essential UI transitions and must respect reduced-motion preferences. Do not use GSAP for financial
+logic, report generation logic, data fetching, persistence, or any behavior that changes investment
+recommendations.
+
+Do not add MUI, Chakra, Bootstrap, Next.js, or other UI frameworks unless the user explicitly approves an AGENTS.md update.
 
 ### Backend
 
@@ -735,7 +742,7 @@ Frontend priorities:
 - expandable details
 - visible risk controls
 - clear loading, background refresh, and generation status
-- no decorative UI frameworks
+- no decorative UI framework presets; Tailwind/GSAP usage must stay consistent with AlphaPilot's product UI
 
 Dashboard must show:
 
