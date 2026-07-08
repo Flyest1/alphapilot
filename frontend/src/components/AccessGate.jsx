@@ -11,7 +11,7 @@ export default function AccessGate({ onUnlock }) {
     event.preventDefault();
     const trimmed = token.trim();
     if (!trimmed) {
-      setError("Render에 설정한 API_ACCESS_TOKEN 값을 입력하세요.");
+      setError("백엔드 서버에 설정한 API_ACCESS_TOKEN 값을 입력하세요.");
       return;
     }
     setIsChecking(true);
@@ -23,7 +23,7 @@ export default function AccessGate({ onUnlock }) {
     } catch (err) {
       if (err.status === 401 || err.status === 403) {
         setError(
-          `현재 API URL(${API_BASE_URL})에서 토큰을 거부했습니다. Render 토큰을 쓰려면 API 기준 URL이 Render 백엔드인지 확인하세요.`,
+          `현재 API URL(${API_BASE_URL})에서 토큰을 거부했습니다. 입력한 토큰이 현재 백엔드 서버의 API_ACCESS_TOKEN과 일치하는지 확인하세요.`,
         );
       } else {
         setError(
@@ -42,7 +42,8 @@ export default function AccessGate({ onUnlock }) {
           <strong>AlphaPilot</strong>
           <h1>접속 토큰 입력</h1>
           <p>
-            Render 환경 변수에 저장한 API_ACCESS_TOKEN을 입력해야 자산과 리포트를 볼 수 있습니다.
+            백엔드 서버 환경 변수에 저장한 API_ACCESS_TOKEN을 입력해야 자산과 리포트를 볼 수
+            있습니다.
           </p>
         </div>
         <form onSubmit={submit}>
@@ -50,7 +51,7 @@ export default function AccessGate({ onUnlock }) {
             API_ACCESS_TOKEN
             <input
               autoComplete="off"
-              placeholder="Render에 저장한 긴 랜덤 문자열"
+              placeholder="백엔드에 저장한 긴 랜덤 문자열"
               type="password"
               value={token}
               onChange={(event) => setToken(event.target.value)}

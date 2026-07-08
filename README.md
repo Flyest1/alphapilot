@@ -8,7 +8,7 @@ AlphaPilot은 개인 자산을 등록하고, 국내/글로벌 시장 데이터�
 
 ```text
 Frontend: GitHub Pages + React + Vite + Tailwind CSS + GSAP
-Backend: Render Free + FastAPI
+Backend: Oracle Cloud Always Free VM + FastAPI
 Database: Supabase PostgreSQL
 Scheduler: GitHub Actions
 AI: OpenAI API
@@ -20,7 +20,7 @@ Broker Sync: Toss Invest Open API (조회 전용)
 ## 사용 방법
 
 1. GitHub Pages 주소에 접속합니다.
-2. 첫 화면에 Render 환경변수 `API_ACCESS_TOKEN` 값을 입력합니다.
+2. 첫 화면에 백엔드 서버 환경변수 `API_ACCESS_TOKEN` 값을 입력합니다.
 3. `자산` 화면에서 보유 종목을 추가합니다. Toss Invest 환경변수를 설정한 경우 `Toss 보유주식 동기화`로 API 연동 자산을 가져올 수 있습니다.
 4. `설정` 화면에서 AI 모델, 위험 성향, 추가 매수 후보 목표 기간, USD-KRW 환율을 조정합니다.
 5. `설정` 화면에서 보유 외 추가 매수 후보군을 직접 추가하거나 비활성화합니다.
@@ -82,7 +82,7 @@ Supabase 설정이 없으면 백엔드는 로컬 메모리 저장소로 실행�
 
 ## 백엔드 환경변수
 
-Render 또는 로컬 `backend/.env`에 설정합니다. 실제 키는 커밋하지 마세요.
+Oracle VM, Render 롤백 환경, 또는 로컬 `backend/.env`에 설정합니다. 실제 키는 커밋하지 마세요.
 
 ```text
 APP_ENV=development
@@ -126,8 +126,11 @@ TELEGRAM_NOTIFY_DRIFT_WARNING=false
 GitHub Pages 빌드에는 API 주소만 필요합니다.
 
 ```text
-VITE_API_BASE_URL=https://alphapilot-backend.onrender.com
+VITE_API_BASE_URL=https://api.example.com
 ```
+
+GitHub Pages는 HTTPS로 서비스되므로 운영 백엔드 URL도 HTTPS여야 합니다. Oracle VM의 공인 IP를
+HTTP로만 연결하면 브라우저 mixed-content 정책 때문에 API 호출이 차단될 수 있습니다.
 
 `API_ACCESS_TOKEN`은 프론트엔드 번들에 넣지 않습니다. 접속자가 화면에서 직접 입력하고 브라우저 `localStorage`에 저장합니다.
 
@@ -258,9 +261,33 @@ backend/app/db/migrations/014_add_asset_external_sync_fields.sql
 
 Supabase service role key는 RLS를 우회합니다. 반드시 백엔드 서버 환경변수에만 보관하고, 프론트엔드나 에러 메시지에 노출하지 마세요.
 
-## Render 배포
+## Oracle Cloud Always Free 백엔드 배포
 
-백엔드는 Render Free에 배포합니다. Render 환경변수에는 최소 아래 값이 필요합니다.
+백엔드는 Oracle Cloud Always Free VM으로 이전할 수 있습니다. Supabase는 그대로 사용하며,
+Oracle은 FastAPI 서버만 대체합니다.
+
+전제 조건:
+
+- Oracle Cloud Always Free VM, 권장 OS는 Ubuntu 22.04 LTS입니다.
+- VM 보안 목록 또는 네트워크 보안 그룹에서 `80`, `443`, SSH 포트를 허용합니다.
+- GitHub Pages에서 호출하려면 `https://api.example.com` 같은 HTTPS 도메인이 필요합니다.
+  도메인의 A 레코드는 Oracle VM 공인 IP를 가리켜야 합니다.
+
+VM 최초 준비:
+
+```bash
+sudo apt update
+sudo apt install -y git build-essential python3.10 python3.10-dev python3.10-venv nginx certbot python3-certbot-nginx
+sudo git clone https://github.com/flyest1/alphapilot.git /opt/alphapilot
+cd /opt/alphapilot
+sudo mkdir -p /etc/alphapilot
+sudo cp deploy/oracle/backend.env.example /etc/alphapilot/backend.env
+sudo chmod 600 /etc/alphapilot/backend.env
+sudo nano /etc/alphapilot/backend.env
+sudo bash deploy/oracle/install_backend.sh /opt/alphapilot api.example.com
+```
+
+`/etc/alphapilot/backend.env`에 최소 아래 값을 실제 값으로 채웁니다.
 
 ```text
 APP_ENV=production
@@ -278,18 +305,57 @@ TOSS_INVEST_CLIENT_SECRET
 TOSS_INVEST_ACCOUNT_ID
 ```
 
-Render Free는 유휴 상태 후 cold start가 발생할 수 있습니다. GitHub Actions는 리포트 생성 전에 `/health`를 호출해 백엔드를 깨웁니다.
+설치 후 환경변수를 다시 수정했다면 백엔드를 재시작합니다.
+
+```bash
+sudo systemctl restart alphapilot-backend
+curl http://127.0.0.1:8000/health
+```
+
+nginx가 80 포트로 정상 응답하면 HTTPS 인증서를 발급합니다.
+
+```bash
+sudo certbot --nginx -d api.example.com
+curl https://api.example.com/health
+```
+
+이후 GitHub repository secrets를 새 Oracle 백엔드 주소로 바꿉니다.
+
+```text
+VITE_API_BASE_URL=https://api.example.com
+BACKEND_URL=https://api.example.com
+SCHEDULER_SECRET=/etc/alphapilot/backend.env에 설정한 SCHEDULER_SECRET과 같은 값
+```
+
+백엔드 코드를 갱신하려면 Oracle VM에서 아래 명령을 실행합니다.
+
+```bash
+sudo bash /opt/alphapilot/deploy/oracle/deploy_backend.sh /opt/alphapilot
+```
+
+또는 GitHub repository secrets에 `ORACLE_SSH_HOST`, `ORACLE_SSH_USER`,
+`ORACLE_SSH_PRIVATE_KEY`를 설정한 뒤 `Deploy Backend to Oracle VM` 워크플로를 수동 실행할 수 있습니다.
+이 방식은 VM 사용자에게 `/opt/alphapilot/deploy/oracle/deploy_backend.sh`를 passwordless sudo로
+실행할 권한이 있어야 합니다.
+
+Oracle VM 운영 시 OS 보안 업데이트, systemd 프로세스 상태, nginx 설정, TLS 인증서 갱신은 직접 관리해야 합니다.
 
 Toss Invest 연동을 쓰지 않으면 `TOSS_INVEST_*` 값은 비워둘 수 있습니다. 연동을 쓰는 경우
-client id, client secret, 조회할 계좌 식별값을 Render 환경변수에만 저장하세요. 프론트엔드
+client id, client secret, 조회할 계좌 식별값을 백엔드 서버 환경변수에만 저장하세요. 프론트엔드
 환경변수, GitHub Pages secret, Supabase 테이블에는 저장하지 않습니다.
+
+## Render 롤백
+
+`backend/render.yaml`은 롤백용으로 유지합니다. Oracle VM에 문제가 생기면 기존 Render 서비스의
+환경변수를 동일하게 맞춘 뒤 GitHub repository secrets의 `VITE_API_BASE_URL`과 `BACKEND_URL`을
+Render URL로 되돌리면 됩니다. Render Free는 유휴 상태 후 cold start가 발생할 수 있습니다.
 
 ## GitHub Pages 배포
 
 GitHub repository secrets에 아래 값을 설정합니다.
 
 ```text
-VITE_API_BASE_URL=https://alphapilot-backend.onrender.com
+VITE_API_BASE_URL=https://api.example.com
 ```
 
 `VITE_API_ACCESS_TOKEN`은 더 이상 사용하지 않습니다. 기존에 등록되어 있어도 코드에서 읽지 않으며, 삭제해도 됩니다.
@@ -299,11 +365,11 @@ VITE_API_BASE_URL=https://alphapilot-backend.onrender.com
 GitHub repository secrets에 아래 값을 설정합니다.
 
 ```text
-BACKEND_URL=https://alphapilot-backend.onrender.com
-SCHEDULER_SECRET=Render에 설정한 SCHEDULER_SECRET과 같은 값
+BACKEND_URL=https://api.example.com
+SCHEDULER_SECRET=백엔드 서버에 설정한 SCHEDULER_SECRET과 같은 값
 ```
 
-자동 리포트는 사용자가 사이트에 접속해 있어야 생성되는 방식이 아닙니다. GitHub Actions가 지정된 시간에 Render 백엔드를 직접 호출합니다. 자동 생성이 되지 않으면 GitHub 저장소의 `Actions` 탭에서 `Generate Domestic Market Report`, `Generate Global Market Report` 워크플로가 비활성화되어 있지 않은지, scheduled run이 생성되는지, `BACKEND_URL`과 `SCHEDULER_SECRET` secret이 현재 Render 값과 일치하는지 확인하세요.
+자동 리포트는 사용자가 사이트에 접속해 있어야 생성되는 방식이 아닙니다. GitHub Actions가 지정된 시간에 백엔드를 직접 호출합니다. 자동 생성이 되지 않으면 GitHub 저장소의 `Actions` 탭에서 `Generate Domestic Market Report`, `Generate Global Market Report` 워크플로가 비활성화되어 있지 않은지, scheduled run이 생성되는지, `BACKEND_URL`과 `SCHEDULER_SECRET` secret이 현재 백엔드 값과 일치하는지 확인하세요.
 스케줄러 API는 리포트 생성 작업을 즉시 `report_jobs`에 접수하고 202 응답을 반환합니다. 따라서 GitHub Actions의 성공은 "작업 접수 성공"을 의미하며, 실제 리포트 완료 여부는 앱의 `상태` 화면에서 최근 리포트 생성 job 상태로 확인합니다.
 
 국내 리포트:
@@ -324,7 +390,7 @@ GitHub Actions 예약 실행은 best-effort입니다. GitHub 부하에 따라 �
 
 프론트엔드 `리포트` 화면에서 국내/글로벌 리포트를 직접 생성할 수 있습니다. 수동 생성 API는 `API_ACCESS_TOKEN`으로 보호됩니다.
 
-수동 생성은 비동기 방식입니다. 버튼을 누르면 백엔드가 즉시 작업 ID를 반환하고, 실제 시세 조회, 뉴스/동향 조회, OpenAI 호출, DB 저장은 Render 백엔드 안에서 계속 진행됩니다. 화면은 기존 리포트를 계속 보여주면서 작업 상태를 확인하고, 완료되면 최신 리포트 목록을 자동으로 갱신합니다.
+수동 생성은 비동기 방식입니다. 버튼을 누르면 백엔드가 즉시 작업 ID를 반환하고, 실제 시세 조회, 뉴스/동향 조회, OpenAI 호출, DB 저장은 백엔드 서버 안에서 계속 진행됩니다. 화면은 기존 리포트를 계속 보여주면서 작업 상태를 확인하고, 완료되면 최신 리포트 목록을 자동으로 갱신합니다.
 
 작업 상태는 `report_jobs` 테이블에 저장됩니다. 각 단계별 소요 시간은 `상태` 화면의 최근 리포트 생성 단계에서 확인할 수 있습니다.
 20분 이상 갱신되지 않은 `queued` 또는 `running` 작업은 중단된 작업으로 간주되어 자동 실패 처리되고, 새 리포트 생성을 다시 시작할 수 있습니다.
@@ -422,7 +488,7 @@ curl -X POST "$env:BACKEND_URL/api/reports/domestic/generate" `
   리밸런스 드리프트 경고를 `notifications`에 저장합니다. 알림 화면에서 개별 또는 전체 읽음
   처리를 할 수 있습니다.
 - **수동 리포트 제외**: 사용자가 화면에서 생성한 수동 리포트는 알림을 만들지 않습니다.
-- **Telegram 선택 전송**: Render 백엔드 환경변수 `TELEGRAM_BOT_TOKEN`,
+- **Telegram 선택 전송**: 백엔드 서버 환경변수 `TELEGRAM_BOT_TOKEN`,
   `TELEGRAM_CHAT_ID`를 설정하고 설정 화면에서 이벤트별 전송을 켜면 동일 이벤트를 Telegram
   Bot API로 보냅니다. 환경변수가 없거나 전송에 실패해도 인앱 알림과 리포트 생성은 계속됩니다.
 - **보안**: Telegram token과 Chat ID는 프론트엔드 번들/API 응답에 포함되지 않습니다.
@@ -436,7 +502,7 @@ curl -X POST "$env:BACKEND_URL/api/reports/domestic/generate" `
 - **중복 처리**: 같은 시장/티커의 수동 자산이 있으면 동기화 결과에 중복 후보로 표시합니다.
   자동 삭제하지 않으므로 사용자가 확인 후 수동 자산을 삭제해야 합니다.
 - **보안**: `TOSS_INVEST_CLIENT_ID`, `TOSS_INVEST_CLIENT_SECRET`,
-  `TOSS_INVEST_ACCOUNT_ID`는 Render 또는 로컬 `backend/.env`에만 저장합니다. 프론트엔드,
+  `TOSS_INVEST_ACCOUNT_ID`는 백엔드 서버 또는 로컬 `backend/.env`에만 저장합니다. 프론트엔드,
   localStorage, Supabase, GitHub Pages 빌드에는 넣지 않습니다.
 - **금지 범위**: 주문 생성/정정/취소, 주문 내역, 매수 가능금액, 매도 가능수량, 주문 미리보기,
   자동 리밸런스, 자동 매매는 구현하지 않습니다.
@@ -470,7 +536,8 @@ curl -X POST "$env:BACKEND_URL/api/reports/domestic/generate" `
 - 수익 보장 없음
 - 뉴스/동향 컨텍스트는 GDELT DOC 2.0 API에 한정되며 누락되거나 호출량 제한을 받을 수 있음
 - pykrx/yfinance 데이터는 지연되거나 실패할 수 있음
-- Render Free cold start 가능
+- Oracle VM 운영, 보안 업데이트, TLS 인증서 갱신은 직접 관리해야 함
+- Render 롤백 시 Render Free cold start 가능
 - GitHub Actions 예약 실행 지연 가능
 - 글로벌 리포트 cron은 미국 서머타임 자동 보정 없음
 - 추가 매수 후보군은 직접 등록한 후보군 또는 MVP용 기본 후보군을 사용하며, 외부 스크리닝 API를 사용하지 않음

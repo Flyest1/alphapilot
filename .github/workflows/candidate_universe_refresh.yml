@@ -14,7 +14,23 @@ jobs:
     steps:
       - name: Warm up backend
         run: |
+          BACKEND_URL="$(printf '%s' "$BACKEND_URL" | tr -d '\r\n' | sed -E 's/[[:space:]]+$//')"
           BACKEND_URL="${BACKEND_URL%/}"
+          if [ -z "$BACKEND_URL" ]; then
+            echo "BACKEND_URL secret must be the backend URL, for example https://api.example.com"
+            exit 1
+          fi
+          case "$BACKEND_URL" in
+            http://*|https://*) ;;
+            *)
+              echo "BACKEND_URL secret must start with https:// or http://"
+              exit 1
+              ;;
+          esac
+          if printf '%s' "$BACKEND_URL" | grep -q '[[:space:]]'; then
+            echo "BACKEND_URL secret must contain only one URL"
+            exit 1
+          fi
           for i in 1 2 3 4 5; do
             curl -fsS --max-time 30 "$BACKEND_URL/health" && exit 0
             sleep 30
@@ -22,7 +38,23 @@ jobs:
           true
       - name: Refresh candidate universe
         run: |
+          BACKEND_URL="$(printf '%s' "$BACKEND_URL" | tr -d '\r\n' | sed -E 's/[[:space:]]+$//')"
           BACKEND_URL="${BACKEND_URL%/}"
+          if [ -z "$BACKEND_URL" ]; then
+            echo "BACKEND_URL secret must be the backend URL, for example https://api.example.com"
+            exit 1
+          fi
+          case "$BACKEND_URL" in
+            http://*|https://*) ;;
+            *)
+              echo "BACKEND_URL secret must start with https:// or http://"
+              exit 1
+              ;;
+          esac
+          if printf '%s' "$BACKEND_URL" | grep -q '[[:space:]]'; then
+            echo "BACKEND_URL secret must contain only one URL"
+            exit 1
+          fi
           curl -fsS --max-time 300 -X POST \
             "$BACKEND_URL/api/candidate-universe/refresh" \
             -H "Authorization: Bearer $SCHEDULER_SECRET"

@@ -1,0 +1,29 @@
+name: Deploy Backend to Oracle VM
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      ORACLE_SSH_HOST: ${{ secrets.ORACLE_SSH_HOST }}
+      ORACLE_SSH_USER: ${{ secrets.ORACLE_SSH_USER }}
+      ORACLE_SSH_PRIVATE_KEY: ${{ secrets.ORACLE_SSH_PRIVATE_KEY }}
+    steps:
+      - name: Validate SSH secrets
+        run: |
+          if [ -z "$ORACLE_SSH_HOST" ] || [ -z "$ORACLE_SSH_USER" ] || [ -z "$ORACLE_SSH_PRIVATE_KEY" ]; then
+            echo "Set ORACLE_SSH_HOST, ORACLE_SSH_USER, and ORACLE_SSH_PRIVATE_KEY repository secrets first."
+            exit 1
+          fi
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$ORACLE_SSH_PRIVATE_KEY" > ~/.ssh/oracle_key
+          chmod 600 ~/.ssh/oracle_key
+          ssh-keyscan -H "$ORACLE_SSH_HOST" >> ~/.ssh/known_hosts
+      - name: Deploy backend
+        run: |
+          ssh -i ~/.ssh/oracle_key "$ORACLE_SSH_USER@$ORACLE_SSH_HOST" \
+            "sudo bash /opt/alphapilot/deploy/oracle/deploy_backend.sh /opt/alphapilot"

@@ -12,12 +12,23 @@ jobs:
       BACKEND_URL: ${{ secrets.BACKEND_URL }}
       SCHEDULER_SECRET: ${{ secrets.SCHEDULER_SECRET }}
     steps:
-      - name: Warm up backend (Render Free cold start)
+      - name: Check backend health
         run: |
-          BACKEND_URL="$(printf '%s' "$BACKEND_URL" | grep -Eo 'https://[^"[:space:]]+' | head -n 1)"
+          BACKEND_URL="$(printf '%s' "$BACKEND_URL" | tr -d '\r\n' | sed -E 's/[[:space:]]+$//')"
           BACKEND_URL="${BACKEND_URL%/}"
           if [ -z "$BACKEND_URL" ]; then
-            echo "BACKEND_URL secret must be the Render URL, for example https://alphapilot-backend.onrender.com"
+            echo "BACKEND_URL secret must be the backend URL, for example https://api.example.com"
+            exit 1
+          fi
+          case "$BACKEND_URL" in
+            http://*|https://*) ;;
+            *)
+              echo "BACKEND_URL secret must start with https:// or http://"
+              exit 1
+              ;;
+          esac
+          if printf '%s' "$BACKEND_URL" | grep -q '[[:space:]]'; then
+            echo "BACKEND_URL secret must contain only one URL"
             exit 1
           fi
           for i in 1 2 3 4 5; do
@@ -27,10 +38,21 @@ jobs:
           true
       - name: Call global report API
         run: |
-          BACKEND_URL="$(printf '%s' "$BACKEND_URL" | grep -Eo 'https://[^"[:space:]]+' | head -n 1)"
+          BACKEND_URL="$(printf '%s' "$BACKEND_URL" | tr -d '\r\n' | sed -E 's/[[:space:]]+$//')"
           BACKEND_URL="${BACKEND_URL%/}"
           if [ -z "$BACKEND_URL" ]; then
-            echo "BACKEND_URL secret must be the Render URL, for example https://alphapilot-backend.onrender.com"
+            echo "BACKEND_URL secret must be the backend URL, for example https://api.example.com"
+            exit 1
+          fi
+          case "$BACKEND_URL" in
+            http://*|https://*) ;;
+            *)
+              echo "BACKEND_URL secret must start with https:// or http://"
+              exit 1
+              ;;
+          esac
+          if printf '%s' "$BACKEND_URL" | grep -q '[[:space:]]'; then
+            echo "BACKEND_URL secret must contain only one URL"
             exit 1
           fi
           curl -fsS --max-time 300 -X POST \

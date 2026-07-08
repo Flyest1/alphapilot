@@ -1,0 +1,21 @@
+[Unit]
+Description=AlphaPilot FastAPI backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=alphapilot
+Group=alphapilot
+WorkingDirectory=/opt/alphapilot/backend
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/etc/alphapilot/backend.env
+ExecStart=/opt/alphapilot/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

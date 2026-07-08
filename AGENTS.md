@@ -59,7 +59,7 @@ The detailed upgrade plan lives in `docs/development_plan_v2.md` and the code re
 The MVP already includes:
 
 - GitHub Pages React frontend
-- Render Free FastAPI backend
+- Oracle Cloud Always Free FastAPI backend, with Render config retained as rollback
 - Supabase PostgreSQL persistence
 - GitHub Actions scheduled report calls
 - OpenAI structured report generation
@@ -184,7 +184,9 @@ Only these external services are allowed:
 ```text
 - OpenAI API                  (LLM)
 - Supabase                    (database, auth-disabled unless explicitly approved later)
-- Render                      (backend hosting; Free tier currently, paid tier upgrade pre-approved when a phase requires it)
+- Render                      (legacy backend rollback hosting; paid tier upgrade pre-approved when a phase requires it)
+- Oracle Cloud Always Free    (backend hosting replacement for Render only; Supabase remains the database unless explicitly approved later)
+- Let's Encrypt               (TLS certificate issuance for the Oracle-hosted backend only)
 - GitHub Pages                (frontend hosting)
 - GitHub Actions              (scheduler)
 - pykrx                       (KR market data)
@@ -712,12 +714,13 @@ Workflows must:
 
 - support `workflow_dispatch`
 - use `BACKEND_URL` and `SCHEDULER_SECRET` GitHub Secrets
-- warm up Render via `/health` before calling the report endpoint
+- call `/health` before calling the report endpoint
 
 Known limitations to keep documented:
 
 - GitHub Actions cron can drift or be skipped.
-- Render Free can cold start.
+- Render Free can cold start when using the rollback backend.
+- Oracle VM hosting avoids Render cold start, but OS security updates, process restarts, firewall rules, and TLS renewal become operator responsibilities.
 - Global report cron does not auto-adjust for US daylight saving time.
 
 Do not add external ping or cron services without explicit approval.
@@ -1035,13 +1038,16 @@ Frontend:
 
 - GitHub Pages
 - GitHub Actions Pages workflow
-- `VITE_API_BASE_URL` secret points to Render backend
+- `VITE_API_BASE_URL` secret points to the active backend host
+- GitHub Pages production builds must use an HTTPS backend URL to avoid browser mixed-content blocking
 
 Backend:
 
-- Render Free unless the user approves a hosting change
-- `render.yaml` remains the deployment config
-- required secrets must be set in Render environment variables
+- Oracle Cloud Always Free VM is approved as the active backend host replacing Render
+- Supabase remains the database; do not migrate database storage to Oracle without explicit approval
+- `deploy/oracle/` contains the Oracle VM systemd/nginx deployment files
+- `render.yaml` remains as a legacy rollback config
+- required secrets must be set in the Oracle VM environment file, never committed
 
 Database:
 
@@ -1065,7 +1071,8 @@ README must document:
 - backend environment variables
 - frontend environment variables
 - Supabase setup and service-role risk
-- Render deployment
+- Oracle Cloud Always Free backend deployment
+- Render rollback notes
 - GitHub Pages deployment
 - GitHub Actions scheduler setup
 - manual report generation behavior
@@ -1073,7 +1080,8 @@ README must document:
 - single-user limitation
 - no automatic trading
 - GitHub Actions cron drift
-- Render cold start
+- Render rollback cold start
+- Oracle VM operation and TLS renewal responsibilities
 - GDELT limitations
 - free market data limitations
 - any new migration files
