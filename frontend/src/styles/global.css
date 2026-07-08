@@ -2760,3 +2760,591 @@ tbody tr:hover td {
     @apply p-3.5;
   }
 }
+
+/* Market cockpit redesign: green up, red down, graphite actions */
+:root {
+  --market-canvas: #f3efe7;
+  --market-paper: #fffaf1;
+  --market-ink: #171512;
+  --market-graphite: #26231f;
+  --market-muted: #746d63;
+  --market-line: rgb(38 35 31 / 14%);
+  --market-positive: #138a46;
+  --market-positive-soft: #e5f5eb;
+  --market-negative: #d94a38;
+  --market-negative-soft: #fff0ed;
+  --market-amber: #a66300;
+  --market-amber-soft: #fff3d7;
+  --market-lime: #d8f26a;
+  color: var(--market-ink);
+  background: var(--market-canvas);
+  font-family:
+    Geist,
+    Outfit,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    system-ui,
+    sans-serif;
+}
+
+body {
+  color: var(--market-ink);
+  background:
+    linear-gradient(120deg, rgb(19 138 70 / 8%) 0%, transparent 28%),
+    linear-gradient(240deg, rgb(166 99 0 / 10%) 0%, transparent 30%),
+    linear-gradient(180deg, #f8f2e8 0%, #efe9de 44%, #f6f0e7 100%);
+}
+
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  background: transparent;
+}
+
+.topbar {
+  position: sticky;
+  top: 12px;
+  z-index: 20;
+  display: grid;
+  width: min(calc(100% - 24px), 1500px);
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  margin: 12px auto 0;
+  border: 1px solid rgb(255 250 241 / 18%);
+  border-radius: 8px;
+  background: rgb(23 21 18 / 92%);
+  padding: 8px;
+  color: var(--market-paper);
+  box-shadow:
+    0 18px 52px rgb(23 21 18 / 18%),
+    inset 0 1px 0 rgb(255 255 255 / 12%);
+  backdrop-filter: blur(22px) saturate(150%);
+}
+
+.topbar .brand {
+  display: grid;
+  gap: 0;
+  min-width: 150px;
+  margin: 0;
+  border: 0;
+  padding: 0 10px;
+}
+
+.topbar .brand strong {
+  color: var(--market-paper);
+  font-size: 17px;
+  font-weight: 850;
+}
+
+.topbar .brand span {
+  color: rgb(255 250 241 / 62%);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.primary-nav {
+  display: flex;
+  min-width: 0;
+  gap: 4px;
+  overflow-x: auto;
+  border: 1px solid rgb(255 250 241 / 10%);
+  border-radius: 8px;
+  background: rgb(255 250 241 / 7%);
+  padding: 4px;
+  scrollbar-width: none;
+}
+
+.primary-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.primary-nav button {
+  position: relative;
+  flex: 0 0 auto;
+  min-height: 40px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: rgb(255 250 241 / 72%);
+  padding: 9px 12px;
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow: none;
+}
+
+.primary-nav button:hover:not(.active) {
+  background: rgb(255 250 241 / 10%);
+  color: var(--market-paper);
+}
+
+.primary-nav button.active {
+  background: var(--market-lime);
+  color: var(--market-ink);
+  box-shadow: 0 10px 24px rgb(216 242 106 / 20%);
+}
+
+.topbar .notification-badge {
+  background: var(--market-negative);
+  color: #fff;
+}
+
+.topbar .lock-button {
+  width: auto;
+  min-height: 40px;
+  margin: 0;
+  border: 1px solid rgb(255 250 241 / 16%);
+  border-radius: 8px;
+  background: rgb(255 250 241 / 8%);
+  color: var(--market-paper);
+  padding: 9px 13px;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.topbar .lock-button:hover {
+  background: var(--market-paper);
+  color: var(--market-ink);
+}
+
+.motion-content {
+  width: min(calc(100% - 24px), 1500px);
+  max-width: 1500px;
+  margin: 0 auto;
+  padding: 28px 0 56px;
+}
+
+.access-screen {
+  background:
+    linear-gradient(130deg, rgb(19 138 70 / 9%), transparent 38%),
+    linear-gradient(230deg, rgb(217 74 56 / 8%), transparent 35%), var(--market-canvas);
+}
+
+.access-panel {
+  border-color: var(--market-line);
+  background: rgb(255 250 241 / 90%);
+  color: var(--market-ink);
+  box-shadow: 0 24px 70px rgb(23 21 18 / 14%);
+}
+
+.access-panel strong {
+  color: var(--market-positive);
+}
+
+.access-panel button,
+.header-actions button,
+form button,
+.row-actions button {
+  border: 1px solid var(--market-graphite);
+  border-radius: 8px;
+  background: var(--market-graphite);
+  color: var(--market-paper);
+  box-shadow: 0 14px 30px rgb(38 35 31 / 18%);
+}
+
+.access-panel button:hover:not(:disabled),
+.header-actions button:hover:not(:disabled),
+form button:hover:not(:disabled),
+.row-actions button:hover:not(:disabled) {
+  border-color: var(--market-positive);
+  background: var(--market-positive);
+  box-shadow: 0 16px 32px rgb(19 138 70 / 18%);
+}
+
+.row-actions button:last-child {
+  border-color: var(--market-negative);
+  background: var(--market-negative);
+  color: #fff;
+}
+
+.page {
+  gap: 18px;
+}
+
+.page-header {
+  position: relative;
+  overflow: hidden;
+  align-items: end;
+  border: 1px solid rgb(38 35 31 / 10%);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgb(23 21 18 / 98%) 0%, rgb(38 35 31 / 96%) 62%), var(--market-graphite);
+  padding: 22px;
+  color: var(--market-paper);
+  box-shadow: 0 22px 58px rgb(23 21 18 / 16%);
+}
+
+.page-header::after {
+  position: absolute;
+  right: 18px;
+  bottom: 14px;
+  width: min(42vw, 420px);
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--market-positive), var(--market-lime));
+  content: "";
+  opacity: 0.75;
+}
+
+.page-header h1 {
+  max-width: min(100%, 980px);
+  color: var(--market-paper);
+  font-size: clamp(28px, 4vw, 54px);
+  line-height: 0.98;
+  letter-spacing: -0.01em;
+  word-break: keep-all;
+}
+
+.page-header p {
+  max-width: 760px;
+  color: rgb(255 250 241 / 68%);
+}
+
+.page-header .header-actions {
+  position: relative;
+  z-index: 1;
+}
+
+.page-header .header-actions button {
+  border-color: var(--market-lime);
+  background: var(--market-lime);
+  color: var(--market-ink);
+  min-height: 42px;
+  padding-inline: 15px;
+  box-shadow: none;
+}
+
+.page-header .header-actions button:hover:not(:disabled) {
+  background: var(--market-paper);
+  color: var(--market-ink);
+}
+
+.summary-grid,
+.content-grid,
+.risk-grid,
+.metric-grid,
+.action-summary-grid {
+  grid-auto-flow: dense;
+}
+
+.summary-card,
+.panel,
+.asset-card,
+.strategy-card,
+.performance-card,
+.strategy-detail,
+.notification-card,
+.benchmark-chart-wrap,
+.chart-tooltip {
+  border-color: var(--market-line);
+  background: rgb(255 250 241 / 86%);
+  color: var(--market-ink);
+  box-shadow: 0 12px 34px rgb(23 21 18 / 8%);
+  transition:
+    transform 0.24s ease,
+    box-shadow 0.24s ease,
+    border-color 0.24s ease;
+}
+
+.summary-card:hover,
+.panel:hover,
+.asset-card:hover,
+.strategy-card:hover,
+.performance-card:hover,
+.strategy-detail:hover,
+.notification-card:hover {
+  border-color: rgb(19 138 70 / 26%);
+  box-shadow: 0 20px 52px rgb(23 21 18 / 12%);
+  transform: translateY(-2px);
+}
+
+.summary-card strong,
+.metric-grid strong,
+.action-summary-grid strong {
+  color: var(--market-ink);
+}
+
+.summary-card span,
+.page-header p,
+.empty-state,
+td span,
+.bar-row span,
+.report-list span,
+.latest-list span,
+.field-hint,
+.form-hint,
+.asset-guide p,
+.section-heading p,
+.metric-grid span,
+.notification-card span,
+.notification-card small,
+.strategy-detail dt,
+.asset-card dt,
+.strategy-card dt,
+.performance-card dt {
+  color: var(--market-muted);
+}
+
+.positive-text,
+.summary-card.positive strong,
+.daily-change-track .positive,
+.change-chart .positive {
+  color: var(--market-positive);
+}
+
+.daily-change-track .positive,
+.change-chart .positive {
+  background: var(--market-positive);
+}
+
+.negative-text,
+.summary-card.negative strong {
+  color: var(--market-negative);
+}
+
+.daily-change-track .negative,
+.change-chart .negative {
+  background: var(--market-negative);
+}
+
+.bar-track span,
+.value-chart span {
+  background: var(--market-positive);
+}
+
+.bar-track,
+.daily-change-track {
+  background: rgb(38 35 31 / 10%);
+}
+
+.metric-grid > div,
+.action-summary-grid > div {
+  border-color: var(--market-line);
+  background: rgb(255 255 255 / 48%);
+}
+
+input,
+select {
+  border-color: var(--market-line);
+  background: rgb(255 255 255 / 58%);
+  color: var(--market-ink);
+}
+
+input:focus,
+select:focus {
+  border-color: var(--market-positive);
+  box-shadow: 0 0 0 4px rgb(19 138 70 / 12%);
+}
+
+label {
+  color: var(--market-muted);
+}
+
+.secondary-action,
+.notice-with-action button {
+  border-color: var(--market-line);
+  background: var(--market-paper);
+  color: var(--market-graphite);
+}
+
+.secondary-action:hover:not(:disabled),
+.notice-with-action button:hover:not(:disabled) {
+  border-color: var(--market-positive);
+  background: var(--market-positive-soft);
+  color: var(--market-positive);
+}
+
+.alert {
+  border-color: rgb(217 74 56 / 18%);
+  background: var(--market-negative-soft);
+  color: var(--market-negative);
+}
+
+.notice,
+.sync-result {
+  border-color: rgb(19 138 70 / 18%);
+  background: var(--market-positive-soft);
+  color: var(--market-positive);
+}
+
+.asset-guide,
+.lazy-data-panel,
+.key-message-item {
+  border-color: rgb(166 99 0 / 20%);
+  background: linear-gradient(180deg, var(--market-amber-soft), var(--market-paper));
+}
+
+.key-message-item[open],
+.strategy-detail[open] {
+  border-color: rgb(19 138 70 / 34%);
+  background: var(--market-paper);
+}
+
+.key-message-item summary strong,
+.key-message-detail-notes strong,
+.chart-tooltip em {
+  color: var(--market-positive);
+}
+
+.report-list button,
+.latest-list button,
+.filter-row button {
+  border-color: var(--market-line);
+  background: rgb(255 250 241 / 72%);
+  color: var(--market-graphite);
+}
+
+.report-list button:hover,
+.latest-list button:hover,
+.filter-row button:hover {
+  border-color: rgb(19 138 70 / 30%);
+  background: var(--market-positive-soft);
+}
+
+.report-list button.active,
+.filter-row button.active {
+  border-color: var(--market-positive);
+  background: var(--market-positive-soft);
+  color: var(--market-positive);
+}
+
+.segmented-control {
+  border-color: var(--market-line);
+  background: rgb(38 35 31 / 8%);
+}
+
+.segmented-control button {
+  color: var(--market-muted);
+}
+
+.segmented-control button.active {
+  background: var(--market-graphite);
+  color: var(--market-paper);
+}
+
+.inline-metrics span,
+.index-list span,
+.badge {
+  background: rgb(38 35 31 / 8%);
+  color: var(--market-muted);
+}
+
+.badge.buy,
+.status-pill,
+.source-pill.api {
+  background: var(--market-positive-soft);
+  color: var(--market-positive);
+}
+
+.badge.hold,
+.badge.watch,
+.badge.reduce,
+.status-pill.warning {
+  background: var(--market-amber-soft);
+  color: var(--market-amber);
+}
+
+.badge.sell {
+  background: var(--market-negative-soft);
+  color: var(--market-negative);
+}
+
+.source-pill.manual,
+.market-pill {
+  background: rgb(38 35 31 / 8%);
+  color: var(--market-graphite);
+}
+
+th {
+  border-bottom-color: var(--market-line);
+  color: var(--market-muted);
+}
+
+td {
+  border-bottom-color: var(--market-line);
+  color: var(--market-ink);
+}
+
+tbody tr:hover td {
+  background: rgb(19 138 70 / 5%);
+}
+
+.notification-card.unread {
+  border-color: var(--market-positive);
+  background: var(--market-positive-soft);
+}
+
+@media (max-width: 900px) {
+  .topbar {
+    top: 8px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    width: calc(100% - 16px);
+    gap: 8px;
+  }
+
+  .topbar .brand {
+    min-width: 0;
+  }
+
+  .primary-nav {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .motion-content {
+    width: calc(100% - 16px);
+    padding-top: 16px;
+  }
+
+  .page-header {
+    display: grid;
+    gap: 14px;
+    padding: 18px;
+  }
+
+  .page-header .header-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .topbar {
+    margin-top: 8px;
+    padding: 7px;
+  }
+
+  .topbar .brand strong {
+    font-size: 16px;
+  }
+
+  .primary-nav button {
+    min-height: 38px;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .topbar .lock-button {
+    min-height: 38px;
+    padding: 8px 10px;
+  }
+
+  .page-header h1 {
+    font-size: clamp(25px, 8vw, 34px);
+    line-height: 1.08;
+  }
+
+  .summary-card:hover,
+  .panel:hover,
+  .asset-card:hover,
+  .strategy-card:hover,
+  .performance-card:hover,
+  .strategy-detail:hover,
+  .notification-card:hover {
+    transform: none;
+  }
+}

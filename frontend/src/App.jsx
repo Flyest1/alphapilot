@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
 
 import { api, clearApiAccessToken, getApiAccessToken } from "./api/client.js";
 import AccessGate from "./components/AccessGate.jsx";
@@ -23,6 +24,8 @@ const tabs = [
   { id: "status", label: "상태" },
   { id: "settings", label: "설정" },
 ];
+
+gsap.registerPlugin(ScrollTrigger);
 
 function shouldReduceMotion() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -67,14 +70,14 @@ export default function App() {
 
     const ctx = gsap.context(() => {
       gsap.fromTo(
-        ".motion-sidebar",
-        { autoAlpha: 0, x: -18 },
-        { autoAlpha: 1, x: 0, duration: 0.45, ease: "power3.out" },
+        ".motion-nav",
+        { autoAlpha: 0, y: -18 },
+        { autoAlpha: 1, y: 0, duration: 0.5, ease: "power3.out" },
       );
       gsap.fromTo(
         ".motion-content",
-        { autoAlpha: 0, y: 14 },
-        { autoAlpha: 1, y: 0, duration: 0.55, ease: "power3.out" },
+        { autoAlpha: 0, y: 18 },
+        { autoAlpha: 1, y: 0, duration: 0.6, ease: "power3.out" },
       );
     });
 
@@ -85,16 +88,36 @@ export default function App() {
     if (!isUnlocked || shouldReduceMotion()) return undefined;
 
     const ctx = gsap.context(() => {
+      gsap.utils
+        .toArray(".motion-content .panel, .motion-content .summary-card")
+        .forEach((item) => {
+          gsap.fromTo(
+            item,
+            { autoAlpha: 0.78, y: 18, scale: 0.985 },
+            {
+              autoAlpha: 1,
+              y: 0,
+              scale: 1,
+              duration: 0.55,
+              ease: "power3.out",
+              scrollTrigger: {
+                trigger: item,
+                start: "top 88%",
+                once: true,
+              },
+            },
+          );
+        });
       gsap.fromTo(
         ".motion-content .page > *",
-        { autoAlpha: 0, y: 16, filter: "blur(4px)" },
+        { autoAlpha: 0, y: 18, filter: "blur(6px)" },
         {
           autoAlpha: 1,
           y: 0,
           filter: "blur(0px)",
-          duration: 0.42,
+          duration: 0.48,
           ease: "power3.out",
-          stagger: 0.035,
+          stagger: 0.03,
         },
       );
     });
@@ -114,12 +137,12 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar motion-sidebar">
+      <header className="topbar motion-nav">
         <div className="brand">
           <strong>AlphaPilot</strong>
-          <span>개인 투자 전략가</span>
+          <span>Market cockpit</span>
         </div>
-        <nav>
+        <nav className="primary-nav" aria-label="주요 메뉴">
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -137,7 +160,7 @@ export default function App() {
         <button className="lock-button" type="button" onClick={lock}>
           잠금
         </button>
-      </aside>
+      </header>
       <main className="motion-content">
         <ErrorBoundary resetKey={activeTab}>
           <Page onUnreadCountChange={setUnreadCount} />

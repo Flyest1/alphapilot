@@ -23,11 +23,28 @@ export default {
           yellow: "#b26a00",
           yellowSoft: "#fff7e6",
         },
+        market: {
+          canvas: "#f3efe7",
+          paper: "#fffaf1",
+          ink: "#171512",
+          graphite: "#26231f",
+          muted: "#746d63",
+          line: "rgb(38 35 31 / 0.14)",
+          positive: "#138a46",
+          positiveSoft: "#e5f5eb",
+          negative: "#d94a38",
+          negativeSoft: "#fff0ed",
+          amber: "#a66300",
+          amberSoft: "#fff3d7",
+          lime: "#d8f26a",
+        },
       },
       boxShadow: {
         apple: "0 1px 2px rgb(0 0 0 / 0.04), 0 10px 28px rgb(0 0 0 / 0.05)",
         "apple-lg": "0 1px 2px rgb(0 0 0 / 0.06), 0 18px 44px rgb(0 0 0 / 0.08)",
         "apple-blue": "0 8px 18px rgb(0 113 227 / 0.18)",
+        market: "0 1px 2px rgb(23 21 18 / 0.06), 0 18px 44px rgb(23 21 18 / 0.10)",
+        "market-soft": "0 1px 2px rgb(23 21 18 / 0.04), 0 10px 28px rgb(23 21 18 / 0.07)",
       },
       fontFamily: {
         sans: [
