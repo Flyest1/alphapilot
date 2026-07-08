@@ -20,8 +20,16 @@ export default function AccessGate({ onUnlock }) {
       await apiRequest("/api/settings", { accessToken: trimmed });
       setApiAccessToken(trimmed);
       onUnlock();
-    } catch (_error) {
-      setError("토큰이 맞지 않거나 백엔드에 연결할 수 없습니다.");
+    } catch (err) {
+      if (err.status === 401 || err.status === 403) {
+        setError(
+          `현재 API URL(${API_BASE_URL})에서 토큰을 거부했습니다. Render 토큰을 쓰려면 API 기준 URL이 Render 백엔드인지 확인하세요.`,
+        );
+      } else {
+        setError(
+          `현재 API URL(${API_BASE_URL})에 연결할 수 없습니다. 백엔드 실행 상태를 확인하세요.`,
+        );
+      }
     } finally {
       setIsChecking(false);
     }
