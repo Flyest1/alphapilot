@@ -1,9 +1,11 @@
 from collections.abc import Iterable
 from copy import deepcopy
 from datetime import datetime, timezone
+from threading import RLock
 from typing import Any, Protocol
 from uuid import uuid4
 
+from httpx import TransportError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from app.config import EnvironmentSettings, get_environment_settings, is_supabase_configured
@@ -485,15 +487,19 @@ class SupabaseRepository:
                 raise RuntimeError("Supabase configuration is missing")
             client = create_client(current_env.supabase_url, current_env.supabase_service_role_key)
         self.client = client
+        self._execute_lock = RLock()
 
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+        retry=retry_if_exception_type((ConnectionError, TimeoutError, TransportError)),
         reraise=True,
     )
     def _execute(self, builder: Any) -> Any:
-        return builder.execute()
+        # The sync Supabase client owns one HTTP connection pool. FastAPI runs sync
+        # endpoints in worker threads, so concurrent use can corrupt an HTTP/2 stream.
+        with self._execute_lock:
+            return builder.execute()
 
     def _run(self, builder: Any, context: dict[str, Any]) -> list[dict[str, Any]]:
         try:

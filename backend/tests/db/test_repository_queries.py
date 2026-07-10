@@ -1,4 +1,68 @@
-from app.db.supabase_client import InMemoryRepository
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+from httpx import RemoteProtocolError
+from tenacity import wait_none
+
+from app.db.supabase_client import InMemoryRepository, SupabaseRepository
+
+
+class _RetryBuilder:
+    def __init__(self) -> None:
+        self.attempts = 0
+
+    def execute(self) -> str:
+        self.attempts += 1
+        if self.attempts < 3:
+            raise RemoteProtocolError("Server disconnected")
+        return "ok"
+
+
+class _ConcurrentTracker:
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.active = 0
+        self.max_active = 0
+
+
+class _ConcurrentBuilder:
+    def __init__(self, tracker: _ConcurrentTracker) -> None:
+        self.tracker = tracker
+
+    def execute(self) -> str:
+        with self.tracker.lock:
+            self.tracker.active += 1
+            self.tracker.max_active = max(self.tracker.max_active, self.tracker.active)
+        time.sleep(0.02)
+        with self.tracker.lock:
+            self.tracker.active -= 1
+        return "ok"
+
+
+def test_supabase_repository_retries_httpx_transport_errors(monkeypatch):
+    repository = SupabaseRepository(client=object())
+    builder = _RetryBuilder()
+    monkeypatch.setattr(SupabaseRepository._execute.retry, "wait", wait_none())
+
+    assert repository._execute(builder) == "ok"
+    assert builder.attempts == 3
+
+
+def test_supabase_repository_serializes_shared_client_requests():
+    repository = SupabaseRepository(client=object())
+    tracker = _ConcurrentTracker()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(
+            executor.map(
+                repository._execute,
+                [_ConcurrentBuilder(tracker), _ConcurrentBuilder(tracker)],
+            )
+        )
+
+    assert results == ["ok", "ok"]
+    assert tracker.max_active == 1
 
 
 def test_list_unevaluated_performance_logs_excludes_completed_rows():
