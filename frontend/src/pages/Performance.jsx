@@ -4,6 +4,15 @@ import { api, isApiCacheFresh, readApiCache } from "../api/client.js";
 import Skeleton from "../components/Skeleton.jsx";
 import SummaryCard from "../components/SummaryCard.jsx";
 import { MESSAGES } from "../constants/strings.js";
+import {
+  backtestSummary,
+  baselineRows,
+  costRows,
+  marketRows,
+  metricValue,
+  regimeRows,
+  walkForwardRows,
+} from "../utils/backtestResults.js";
 import { formatReturn } from "../utils/formatters.js";
 import { groupTitle, statsHeadlines } from "../utils/recommendationStats.js";
 
@@ -62,6 +71,12 @@ export default function Performance() {
   const groups = stats?.groups || [];
   const headlines = statsHeadlines(stats);
   const minSample = stats?.min_sample_for_calibration ?? 30;
+  const backtestCards = backtestSummary(backtest);
+  const backtestBaselines = baselineRows(backtest);
+  const backtestCosts = costRows(backtest);
+  const backtestRegimes = regimeRows(backtest);
+  const backtestFolds = walkForwardRows(backtest);
+  const backtestMarkets = marketRows(backtest);
 
   return (
     <section className="page">
@@ -144,7 +159,18 @@ export default function Performance() {
               <span>{backtest.tickers_tested.length}개 종목</span>
               <span>{backtest.sample_count}개 표본</span>
               <span>{backtest.forward_days}거래일 후 수익률</span>
+              {backtest.strategy_version && <span>모델 {backtest.strategy_version}</span>}
             </div>
+            {backtest.metrics && (
+              <div className="metric-grid compact performance-summary">
+                {backtestCards.map((row) => (
+                  <div key={row.label}>
+                    <span>{row.label}</span>
+                    <strong>{row.value}</strong>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="table-wrap">
               <table className="compact-table">
                 <thead>
@@ -152,6 +178,7 @@ export default function Performance() {
                     <th>규칙 액션</th>
                     <th>표본</th>
                     <th>평균 향후 수익률</th>
+                    <th>비용 차감 평균</th>
                     <th>방향 적중률</th>
                   </tr>
                 </thead>
@@ -161,12 +188,138 @@ export default function Performance() {
                       <td>{group.action}</td>
                       <td>{group.sample_count}</td>
                       <td>{formatReturn(group.avg_forward_return)}</td>
+                      <td>{formatReturn(group.avg_net_return_pct)}</td>
                       <td>{formatWinRate(group.directional_success_rate)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            {backtestBaselines.length > 0 && (
+              <div className="table-wrap">
+                <table className="compact-table">
+                  <thead>
+                    <tr>
+                      <th>기준선</th>
+                      <th>비용 전 누적</th>
+                      <th>비용 후 누적</th>
+                      <th>단순 보유</th>
+                      <th>초과 성과</th>
+                      <th>최대 낙폭</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {backtestBaselines.map((row) => (
+                      <tr key={row.name}>
+                        <td>{row.name}</td>
+                        <td>{metricValue(row.gross, 2, "%")}</td>
+                        <td>{metricValue(row.net, 2, "%")}</td>
+                        <td>{metricValue(row.drawdown, 2, "%")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {backtestRegimes.length > 0 && (
+              <div className="table-wrap">
+                <table className="compact-table">
+                  <thead>
+                    <tr>
+                      <th>시장 국면</th>
+                      <th>표본</th>
+                      <th>비용 차감 평균</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {backtestRegimes.map((row) => (
+                      <tr key={row.regime}>
+                        <td>{row.label}</td>
+                        <td>{row.sample_count}</td>
+                        <td>{metricValue(row.avg_net_return_pct, 2, "%")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {backtestMarkets.length > 0 && (
+              <div className="table-wrap">
+                <table className="compact-table">
+                  <thead>
+                    <tr>
+                      <th>시장</th>
+                      <th>표본</th>
+                      <th>비용 후 누적</th>
+                      <th>최대 낙폭</th>
+                      <th>Sharpe</th>
+                      <th>외부 평가 fold</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {backtestMarkets.map((row) => (
+                      <tr key={row.market}>
+                        <td>{row.market}</td>
+                        <td>{row.sampleCount}</td>
+                        <td>{metricValue(row.netReturn, 2, "%")}</td>
+                        <td>{metricValue(row.benchmarkReturn, 2, "%")}</td>
+                        <td>{metricValue(row.excessReturn, 2, "%p")}</td>
+                        <td>{metricValue(row.drawdown, 2, "%")}</td>
+                        <td>{metricValue(row.sharpe)}</td>
+                        <td>{row.foldCount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {backtestFolds.length > 0 && (
+              <div className="table-wrap">
+                <table className="compact-table">
+                  <thead>
+                    <tr>
+                      <th>워크포워드</th>
+                      <th>학습/평가 표본</th>
+                      <th>평가 기간</th>
+                      <th>비용 후 누적</th>
+                      <th>최대 낙폭</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {backtestFolds.map((row) => (
+                      <tr key={row.fold}>
+                        <td>Fold {row.fold}</td>
+                        <td>
+                          {row.trainCount}/{row.testCount}
+                        </td>
+                        <td>{row.period}</td>
+                        <td>{metricValue(row.netReturn, 2, "%")}</td>
+                        <td>{metricValue(row.drawdown, 2, "%")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {backtest.costs && (
+              <div className="inline-metrics">
+                {backtestCosts.map((row) => (
+                  <span key={row.label}>
+                    {row.label} {metricValue(row.value, 3, "%")}
+                  </span>
+                ))}
+              </div>
+            )}
+            {backtest.walk_forward?.stability_warning && (
+              <p className="alert">{backtest.walk_forward.stability_warning}</p>
+            )}
+            {(backtest.bias_warnings || []).length > 0 && (
+              <ul className="field-hint">
+                {backtest.bias_warnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            )}
             <p className="field-hint">{backtest.disclaimer}</p>
           </>
         )}
