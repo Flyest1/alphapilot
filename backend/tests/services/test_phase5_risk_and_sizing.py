@@ -80,7 +80,7 @@ def test_missing_or_degenerate_atr_falls_back_to_fixed_percent():
     assert extreme_atr.stop_loss == 92  # ATR 비율 20% 초과 → 폴백
 
 
-def test_reduce_action_uses_short_rebound_target_with_atr():
+def test_reduce_action_uses_directional_target_and_stop_with_atr():
     service = StrategyService()
     market = SimpleNamespace(is_stale=False, current_price=100)
 
@@ -89,7 +89,8 @@ def test_reduce_action_uses_short_rebound_target_with_atr():
     )
 
     assert reduce_strategy.action == "REDUCE"
-    assert reduce_strategy.target_price == 104  # 100 + 1×ATR
+    assert reduce_strategy.target_price == 96  # 100 - 1×ATR
+    assert reduce_strategy.stop_loss == 108  # 100 + 2×ATR
 
 
 def seed_portfolio(repo):

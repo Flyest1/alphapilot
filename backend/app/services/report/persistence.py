@@ -51,8 +51,10 @@ class ReportPersistence:
         existing_logs = self.repository.list_performance_logs(limit=500)
         existing_strategies = {row["id"]: row for row in self.repository.list_strategies()}
         existing_cycles = self.repository.list_recommendation_cycles(limit=500)
+        ticker_inputs = (report_inputs or {}).get("tickers") or {}
         for strategy in content.asset_strategies:
             asset = assets_by_ticker.get(strategy.ticker)
+            strategy_inputs = ticker_inputs.get(strategy.ticker) or {}
             strategy_row = self.repository.create_strategy(
                 {
                     "report_id": report["id"],
@@ -88,6 +90,7 @@ class ReportPersistence:
                 report=report,
                 horizon=candidate_horizon,
                 existing_cycles=existing_cycles,
+                technical_score=strategy_inputs.get("technical_score"),
             )
         self.save_portfolio_snapshot(
             report=report,
@@ -142,6 +145,7 @@ class ReportPersistence:
         report: dict[str, Any],
         horizon: str,
         existing_cycles: list[dict[str, Any]],
+        technical_score: int | float | None = None,
     ) -> None:
         if strategy.current_price is None or strategy.reasoning == "data-limited":
             return
@@ -162,7 +166,21 @@ class ReportPersistence:
             None,
         )
         now = datetime.now(timezone.utc).isoformat()
+        confidence_detail = strategy.confidence_detail or {}
+        base_confidence = confidence_detail.get("base_confidence")
+        if base_confidence is None:
+            base_confidence = confidence_detail.get("technical_confidence")
+        calibrated_confidence = strategy.confidence
+        score_fields = {
+            "technical_score": technical_score,
+            "base_confidence": base_confidence,
+            "calibrated_confidence": calibrated_confidence,
+        }
         if reusable_cycle:
+            missing_score_fields = {
+                key: value for key, value in score_fields.items() if reusable_cycle.get(key) is None
+            }
+            existing_metadata = reusable_cycle.get("metadata") or {}
             updated = self.repository.update_recommendation_cycle(
                 reusable_cycle["id"],
                 {
@@ -170,10 +188,17 @@ class ReportPersistence:
                     "report_id": report["id"],
                     "target_price": strategy.target_price,
                     "stop_loss": strategy.stop_loss,
+                    **missing_score_fields,
                     "metadata": {
-                        **(reusable_cycle.get("metadata") or {}),
+                        **existing_metadata,
                         "last_seen_at": now,
                         "latest_confidence": strategy.confidence,
+                        "technical_score": existing_metadata.get(
+                            "technical_score", technical_score
+                        ),
+                        "latest_technical_score": technical_score,
+                        "latest_base_confidence": base_confidence,
+                        "latest_calibrated_confidence": calibrated_confidence,
                     },
                 },
             )
@@ -215,8 +240,11 @@ class ReportPersistence:
                 "reference_price": strategy.current_price,
                 "target_price": strategy.target_price,
                 "stop_loss": strategy.stop_loss,
+                **score_fields,
                 "metadata": {
-                    "confidence": strategy.confidence,
+                    "technical_score": technical_score,
+                    "base_confidence": base_confidence,
+                    "calibrated_confidence": calibrated_confidence,
                     "buy_range_low": strategy.buy_range_low,
                     "buy_range_high": strategy.buy_range_high,
                     "sell_range_low": strategy.sell_range_low,

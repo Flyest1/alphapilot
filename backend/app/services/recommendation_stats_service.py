@@ -17,7 +17,7 @@ MIN_SAMPLE_FOR_CALIBRATION = 30
 # 승률 50%를 중립(계수 1.0)으로 보고, 계수는 과도한 왜곡을 막기 위해 클램프한다.
 CALIBRATION_FACTOR_MIN = 0.6
 CALIBRATION_FACTOR_MAX = 1.3
-CLOSED_STATUSES = {"hit_target", "hit_stop", "expired"}
+CLOSED_STATUSES = {"hit_target", "hit_stop", "expired", "ambiguous"}
 SCORE_BANDS = ("under_60", "60s", "70s", "80_plus")
 
 BAND_LABELS = {
@@ -63,6 +63,13 @@ def _holding_days(cycle: dict[str, Any]) -> float | None:
     return days if days >= 0 else None
 
 
+def _technical_score(cycle: dict[str, Any]) -> Any:
+    score = cycle.get("technical_score")
+    if score is not None:
+        return score
+    return (cycle.get("metadata") or {}).get("technical_score")
+
+
 class RecommendationStatsService:
     def __init__(self, repository: Repository) -> None:
         self.repository = repository
@@ -83,7 +90,7 @@ class RecommendationStatsService:
                 continue
             action = str(cycle.get("action") or "UNKNOWN")
             horizon = str(cycle.get("horizon") or "medium")
-            band = score_band((cycle.get("metadata") or {}).get("confidence"))
+            band = score_band(_technical_score(cycle))
             key = (action, horizon, band)
             group = groups.setdefault(
                 key,
@@ -172,11 +179,15 @@ class ConfidenceCalibrator:
         horizon: str,
         base_confidence: int,
         news_context_used: bool = False,
+        technical_score: int | float | None = None,
     ) -> dict[str, Any]:
         """보정 결과와 산출 근거(기술/과거 승률/뉴스 기여)를 함께 반환한다."""
-        band = score_band(base_confidence)
+        band_score = technical_score if technical_score is not None else base_confidence
+        band = score_band(band_score)
         group = self._by_key.get((action, horizon, band))
         detail: dict[str, Any] = {
+            "technical_score": technical_score,
+            "base_confidence": base_confidence,
             "technical_confidence": base_confidence,
             "score_band": band,
             "horizon": horizon,

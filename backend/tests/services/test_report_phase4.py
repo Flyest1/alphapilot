@@ -5,8 +5,9 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from app.db.supabase_client import InMemoryRepository
-from app.models.report import ReportContent
+from app.models.report import AssetStrategy, ReportContent
 from app.services.market_data_service import MarketDataResult
+from app.services.report.persistence import ReportPersistence
 from app.services.report_service import ReportService
 from app.services.technical_analysis_service import TechnicalAnalysisResult
 
@@ -108,7 +109,15 @@ def build_service(repo, market_data=None):
     )
 
 
-def seed_closed_cycles(repo, count, wins, confidence, action="HOLD", horizon="medium"):
+def seed_closed_cycles(
+    repo,
+    count,
+    wins,
+    confidence,
+    action="HOLD",
+    horizon="medium",
+    technical_score=None,
+):
     for index in range(count):
         repo.create_recommendation_cycle(
             {
@@ -119,7 +128,10 @@ def seed_closed_cycles(repo, count, wins, confidence, action="HOLD", horizon="me
                 "horizon": horizon,
                 "status": "hit_target" if index < wins else "hit_stop",
                 "reference_price": 100,
-                "metadata": {"confidence": confidence},
+                "technical_score": technical_score if technical_score is not None else confidence,
+                "base_confidence": confidence,
+                "calibrated_confidence": confidence,
+                "metadata": {},
                 "started_at": "2025-01-01T00:00:00+00:00",
                 "closed_at": "2025-01-20T00:00:00+00:00",
             }
@@ -141,7 +153,14 @@ def test_generate_report_attaches_confidence_detail_without_samples():
 def test_generate_report_calibrates_confidence_with_enough_samples():
     repo = seeded_repo()
     # 폴백 리포트에서 보유 전략은 BUY(점수 85)·confidence 60 캡(60s 밴드)이 된다.
-    seed_closed_cycles(repo, count=30, wins=24, confidence=60, action="BUY")
+    seed_closed_cycles(
+        repo,
+        count=30,
+        wins=24,
+        confidence=60,
+        action="BUY",
+        technical_score=85,
+    )
 
     report = build_service(repo).generate_report("domestic")
     content = ReportContent.model_validate(report["content"])
@@ -165,6 +184,67 @@ def test_generate_report_saves_report_inputs_snapshot():
     assert inputs["news_context"]["status"] == "ok"
     assert inputs["news_context"]["article_count"] == 1
     assert inputs["settings"]["candidate_horizon"] == "medium"
+
+
+def test_generate_report_saves_separate_cycle_score_fields():
+    repo = seeded_repo()
+    build_service(repo).generate_report("domestic")
+
+    cycle = next(row for row in repo.list_recommendation_cycles() if row["ticker"] == "005930")
+
+    assert cycle["technical_score"] == 85
+    assert cycle["base_confidence"] == 60
+    assert cycle["calibrated_confidence"] == 60
+    assert cycle["metadata"]["technical_score"] == 85
+
+
+def test_reused_cycle_preserves_initial_score_fields():
+    repository = InMemoryRepository()
+    report = repository.create_report(
+        {"report_type": "global", "title": "report", "summary": "summary", "content": {}}
+    )
+    persistence = ReportPersistence(repository)
+    existing_cycles = []
+    first = AssetStrategy(
+        ticker="AAPL",
+        name="Apple",
+        current_price=100,
+        action="BUY",
+        confidence=70,
+        target_price=110,
+        stop_loss=90,
+        reasoning="first",
+        risk="risk",
+        invalidation_condition="condition",
+        confidence_detail={"base_confidence": 70},
+    )
+    first_row = repository.create_strategy(
+        {"report_id": report["id"], "ticker": "AAPL", "action": "BUY"}
+    )
+    persistence.sync_recommendation_cycle(
+        first, first_row, report, "medium", existing_cycles, technical_score=80
+    )
+    second = first.model_copy(
+        update={
+            "confidence": 90,
+            "target_price": 112,
+            "stop_loss": 91,
+            "confidence_detail": {"base_confidence": 88},
+        }
+    )
+    second_row = repository.create_strategy(
+        {"report_id": report["id"], "ticker": "AAPL", "action": "BUY"}
+    )
+
+    persistence.sync_recommendation_cycle(
+        second, second_row, report, "medium", existing_cycles, technical_score=95
+    )
+
+    cycle = repository.list_recommendation_cycles()[0]
+    assert cycle["technical_score"] == 80
+    assert cycle["base_confidence"] == 70
+    assert cycle["calibrated_confidence"] == 70
+    assert cycle["metadata"]["latest_technical_score"] == 95
 
 
 def test_generate_report_backfills_missing_sector():

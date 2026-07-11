@@ -392,9 +392,7 @@ class InMemoryRepository:
     ) -> dict[str, Any] | None:
         if cycle_id not in self.recommendation_cycles:
             return None
-        self.recommendation_cycles[cycle_id].update(
-            {key: value for key, value in data.items() if value is not None}
-        )
+        self.recommendation_cycles[cycle_id].update(data)
         self.recommendation_cycles[cycle_id]["updated_at"] = _now_iso()
         return deepcopy(self.recommendation_cycles[cycle_id])
 
@@ -749,8 +747,7 @@ class SupabaseRepository:
     def update_recommendation_cycle(
         self, cycle_id: str, data: dict[str, Any]
     ) -> dict[str, Any] | None:
-        clean_data = {key: value for key, value in data.items() if value is not None}
-        builder = self.client.table("recommendation_cycles").update(clean_data).eq("id", cycle_id)
+        builder = self.client.table("recommendation_cycles").update(data).eq("id", cycle_id)
         rows = self._run(
             builder, {"operation": "update_recommendation_cycle", "cycle_id": cycle_id}
         )

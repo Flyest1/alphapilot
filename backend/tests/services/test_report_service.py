@@ -167,6 +167,65 @@ def test_openai_failure_generates_technical_only_report_with_capped_confidence()
     assert repo.list_performance_logs()
 
 
+def test_data_limited_strategy_overrides_ai_quantitative_output():
+    service = ReportService(
+        InMemoryRepository(),
+        market_data_service=FakeMarketData(),
+        technical_analysis_service=FakeTechnical(),
+        ai_provider=FailingAI(),
+        news_service=FakeNews(),
+    )
+    ai_strategy = AssetStrategy(
+        ticker="AAPL",
+        name="Apple",
+        current_price=100,
+        action="BUY",
+        confidence=90,
+        target_price=120,
+        stop_loss=90,
+        reasoning="AI output",
+        risk="risk",
+        invalidation_condition="condition",
+    )
+    safe_strategy = ai_strategy.model_copy(
+        update={
+            "action": "WATCH",
+            "confidence": 0,
+            "reasoning": "data-limited",
+            "target_price": None,
+            "stop_loss": None,
+        }
+    )
+    content = ReportContent(
+        report_type="global",
+        generated_at="2026-07-11T00:00:00+00:00",
+        market_summary={"summary": "summary"},
+        portfolio_summary={
+            "total_market_value": 0,
+            "total_return_rate": 0,
+            "risk_level": "medium",
+            "allocation_comment": "comment",
+        },
+        asset_strategies=[ai_strategy],
+        disclaimer=DISCLAIMER,
+    )
+
+    enforced = service._enforce_stale_rules(
+        content,
+        [
+            {
+                "asset": {"ticker": "AAPL"},
+                "strategy": safe_strategy,
+            }
+        ],
+        [],
+    )
+
+    assert enforced.asset_strategies[0].action == "WATCH"
+    assert enforced.asset_strategies[0].confidence == 0
+    assert enforced.asset_strategies[0].reasoning == "data-limited"
+
+
 def test_report_adds_screened_non_owned_candidates_with_null_asset_id():
     repo = seeded_repo()
     service = ReportService(

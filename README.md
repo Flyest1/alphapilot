@@ -259,6 +259,17 @@ backend/app/db/migrations/014_add_asset_external_sync_fields.sql
 컬럼과 중복 방지 인덱스를 추가합니다. 기존 수동 자산은 `source='manual'` 기본값을 가지며,
 삭제되거나 수정되지 않습니다.
 
+추천 측정 무결성 개선을 적용하려면 008 적용 여부를 먼저 확인하고 신규 015를 실행합니다.
+
+```text
+backend/app/db/migrations/008_create_market_data_cache.sql
+backend/app/db/migrations/015_improve_recommendation_cycle_measurement.sql
+```
+
+015는 추천 사이클에 실제 장벽 도달 시각, 원시 기술점수, 보정 전 신뢰도, 최종 보정 신뢰도
+컬럼을 additive 방식으로 추가합니다. 2026-07 점검 당시 운영 Supabase에는 008 테이블이 없어
+SQL Editor에서 008과 015를 순서대로 수동 적용해야 합니다.
+
 Supabase service role key는 RLS를 우회합니다. 반드시 백엔드 서버 환경변수에만 보관하고, 프론트엔드나 에러 메시지에 노출하지 마세요.
 
 ## Oracle Cloud Always Free 백엔드 배포
@@ -482,6 +493,27 @@ curl -X POST "$env:BACKEND_URL/api/reports/domestic/generate" `
 - **배당·실적 일정**: yfinance가 제공하는 향후 60일 보유 자산 일정을 리포트 위험·기회와
   대시보드에 표시합니다. 공급자 데이터가 없거나 지연되면 일정이 표시되지 않을 수 있습니다.
 
+## 추천 측정 무결성 (2026-07 Phase 0)
+
+- BUY/HOLD/WATCH는 상승 방향, SELL/REDUCE는 하락 방향으로 목표·손절 장벽을 판정합니다.
+- 같은 거래일에 목표와 손절을 모두 통과하면 보수적으로 `ambiguous`로 종료하고 실제 거래일을
+  `barrier_hit_at`에 저장합니다.
+- 추천 통계의 점수 구간은 최종 confidence가 아니라 원시 `technical_score`를 사용합니다.
+- 운영 전략과 규칙 백테스트는 `StrategyService`의 동일한 투자성향별 액션 및 ATR 목표·손절
+  규칙을 사용합니다.
+- 정상 기술점수는 SMA120 계산이 가능한 최소 120 거래일을 요구합니다. 부족하면 WATCH,
+  confidence 0, `data-limited`로 처리합니다.
+
+기존 추천 사이클은 migration 015 적용 후 먼저 미리보기하고, 실제 적용 시 JSON 백업을 생성해
+재산출합니다.
+
+```powershell
+python scripts/recalculate_recommendation_cycles.py
+python scripts/recalculate_recommendation_cycles.py --apply
+```
+
+재산출 전 기존 승률은 전략의 실제 성공률 근거로 사용하지 않습니다.
+
 ## 알림 센터 (Phase 9)
 
 - **인앱 알림**: 스케줄 리포트가 완료되면 리포트 완료, 목표/손절 도달, 추천 cycle 종료,
@@ -542,6 +574,7 @@ curl -X POST "$env:BACKEND_URL/api/reports/domestic/generate" `
 - 글로벌 리포트 cron은 미국 서머타임 자동 보정 없음
 - 추가 매수 후보군은 직접 등록한 후보군 또는 MVP용 기본 후보군을 사용하며, 외부 스크리닝 API를 사용하지 않음
 - 성과 추적은 같은 티커와 같은 액션의 20일 평가가 끝나기 전에는 새 추적 로그를 다시 시작하지 않습니다. 액션이 바뀌거나 기존 20일 평가가 끝나면 새 추적이 시작될 수 있습니다.
+- migration 015 적용과 기존 사이클 재산출 전 추천 승률은 방향성 오류가 포함될 수 있어 의사결정 근거로 사용하지 않음
 
 ## 검증 명령
 

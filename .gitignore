@@ -16,4 +16,5 @@ frontend/dist/
 dist/
 backend/uvicorn-*.log
 frontend/vite-*.log
+backups/
 .DS_Store

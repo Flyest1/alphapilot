@@ -40,6 +40,34 @@ class _ConcurrentBuilder:
         return "ok"
 
 
+class _CaptureResponse:
+    def __init__(self, data):
+        self.data = data
+
+
+class _CaptureUpdateBuilder:
+    def __init__(self):
+        self.payload = None
+
+    def update(self, payload):
+        self.payload = payload
+        return self
+
+    def eq(self, *_args):
+        return self
+
+    def execute(self):
+        return _CaptureResponse([{"id": "cycle-1", **self.payload}])
+
+
+class _CaptureClient:
+    def __init__(self):
+        self.builder = _CaptureUpdateBuilder()
+
+    def table(self, _name):
+        return self.builder
+
+
 def test_supabase_repository_retries_httpx_transport_errors(monkeypatch):
     repository = SupabaseRepository(client=object())
     builder = _RetryBuilder()
@@ -63,6 +91,32 @@ def test_supabase_repository_serializes_shared_client_requests():
 
     assert results == ["ok", "ok"]
     assert tracker.max_active == 1
+
+
+def test_recommendation_cycle_update_preserves_explicit_nulls():
+    client = _CaptureClient()
+    repository = SupabaseRepository(client=client)
+
+    repository.update_recommendation_cycle(
+        "cycle-1",
+        {"status": "active", "closed_at": None, "barrier_hit_at": None},
+    )
+
+    assert client.builder.payload == {
+        "status": "active",
+        "closed_at": None,
+        "barrier_hit_at": None,
+    }
+
+    memory_repository = InMemoryRepository()
+    cycle = memory_repository.create_recommendation_cycle(
+        {"ticker": "AAPL", "status": "hit_target", "closed_at": "2026-01-01"}
+    )
+    updated = memory_repository.update_recommendation_cycle(
+        cycle["id"], {"status": "active", "closed_at": None}
+    )
+
+    assert updated["closed_at"] is None
 
 
 def test_list_unevaluated_performance_logs_excludes_completed_rows():

@@ -18,7 +18,10 @@ def test_recommendation_stats_endpoint_returns_grouped_stats():
             "status": "hit_target",
             "reference_price": 100,
             "return_after_20d": 8.5,
-            "metadata": {"confidence": 72},
+            "technical_score": 72,
+            "base_confidence": 72,
+            "calibrated_confidence": 72,
+            "metadata": {},
             "started_at": "2026-01-01T00:00:00+00:00",
             "closed_at": "2026-01-10T00:00:00+00:00",
         }

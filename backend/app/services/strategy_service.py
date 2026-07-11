@@ -40,6 +40,7 @@ class StrategyService:
         if (
             getattr(market_data, "is_stale", True)
             or getattr(market_data, "current_price", None) is None
+            or getattr(technical_analysis, "trend_label", "") == "data-limited"
         ):
             return AssetStrategy(
                 ticker=ticker,
@@ -54,7 +55,7 @@ class StrategyService:
 
         current_price = float(market_data.current_price)
         score = int(getattr(technical_analysis, "technical_score", 0))
-        action = self._action_for_score(score, risk_profile)
+        action = self.action_for_score(score, risk_profile)
         confidence = (
             min(score, 60) if fallback_mode else self._confidence_for_profile(score, risk_profile)
         )
@@ -118,17 +119,20 @@ class StrategyService:
         if atr is None:
             stop_pct = self._stop_loss_pct(risk_profile)
             target_pct = self._target_pct(risk_profile, action)
+            if action in {"REDUCE", "SELL"}:
+                return current_price * (1 + stop_pct), current_price * (1 - target_pct)
             return current_price * (1 - stop_pct), current_price * (1 + target_pct)
         multipliers = ATR_MULTIPLIERS.get(risk_profile, ATR_MULTIPLIERS["balanced"])
-        stop_loss = max(current_price - multipliers["stop"] * atr, 0.0)
         if action in {"REDUCE", "SELL"}:
-            # 축소/매도 판단에서는 목표를 짧은 반등(1×ATR) 수준으로 둔다.
-            target_price = current_price + atr
-        else:
-            target_price = current_price + multipliers["target"] * atr
+            stop_loss = current_price + multipliers["stop"] * atr
+            target_price = max(current_price - atr, 0.0)
+            return stop_loss, target_price
+        stop_loss = max(current_price - multipliers["stop"] * atr, 0.0)
+        target_price = current_price + multipliers["target"] * atr
         return stop_loss, target_price
 
-    def _action_for_score(self, score: int, risk_profile: str) -> str:
+    @staticmethod
+    def action_for_score(score: int, risk_profile: str = "balanced") -> str:
         if score < 35:
             return "SELL"
         if score < 50:

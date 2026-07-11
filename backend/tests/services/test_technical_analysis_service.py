@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from app.services.technical_analysis_service import TechnicalAnalysisService
 
@@ -79,3 +80,46 @@ def test_calculates_technical_score_weighting():
         "price_position": 15,
     }
     assert sum(breakdown.values()) == 100
+
+
+def test_empty_data_is_data_limited():
+    result = TechnicalAnalysisService().analyze("EMPTY", pd.DataFrame())
+
+    assert result.current_price is None
+    assert result.indicators == {}
+    assert result.technical_score == 0
+    assert result.trend_label == "data-limited"
+    assert result.data_quality_note == (
+        "insufficient market data: requires 120 trading days, received 0"
+    )
+    assert all(value == 0 for value in result.score_breakdown.values())
+
+
+@pytest.mark.parametrize("size", [19, 20, 119])
+def test_incomplete_score_window_preserves_available_market_data(size):
+    frame = sample_frame(size)
+
+    result = TechnicalAnalysisService().analyze("LIMITED", frame)
+
+    assert result.current_price == float(size)
+    assert result.technical_score == 0
+    assert result.trend_label == "data-limited"
+    assert result.data_quality_note.startswith(
+        f"insufficient market data: requires 120 trading days, received {size}"
+    )
+    assert "unavailable indicators:" in result.data_quality_note
+    assert result.indicators["ema_12"] is not None
+    assert result.indicators["ema_26"] is not None
+    assert result.indicators["sma_120"] is None
+    assert all(value == 0 for value in result.score_breakdown.values())
+
+
+def test_120_trading_days_produces_normal_score():
+    result = TechnicalAnalysisService().analyze("READY", sample_frame(120))
+
+    assert result.current_price == 120.0
+    assert result.indicators["sma_120"] == 60.5
+    assert result.technical_score == sum(result.score_breakdown.values())
+    assert result.technical_score > 0
+    assert result.trend_label != "data-limited"
+    assert result.data_quality_note == "ok"

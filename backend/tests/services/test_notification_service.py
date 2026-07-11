@@ -100,3 +100,24 @@ def test_scheduled_notifications_create_events_and_deliver_opted_in_telegram(mon
         )
         == []
     )
+
+
+def test_ambiguous_cycle_creates_cycle_closed_warning():
+    repository = InMemoryRepository()
+    cycle = repository.create_recommendation_cycle(
+        {
+            "report_type": "global",
+            "ticker": "AAPL",
+            "status": "ambiguous",
+            "action": "BUY",
+            "horizon": "medium",
+        }
+    )
+    service = NotificationService(repository, market_data_service=object())
+
+    events = service._cycle_events({cycle["id"]: "active"})
+
+    assert len(events) == 1
+    assert events[0]["event_type"] == "cycle_closed"
+    assert events[0]["severity"] == "warning"
+    assert "판정 보류" in events[0]["title"]

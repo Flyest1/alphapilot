@@ -4,10 +4,14 @@ This is a historical simulation for decision support. It does not place or model
 """
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any
 
+from app.config import get_env_application_defaults, resolve_application_settings
 from app.db.supabase_client import Repository
 from app.services.market_data_service import MarketDataService
+from app.services.report.tracking import evaluate_barriers, horizon_days
+from app.services.strategy_service import StrategyService
 from app.services.technical_analysis_service import TechnicalAnalysisService
 from app.utils.logging import log_external_failure
 
@@ -17,14 +21,8 @@ SIMULATION_DISCLAIMER = (
 )
 
 
-def action_for_score(score: int) -> str:
-    if score >= 80:
-        return "BUY"
-    if score >= 50:
-        return "WATCH"
-    if score >= 35:
-        return "REDUCE"
-    return "SELL"
+def action_for_score(score: int, risk_profile: str = "balanced") -> str:
+    return StrategyService.action_for_score(score, risk_profile)
 
 
 class RuleBacktestService:
@@ -37,14 +35,22 @@ class RuleBacktestService:
         self.repository = repository
         self.market_data_service = market_data_service
         self.technical_analysis_service = technical_analysis_service or TechnicalAnalysisService()
+        self.strategy_service = StrategyService()
 
     def run(
         self,
         report_type: str,
         limit: int = 12,
-        forward_days: int = 20,
+        forward_days: int | None = None,
         sample_step: int = 20,
+        risk_profile: str | None = None,
     ) -> dict[str, Any]:
+        app_settings = resolve_application_settings(
+            self.repository.get_settings(),
+            get_env_application_defaults(),
+        )
+        resolved_risk_profile = risk_profile or app_settings.risk_profile
+        resolved_forward_days = forward_days or horizon_days(app_settings.candidate_horizon)
         universe = self.repository.list_candidate_universe(report_type)[: max(1, min(limit, 30))]
         samples = []
         tested_tickers = []
@@ -58,8 +64,9 @@ class RuleBacktestService:
                 ticker_samples = self._samples_for_frame(
                     asset,
                     result.dataframe,
-                    forward_days=forward_days,
+                    forward_days=resolved_forward_days,
                     sample_step=sample_step,
+                    risk_profile=resolved_risk_profile,
                 )
             except Exception as exc:
                 log_external_failure(
@@ -74,7 +81,7 @@ class RuleBacktestService:
         return {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "report_type": report_type,
-            "forward_days": forward_days,
+            "forward_days": resolved_forward_days,
             "sample_step": sample_step,
             "tickers_tested": tested_tickers,
             "sample_count": len(samples),
@@ -88,6 +95,7 @@ class RuleBacktestService:
         frame: Any,
         forward_days: int,
         sample_step: int,
+        risk_profile: str = "balanced",
     ) -> list[dict[str, Any]]:
         if frame is None or frame.empty or len(frame) < 120 + forward_days:
             return []
@@ -98,20 +106,33 @@ class RuleBacktestService:
             current_price = float(frame.iloc[index]["close"])
             future_price = float(frame.iloc[index + forward_days]["close"])
             forward_return = ((future_price - current_price) / current_price) * 100
-            action = action_for_score(result.technical_score)
-            success = None
-            if action == "BUY":
-                success = forward_return > 0
-            elif action in {"REDUCE", "SELL"}:
-                success = forward_return <= 0
+            strategy = self.strategy_service.generate_strategy(
+                asset,
+                SimpleNamespace(is_stale=False, current_price=current_price),
+                result,
+                risk_profile,
+            )
+            future_rows = frame.iloc[index + 1 : index + forward_days + 1]
+            barrier_result = evaluate_barriers(
+                strategy.action,
+                strategy.target_price,
+                strategy.stop_loss,
+                future_rows,
+            )
+            outcome_status = barrier_result[0] if barrier_result else "expired"
+            barrier_hit_at = barrier_result[1] if barrier_result else None
             rows.append(
                 {
                     "ticker": asset["ticker"],
                     "date": str(frame.index[index].date()),
                     "score": result.technical_score,
-                    "action": action,
+                    "action": strategy.action,
                     "forward_return": forward_return,
-                    "success": success,
+                    "target_price": strategy.target_price,
+                    "stop_loss": strategy.stop_loss,
+                    "outcome_status": outcome_status,
+                    "barrier_hit_at": barrier_hit_at,
+                    "success": outcome_status == "hit_target",
                 }
             )
         return rows

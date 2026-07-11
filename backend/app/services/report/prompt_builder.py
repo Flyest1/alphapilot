@@ -84,7 +84,7 @@ def build_context(
                 "technical_analysis": row["technical_analysis"].__dict__,
             }
             for row in analysis_rows
-            if not row["market_data"].is_stale
+            if not row["market_data"].is_stale and row["strategy"].reasoning != "data-limited"
         ],
         "disclaimer": DISCLAIMER,
     }

@@ -1,8 +1,11 @@
 import pandas as pd
+import pytest
+from types import SimpleNamespace
 
 from app.db.supabase_client import InMemoryRepository
 from app.services.backtest_service import RuleBacktestService, action_for_score
 from app.services.market_data_service import MarketDataResult
+from app.services.strategy_service import StrategyService
 
 
 class FakeMarketData:
@@ -22,11 +25,12 @@ class FakeMarketData:
         return MarketDataResult(frame, None, False, "mock", "ok", float(values.iloc[-1]))
 
 
-def test_action_for_score_matches_documented_bands():
-    assert action_for_score(80) == "BUY"
-    assert action_for_score(65) == "WATCH"
-    assert action_for_score(40) == "REDUCE"
-    assert action_for_score(20) == "SELL"
+@pytest.mark.parametrize("risk_profile", ["conservative", "balanced", "aggressive"])
+@pytest.mark.parametrize("score", [34, 35, 49, 50, 64, 65, 79, 80])
+def test_action_for_score_matches_operational_mapping(risk_profile, score):
+    assert action_for_score(score, risk_profile) == StrategyService.action_for_score(
+        score, risk_profile
+    )
 
 
 def test_rule_backtest_returns_reproducible_simulation_groups():
@@ -49,3 +53,33 @@ def test_rule_backtest_returns_reproducible_simulation_groups():
     assert result["groups"]
     assert all(group["avg_forward_return"] > 0 for group in result["groups"])
     assert "시뮬레이션" in result["disclaimer"]
+
+
+def test_rule_backtest_uses_saved_risk_profile():
+    repository = InMemoryRepository()
+    repository.upsert_settings({"risk_profile": "aggressive", "candidate_horizon": "short"})
+    repository.upsert_candidate_universe(
+        {
+            "report_type": "global",
+            "market": "US",
+            "ticker": "AAPL",
+            "name": "Apple",
+            "currency": "USD",
+            "source": "test",
+        }
+    )
+
+    class FixedTechnicalAnalysis:
+        def analyze(self, *_args, **_kwargs):
+            return SimpleNamespace(technical_score=70)
+
+    service = RuleBacktestService(
+        repository,
+        FakeMarketData(),
+        technical_analysis_service=FixedTechnicalAnalysis(),
+    )
+
+    result = service.run("global", limit=1)
+
+    assert [group["action"] for group in result["groups"]] == ["BUY"]
+    assert result["forward_days"] == 5

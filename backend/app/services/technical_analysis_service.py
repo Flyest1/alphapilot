@@ -17,6 +17,33 @@ class TechnicalAnalysisResult:
 
 
 class TechnicalAnalysisService:
+    MINIMUM_SCORE_TRADING_DAYS = 120
+    SCORE_BREAKDOWN_KEYS = (
+        "trend",
+        "momentum",
+        "volume",
+        "volatility",
+        "price_position",
+    )
+    INDICATOR_KEYS = (
+        "sma_5",
+        "sma_20",
+        "sma_60",
+        "sma_120",
+        "ema_12",
+        "ema_26",
+        "rsi_14",
+        "atr_14",
+        "macd",
+        "macd_signal",
+        "bb_middle",
+        "bb_upper",
+        "bb_lower",
+        "volume_change_rate",
+        "high_20",
+        "low_20",
+    )
+
     def calculate_indicators(self, dataframe: pd.DataFrame) -> pd.DataFrame:
         frame = dataframe.copy()
         if frame.empty:
@@ -49,57 +76,57 @@ class TechnicalAnalysisService:
         return frame
 
     def analyze(self, ticker: str, dataframe: pd.DataFrame) -> TechnicalAnalysisResult:
-        if dataframe.empty or len(dataframe) < 20:
+        if dataframe.empty:
             return TechnicalAnalysisResult(
                 ticker=ticker,
                 current_price=None,
                 indicators={},
                 technical_score=0,
-                score_breakdown={
-                    "trend": 0,
-                    "momentum": 0,
-                    "volume": 0,
-                    "volatility": 0,
-                    "price_position": 0,
-                },
+                score_breakdown=self._empty_score_breakdown(),
                 trend_label="data-limited",
-                data_quality_note="insufficient market data",
+                data_quality_note=(
+                    "insufficient market data: requires 120 trading days, received 0"
+                ),
             )
 
         indicators = self.calculate_indicators(dataframe)
         latest = indicators.iloc[-1]
         indicator_values = {
-            key: self._to_optional_float(latest.get(key))
-            for key in (
-                "sma_5",
-                "sma_20",
-                "sma_60",
-                "sma_120",
-                "ema_12",
-                "ema_26",
-                "rsi_14",
-                "atr_14",
-                "macd",
-                "macd_signal",
-                "bb_middle",
-                "bb_upper",
-                "bb_lower",
-                "volume_change_rate",
-                "high_20",
-                "low_20",
-            )
+            key: self._to_optional_float(latest.get(key)) for key in self.INDICATOR_KEYS
         }
+        current_price = self._to_optional_float(latest.get("close"))
+        if len(dataframe) < self.MINIMUM_SCORE_TRADING_DAYS:
+            unavailable_indicators = [
+                key for key, value in indicator_values.items() if value is None
+            ]
+            unavailable_note = ", ".join(unavailable_indicators) or "none"
+            return TechnicalAnalysisResult(
+                ticker=ticker,
+                current_price=current_price,
+                indicators=indicator_values,
+                technical_score=0,
+                score_breakdown=self._empty_score_breakdown(),
+                trend_label="data-limited",
+                data_quality_note=(
+                    "insufficient market data: requires 120 trading days, "
+                    f"received {len(dataframe)}; unavailable indicators: {unavailable_note}"
+                ),
+            )
+
         breakdown = self.calculate_score_breakdown(latest)
         score = int(sum(breakdown.values()))
         return TechnicalAnalysisResult(
             ticker=ticker,
-            current_price=self._to_optional_float(latest.get("close")),
+            current_price=current_price,
             indicators=indicator_values,
             technical_score=max(0, min(100, score)),
             score_breakdown=breakdown,
             trend_label=self.score_label(score),
             data_quality_note="ok",
         )
+
+    def _empty_score_breakdown(self) -> dict[str, int]:
+        return {key: 0 for key in self.SCORE_BREAKDOWN_KEYS}
 
     def calculate_score_breakdown(self, latest: pd.Series) -> dict[str, int]:
         close = self._numeric(latest.get("close"))

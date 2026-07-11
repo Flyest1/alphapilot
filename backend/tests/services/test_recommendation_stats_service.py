@@ -9,6 +9,7 @@ from app.services.recommendation_stats_service import (
 
 
 def make_cycle(repo, status="hit_target", confidence=75, **overrides):
+    technical_score = overrides.pop("technical_score", confidence)
     data = {
         "report_type": "domestic",
         "ticker": overrides.pop("ticker", "005930"),
@@ -17,7 +18,10 @@ def make_cycle(repo, status="hit_target", confidence=75, **overrides):
         "horizon": overrides.pop("horizon", "medium"),
         "status": status,
         "reference_price": 100,
-        "metadata": {"confidence": confidence},
+        "technical_score": technical_score,
+        "base_confidence": overrides.pop("base_confidence", confidence),
+        "calibrated_confidence": overrides.pop("calibrated_confidence", confidence),
+        "metadata": overrides.pop("metadata", {}),
         "started_at": "2026-01-01T00:00:00+00:00",
         **overrides,
     }
@@ -68,6 +72,52 @@ def test_compute_stats_groups_by_action_horizon_and_band():
     assert stats["min_sample_for_calibration"] == MIN_SAMPLE_FOR_CALIBRATION
 
 
+def test_compute_stats_uses_raw_technical_score_and_legacy_metadata_only():
+    repo = InMemoryRepository()
+    make_cycle(
+        repo,
+        confidence=95,
+        technical_score=65,
+        calibrated_confidence=95,
+        ticker="RAW",
+    )
+    make_cycle(
+        repo,
+        confidence=95,
+        technical_score=None,
+        metadata={"technical_score": 75, "confidence": 95},
+        ticker="LEGACY",
+    )
+    make_cycle(
+        repo,
+        confidence=95,
+        technical_score=None,
+        metadata={"confidence": 95},
+        ticker="UNKNOWN",
+    )
+
+    stats = RecommendationStatsService(repo).compute_stats()
+    groups = {row["score_band"]: row for row in stats["groups"]}
+
+    assert groups["60s"]["cycle_count"] == 1
+    assert groups["70s"]["cycle_count"] == 1
+    assert groups["unknown"]["cycle_count"] == 1
+    assert "80_plus" not in groups
+
+
+def test_ambiguous_is_closed_but_not_a_win_and_sell_target_is_favorable():
+    repo = InMemoryRepository()
+    make_cycle(repo, status="hit_target", action="SELL", technical_score=40, ticker="SELL-WIN")
+    make_cycle(repo, status="ambiguous", action="SELL", technical_score=40, ticker="SELL-AMB")
+
+    stats = RecommendationStatsService(repo).compute_stats()
+    group = next(row for row in stats["groups"] if row["action"] == "SELL")
+
+    assert group["closed_count"] == 2
+    assert group["win_count"] == 1
+    assert group["win_rate"] == 0.5
+
+
 def test_calibrator_applies_factor_only_with_enough_samples():
     repo = InMemoryRepository()
     # 70대 밴드 BUY/medium: 종료 30건, 승률 80% → 계수 1.3
@@ -108,3 +158,28 @@ def test_calibrator_lowers_confidence_for_losing_bands():
 
     assert result["confidence"] == 46  # 65 × 0.7
     assert result["detail"]["calibration_factor"] == 0.7
+
+
+def test_calibrator_selects_group_with_raw_score_not_base_confidence():
+    repo = InMemoryRepository()
+    for index in range(30):
+        make_cycle(
+            repo,
+            status="hit_target" if index < 24 else "hit_stop",
+            confidence=95,
+            technical_score=65,
+            ticker=f"R{index:03d}",
+        )
+    calibrator = ConfidenceCalibrator.from_repository(repo)
+
+    result = calibrator.calibrate(
+        "BUY",
+        "medium",
+        base_confidence=50,
+        technical_score=65,
+    )
+
+    assert result["confidence"] == 65
+    assert result["detail"]["technical_score"] == 65
+    assert result["detail"]["base_confidence"] == 50
+    assert result["detail"]["score_band"] == "60s"

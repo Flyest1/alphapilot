@@ -147,7 +147,10 @@ class ReportService:
         content = self._append_asset_event_notes(content, asset_events)
         with self._timed_step("confidence_calibration"):
             content = self._apply_confidence_calibration(
-                content, app_settings.candidate_horizon, news_context
+                content,
+                app_settings.candidate_horizon,
+                news_context,
+                analysis_rows,
             )
         content = self._apply_position_sizing(
             content,
@@ -441,6 +444,7 @@ class ReportService:
         content: ReportContent,
         horizon: str,
         news_context: dict[str, Any],
+        analysis_rows: list[dict[str, Any]],
     ) -> ReportContent:
         """실측 승률 기반 신뢰도 보정과 산출 근거를 전략에 채운다 (Phase 4-2).
 
@@ -450,16 +454,32 @@ class ReportService:
         try:
             calibrator = ConfidenceCalibrator.from_repository(self.repository)
             news_used = news_context.get("status") == "ok" and bool(news_context.get("articles"))
+            backend_inputs = {
+                normalize_ticker(row["asset"].get("ticker", "")): row for row in analysis_rows
+            }
             calibrated_strategies = []
             for strategy in content.asset_strategies:
                 if strategy.reasoning == "data-limited":
                     calibrated_strategies.append(strategy)
                     continue
+                source_row = backend_inputs.get(normalize_ticker(strategy.ticker))
+                source_strategy = source_row.get("strategy") if source_row else None
+                technical_analysis = source_row.get("technical_analysis") if source_row else None
+                base_confidence = strategy.confidence
+                if (
+                    source_strategy is not None
+                    and strategy.reasoning != "technical-only fallback (LLM unavailable)"
+                ):
+                    base_confidence = source_strategy.confidence
+                technical_score = (
+                    technical_analysis.technical_score if technical_analysis is not None else None
+                )
                 result = calibrator.calibrate(
                     action=strategy.action,
                     horizon=horizon,
-                    base_confidence=strategy.confidence,
+                    base_confidence=base_confidence,
                     news_context_used=news_used,
+                    technical_score=technical_score,
                 )
                 calibrated_strategies.append(
                     strategy.model_copy(
@@ -623,7 +643,11 @@ class ReportService:
     ) -> ReportContent:
         by_ticker = {strategy.ticker: strategy for strategy in content.asset_strategies}
         for row in analysis_rows:
-            if row["asset"]["ticker"] in stale_tickers or row["asset"]["ticker"] not in by_ticker:
+            if (
+                row["asset"]["ticker"] in stale_tickers
+                or row["strategy"].reasoning == "data-limited"
+                or row["asset"]["ticker"] not in by_ticker
+            ):
                 by_ticker[row["asset"]["ticker"]] = row["strategy"]
         key_risks = list(content.key_risks)
         if stale_tickers:

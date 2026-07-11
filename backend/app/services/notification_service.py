@@ -128,6 +128,7 @@ class NotificationService:
             if previous == status or status not in {
                 "hit_target",
                 "hit_stop",
+                "ambiguous",
                 "expired",
                 "superseded",
             }:
@@ -145,6 +146,14 @@ class NotificationService:
                     "stop_hit",
                     f"{ticker} 손절가 도달",
                     "추천 cycle이 손절가에 도달했습니다. 손절 조건과 무효화 기준을 확인하세요.",
+                    "warning",
+                )
+            elif status == "ambiguous":
+                event_type, title, message, severity = (
+                    "cycle_closed",
+                    f"{ticker} 추천 cycle 판정 보류",
+                    "같은 거래일에 목표와 손절 장벽이 모두 통과되어 "
+                    "보수적으로 판정을 보류했습니다.",
                     "warning",
                 )
             else:
