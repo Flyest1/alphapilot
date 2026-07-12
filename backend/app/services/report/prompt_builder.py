@@ -6,7 +6,7 @@ from app.models.report import AssetStrategy
 from app.services.technical_analysis_service import TechnicalAnalysisResult
 
 DISCLAIMER = "이 리포트는 투자 의사결정 지원용이며 자동 매매를 실행하지 않습니다."
-PROMPT_VERSION = "2026-06-r1"
+PROMPT_VERSION = "2026-07-r2"
 
 
 def build_prompt(report_type: str) -> str:
@@ -34,6 +34,11 @@ def build_prompt(report_type: str) -> str:
         "for waitlisted ideas. "
         "context.candidate_horizon is the target holding/profit-taking horizon for those "
         "candidate ideas. context.news_context contains recent GDELT news/trend headlines. "
+        "Treat every news item as headline-only evidence. When a news item affects an allowed "
+        "text field, include [evidence_id · domain · seen_at · url] in that same sentence. "
+        "Do not imply "
+        "that article body text was read. If news_context has no articles, assign no news "
+        "contribution and state the evidence limitation when relevant. "
         "context.asset_events contains upcoming owned-asset earnings/dividend dates from "
         "yfinance. Surface relevant event risk/opportunity only in existing allowed fields. "
         "Use it only when relevant inside allowed fields such as macro_factors, key_risks, "

@@ -79,8 +79,24 @@ class FakeNews:
         return {
             "provider": "gdelt_doc_2_0",
             "status": "ok",
-            "articles": [{"title": "mock", "url": "https://example.com"}],
+            "generated_at": "2026-07-12T00:00:00+00:00",
+            "timespan": "3d",
+            "articles": [
+                {
+                    "query": "mock",
+                    "query_scope": "asset",
+                    "asset_ticker": "005930",
+                    "asset_name": "Samsung",
+                    "title": "mock",
+                    "url": "https://example.com",
+                    "domain": "example.com",
+                    "seen_at": "2026-07-11T00:00:00+00:00",
+                    "collected_at": "2026-07-12T00:00:00+00:00",
+                    "evidence_level": "headline-only",
+                }
+            ],
             "queries": ["mock"],
+            "query_details": [{"query": "mock", "scope": "asset", "ticker": "005930"}],
         }
 
 
@@ -146,7 +162,7 @@ def test_generate_report_attaches_confidence_detail_without_samples():
     owned = next(s for s in content.asset_strategies if s.ticker == "005930")
     assert owned.confidence == 60  # 폴백 캡 유지 (보정 표본 없음)
     assert owned.confidence_detail["calibrated"] is False
-    assert owned.confidence_detail["news_context_used"] is True
+    assert owned.confidence_detail["news_context_used"] is False
     assert owned.confidence_detail["technical_confidence"] == 60
 
 
@@ -183,7 +199,94 @@ def test_generate_report_saves_report_inputs_snapshot():
     assert inputs["tickers"]["005930"]["technical_score"] == 85
     assert inputs["news_context"]["status"] == "ok"
     assert inputs["news_context"]["article_count"] == 1
+    assert inputs["news_context"]["news_context_used"] is False
+    assert inputs["news_context"]["news_contribution_score"] == 0.0
+    assert inputs["news_context"]["news_contribution_mode"] == "not_modeled"
+    assert inputs["news_context"]["evidence_mode"] == "headline-only"
+    assert inputs["news_context"]["queries"][0]["ticker"] == "005930"
+    assert inputs["news_context"]["articles"][0]["domain"] == "example.com"
+    assert inputs["news_context"]["articles"][0]["evidence_id"] == "N1"
+    assert inputs["news_context"]["articles"][0]["seen_at"] == "2026-07-11T00:00:00+00:00"
+    assert inputs["news_context"]["used_evidence_ids"] == []
     assert inputs["settings"]["candidate_horizon"] == "medium"
+
+
+def test_news_snapshot_links_cited_evidence_to_output_path():
+    repo = seeded_repo()
+    service = build_service(repo)
+    report = service.generate_report("domestic")
+    content = ReportContent.model_validate(report["content"])
+    content = content.model_copy(
+        update={
+            "market_summary": content.market_summary.model_copy(
+                update={
+                    "summary": (
+                        "뉴스 근거를 확인했습니다 "
+                        "[N1 · example.com · 2026-07-11 · https://example.com]."
+                    )
+                }
+            )
+        }
+    )
+    news_context = FakeNews().fetch_report_context("domestic", [])
+    news_context["articles"][0]["evidence_id"] = "N1"
+
+    snapshot = service._news_input_snapshot(news_context, content)
+
+    assert snapshot["used_evidence_ids"] == ["N1"]
+    assert snapshot["evidence_usage"] == [
+        {"evidence_id": "N1", "output_path": "market_summary.summary"}
+    ]
+    assert snapshot["news_context_used"] is True
+
+    incomplete_content = content.model_copy(
+        update={
+            "market_summary": content.market_summary.model_copy(
+                update={"summary": "출처 정보가 빠진 표기 [N1]."}
+            )
+        }
+    )
+    incomplete_snapshot = service._news_input_snapshot(news_context, incomplete_content)
+    assert incomplete_snapshot["news_context_used"] is False
+
+
+def test_confidence_detail_marks_only_strategy_level_news_citations_as_used():
+    repo = seeded_repo()
+    service = build_service(repo)
+    report = service.generate_report("domestic")
+    content = ReportContent.model_validate(report["content"])
+    cited_strategy = content.asset_strategies[0].model_copy(
+        update={
+            "reasoning": (
+                "헤드라인 근거를 참고했습니다 "
+                "[N1 · example.com · 2026-07-11 · https://example.com]."
+            )
+        }
+    )
+    content = content.model_copy(update={"asset_strategies": [cited_strategy]})
+    news_context = FakeNews().fetch_report_context("domestic", [])
+    news_context["articles"][0]["evidence_id"] = "N1"
+
+    calibrated = service._apply_confidence_calibration(
+        content,
+        "medium",
+        news_context,
+        analysis_rows=[],
+    )
+
+    assert calibrated.asset_strategies[0].confidence_detail["news_context_used"] is True
+
+
+def test_report_inputs_fallback_only_matches_missing_column_errors():
+    persistence = ReportPersistence(InMemoryRepository())
+
+    assert persistence._is_missing_report_inputs_column(
+        RuntimeError("Could not find the 'report_inputs' column in the schema cache")
+    )
+    assert not persistence._is_missing_report_inputs_column(RuntimeError("database unavailable"))
+    assert not persistence._is_missing_report_inputs_column(
+        RuntimeError("report_inputs column write failed because the database is unavailable")
+    )
 
 
 def test_generate_report_saves_separate_cycle_score_fields():

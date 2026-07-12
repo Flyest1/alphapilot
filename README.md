@@ -416,9 +416,22 @@ GitHub Actions 예약 실행은 best-effort입니다. GitHub 부하에 따라 �
 
 ## 뉴스/동향 반영
 
-리포트 생성 시 GDELT DOC 2.0 API에서 최근 3일 뉴스/동향 헤드라인을 조회해 AI 분석 컨텍스트로 전달합니다. 별도 뉴스 섹션을 화면에 만들지는 않고, 관련성이 있을 때만 시장 요약, 위험 요인, 기회 요인, 종목별 판단 근거에 반영합니다.
+리포트 생성 시 GDELT DOC 2.0 API에서 최근 3일 뉴스/동향 헤드라인을 조회해 AI 분석 컨텍스트로 전달합니다. 별도 뉴스 섹션을 화면에 만들지는 않고, 관련성이 있을 때만 시장 요약, 위험 요인, 기회 요인, 종목별 판단 근거에 반영합니다. 전체 6회 쿼리 중 시장 공통 주제 3회와 종목 3회를 예약하고, 종목 예산은 보유 종목 2개와 우선 후보 1개를 먼저 배정합니다. 남는 예산만 다음 우선순위로 넘깁니다.
 
-GDELT는 무료/무키 기반의 글로벌 뉴스 검색 API입니다. 제공자 장애, 검색 누락, 언어/출처 편향, 호출량 제한(HTTP 429)이 있을 수 있으며, 뉴스 조회 실패가 리포트 생성을 막지는 않습니다. 앱은 GDELT 쿼리를 순차 실행하고 일시적 실패를 재시도하지만, 제한이 계속되면 `report_inputs.news_context`에 실패 횟수와 사유를 남기고 기술·시장 데이터 중심으로 리포트를 생성합니다.
+GDELT는 무료/무키 기반의 글로벌 뉴스 검색 API입니다. 제공자 장애, 검색 누락, 언어/출처 편향, 호출량 제한(HTTP 429)이 있을 수 있으며, 뉴스 조회 실패가 리포트 생성을 막지는 않습니다. 앱은 연결/읽기 타임아웃을 분리하고 GDELT 쿼리를 순차 실행하며, 일시적 DNS·TLS·timeout·network·HTTP 오류만 제한적으로 재시도합니다. 일부 쿼리만 실패하면 `partial`, 전부 실패하면 `unavailable`로 기록하고 기술·시장 데이터 중심으로 계속 생성합니다.
+
+동일 URL의 추적 파라미터, 유사 제목과 동일 이벤트를 제거하고, 수집 시각 기준 3일을 벗어나거나 시각이 없고 종목명이 헤드라인과 일치하지 않는 기사는 제외합니다. 기사 본문은 읽지 않으므로 모든 근거는 `headline-only`입니다. `report_inputs.news_context`에는 검색어와 범위, 종목, 제목, 도메인, URL, 기사 시각, 수집 시각, 실패 분류, 증거 ID와 실제 리포트 인용 경로를 저장합니다. 제외된 기사도 중복 URL, 유사 이벤트, 시각 오류, 관련성 부족, 컨텍스트 한도 등의 사유와 함께 보존합니다. 뉴스는 현재 신뢰도 숫자를 직접 변경하지 않으므로 `news_contribution_mode=not_modeled`, `news_contribution_score=0`으로 기록합니다.
+
+Oracle VM에서 뉴스가 계속 `unavailable`이면 서비스 실행 사용자 기준으로 아래를 확인합니다.
+
+```bash
+python -c "import socket; print(socket.getaddrinfo('api.gdeltproject.org', 443))"
+openssl s_client -connect api.gdeltproject.org:443 -servername api.gdeltproject.org </dev/null
+curl -sS -o /dev/null -w 'connect=%{time_connect} tls=%{time_appconnect} start=%{time_starttransfer} total=%{time_total}\n' 'https://api.gdeltproject.org/api/v2/doc/doc?query=NASDAQ&mode=artlist&format=json&maxrecords=1&timespan=3d'
+sudo journalctl -u alphapilot-backend --since '30 minutes ago'
+```
+
+DNS, 인증서 체인/SNI, outbound 443 방화벽, CA bundle, 응답 시작 시간을 순서대로 확인합니다. GitHub Actions 사전 수집은 현재 구현하지 않으며, Oracle에서 반복 실패가 확인된 경우에만 별도 캐시 테이블과 스케줄러 계약을 설계합니다.
 
 스케줄러용 엔드포인트는 계속 `SCHEDULER_SECRET`을 사용합니다.
 

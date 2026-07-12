@@ -36,8 +36,8 @@ class ReportPersistence:
             report_data["report_inputs"] = report_inputs
         try:
             report = self.repository.create_report(report_data)
-        except Exception:
-            if "report_inputs" not in report_data:
+        except Exception as exc:
+            if "report_inputs" not in report_data or not self._is_missing_report_inputs_column(exc):
                 raise
             # 마이그레이션 010(report_inputs 컬럼) 미적용 환경에서도 리포트 저장은 계속한다.
             report_data.pop("report_inputs")
@@ -99,6 +99,23 @@ class ReportPersistence:
             frontend_timezone=frontend_timezone,
         )
         return report
+
+    def _is_missing_report_inputs_column(self, exc: BaseException) -> bool:
+        message = str(exc).casefold()
+        code = str(getattr(exc, "code", "") or "").upper()
+        if "report_inputs" not in message:
+            return False
+        if code in {"PGRST204", "42703"}:
+            return True
+        return (
+            "could not find the 'report_inputs' column" in message and "schema cache" in message
+        ) or any(
+            marker in message
+            for marker in (
+                'column "report_inputs" does not exist',
+                "column 'report_inputs' does not exist",
+            )
+        )
 
     def save_portfolio_snapshot(
         self,

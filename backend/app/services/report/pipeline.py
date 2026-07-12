@@ -171,6 +171,7 @@ class ReportService:
                     news_context,
                     asset_events,
                     app_settings,
+                    content,
                 ),
             )
         with self._timed_step("performance_backfill"):
@@ -453,7 +454,7 @@ class ReportService:
         """
         try:
             calibrator = ConfidenceCalibrator.from_repository(self.repository)
-            news_used = news_context.get("status") == "ok" and bool(news_context.get("articles"))
+            news_articles = news_context.get("articles") or []
             backend_inputs = {
                 normalize_ticker(row["asset"].get("ticker", "")): row for row in analysis_rows
             }
@@ -473,6 +474,13 @@ class ReportService:
                     base_confidence = source_strategy.confidence
                 technical_score = (
                     technical_analysis.technical_score if technical_analysis is not None else None
+                )
+                strategy_text = " ".join(
+                    (strategy.reasoning, strategy.risk, strategy.invalidation_condition)
+                )
+                news_used = any(
+                    self._text_uses_news_evidence(strategy_text, article)
+                    for article in news_articles
                 )
                 result = calibrator.calibrate(
                     action=strategy.action,
@@ -566,6 +574,7 @@ class ReportService:
         news_context: dict[str, Any],
         asset_events: dict[str, Any],
         app_settings: Any,
+        content: ReportContent,
     ) -> dict[str, Any]:
         """리포트 입력 스냅샷(데이터 품질 배지/사후 검증용, Phase 4-4)."""
         tickers: dict[str, Any] = {}
@@ -584,13 +593,7 @@ class ReportService:
         return {
             "prompt_version": PROMPT_VERSION,
             "tickers": tickers,
-            "news_context": {
-                "provider": news_context.get("provider"),
-                "status": news_context.get("status"),
-                "article_count": len(news_context.get("articles") or []),
-                "failure_count": news_context.get("failure_count", 0),
-                "failure_reasons": news_context.get("failure_reasons", []),
-            },
+            "news_context": self._news_input_snapshot(news_context, content),
             "asset_events": asset_events,
             "settings": {
                 "risk_profile": app_settings.risk_profile,
@@ -625,7 +628,15 @@ class ReportService:
         assets: list[dict[str, Any]],
     ) -> dict[str, Any]:
         try:
-            return self.news_service.fetch_report_context(report_type, assets)
+            context = self.news_service.fetch_report_context(report_type, assets)
+            context["articles"] = [
+                {
+                    **article,
+                    "evidence_id": article.get("evidence_id") or f"N{index}",
+                }
+                for index, article in enumerate(context.get("articles") or [], start=1)
+            ]
+            return context
         except Exception as exc:
             log_external_failure("gdelt", exc, {"operation": "build_news_context"})
             return {
@@ -633,7 +644,113 @@ class ReportService:
                 "status": "unavailable",
                 "articles": [],
                 "queries": [],
+                "query_details": [],
+                "failure_count": 1,
+                "failure_reasons": ["pipeline_error"],
             }
+
+    def _news_input_snapshot(
+        self,
+        news_context: dict[str, Any],
+        content: ReportContent,
+    ) -> dict[str, Any]:
+        articles = news_context.get("articles") or []
+        evidence_usage = self._news_evidence_usage(content, articles)
+        used_evidence_ids = sorted({row["evidence_id"] for row in evidence_usage})
+        query_details = news_context.get("query_details") or [
+            {"query": query, "scope": "unknown"} for query in news_context.get("queries") or []
+        ]
+        return {
+            "provider": news_context.get("provider"),
+            "status": news_context.get("status"),
+            "timespan": news_context.get("timespan"),
+            "generated_at": news_context.get("generated_at"),
+            "article_count": len(articles),
+            "news_context_used": bool(used_evidence_ids),
+            "news_contribution_score": 0.0,
+            "news_contribution_mode": "not_modeled",
+            "evidence_mode": "headline-only",
+            "queries": query_details,
+            "articles": [
+                {
+                    key: article.get(key)
+                    for key in (
+                        "query",
+                        "evidence_id",
+                        "query_scope",
+                        "asset_ticker",
+                        "asset_name",
+                        "subject_kind",
+                        "title",
+                        "domain",
+                        "url",
+                        "source_country",
+                        "language",
+                        "seen_at",
+                        "collected_at",
+                        "evidence_level",
+                    )
+                }
+                for article in articles
+            ],
+            "failure_count": news_context.get("failure_count", 0),
+            "failure_reasons": news_context.get("failure_reasons", []),
+            "failures": news_context.get("failures", []),
+            "excluded_articles": news_context.get("excluded_articles", []),
+            "used_evidence_ids": used_evidence_ids,
+            "evidence_usage": evidence_usage,
+        }
+
+    def _news_evidence_usage(
+        self,
+        content: ReportContent,
+        articles: list[dict[str, Any]],
+    ) -> list[dict[str, str]]:
+        fields: list[tuple[str, str]] = [
+            ("market_summary.summary", content.market_summary.summary),
+            *[
+                (f"market_summary.macro_factors[{index}]", value)
+                for index, value in enumerate(content.market_summary.macro_factors)
+            ],
+            *[(f"key_risks[{index}]", value) for index, value in enumerate(content.key_risks)],
+            *[
+                (f"opportunities[{index}]", value)
+                for index, value in enumerate(content.opportunities)
+            ],
+        ]
+        for index, strategy in enumerate(content.asset_strategies):
+            fields.extend(
+                [
+                    (f"asset_strategies[{index}].reasoning", strategy.reasoning),
+                    (f"asset_strategies[{index}].risk", strategy.risk),
+                    (
+                        f"asset_strategies[{index}].invalidation_condition",
+                        strategy.invalidation_condition,
+                    ),
+                ]
+            )
+        return [
+            {"evidence_id": article["evidence_id"], "output_path": path}
+            for path, value in fields
+            for article in articles
+            if article.get("evidence_id") and self._text_uses_news_evidence(value, article)
+        ]
+
+    def _text_uses_news_evidence(self, value: str, article: dict[str, Any]) -> bool:
+        evidence_id = str(article.get("evidence_id") or "")
+        domain = str(article.get("domain") or "")
+        url = str(article.get("url") or "")
+        seen_date = str(article.get("seen_at") or "")[:10]
+        return bool(
+            evidence_id
+            and domain
+            and url
+            and seen_date
+            and f"[{evidence_id}" in value
+            and domain in value
+            and url in value
+            and seen_date in value
+        )
 
     def _enforce_stale_rules(
         self,
@@ -671,11 +788,15 @@ class ReportService:
         status = news_context.get("status")
         macro_factors = list(content.market_summary.macro_factors)
         key_risks = list(content.key_risks)
-        if status == "ok" and articles:
-            note = f"최근 뉴스/동향 컨텍스트(GDELT) {len(articles)}건을 분석 입력에 반영했습니다."
+        if status in {"ok", "partial"} and articles:
+            note = f"최근 뉴스/동향 컨텍스트(GDELT) {len(articles)}건을 분석 입력으로 제공했습니다."
             if note not in macro_factors:
                 macro_factors.append(note)
-        elif status in {"empty", "unavailable"}:
+            if status == "partial":
+                risk_note = "일부 뉴스 검색이 실패해 제공된 헤드라인만 제한적으로 사용했습니다."
+                if risk_note not in key_risks:
+                    key_risks.append(risk_note)
+        elif status in {"empty", "unavailable", "partial"}:
             note = "최근 뉴스/동향 컨텍스트가 제한적이어서 기술·시장 데이터 비중을 높였습니다."
             if note not in key_risks:
                 key_risks.append(note)
