@@ -21,7 +21,7 @@ RESERVED_MARKET_QUERIES = 3
 MAX_ARTICLES_PER_QUERY = 3
 MAX_CONTEXT_ARTICLES = 18
 NEWS_TIMESPAN = "3d"
-NEWS_QUERY_PAUSE_SECONDS = 0.5
+NEWS_QUERY_PAUSE_SECONDS = 5.5
 RETRYABLE_HTTP_STATUS = {408, 425, 429, 500, 502, 503, 504}
 TRACKING_QUERY_PARAMETERS = {"fbclid", "gclid", "mc_cid", "mc_eid"}
 TITLE_TOKEN_PATTERN = re.compile(r"[^\W_]+", re.UNICODE)
@@ -61,8 +61,8 @@ class NewsService:
         opener: Any | None = None,
         timeout_seconds: float | None = None,
         pause_seconds: float = NEWS_QUERY_PAUSE_SECONDS,
-        connect_timeout_seconds: float = 3,
-        read_timeout_seconds: float = 5,
+        connect_timeout_seconds: float = 15,
+        read_timeout_seconds: float = 10,
         now_provider: Callable[[], datetime] | None = None,
     ) -> None:
         self.opener = opener or urlopen
@@ -260,7 +260,7 @@ class NewsService:
 
     @retry(
         stop=stop_after_attempt(2),
-        wait=wait_exponential(multiplier=1, min=1, max=3),
+        wait=wait_exponential(multiplier=5, min=5, max=10),
         retry=retry_if_exception(_is_retryable_news_error),
         reraise=True,
     )

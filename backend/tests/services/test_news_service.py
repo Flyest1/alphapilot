@@ -206,7 +206,7 @@ def test_fetch_retries_transient_timeout_and_reports_structured_failure_details(
     calls = 0
 
     def opener(_request, timeout):
-        assert timeout == 3
+        assert timeout == 15
         nonlocal calls
         calls += 1
         raise socket.timeout("slow")
@@ -236,7 +236,7 @@ def test_mixed_success_returns_partial_and_invalid_timestamps_are_rejected():
     calls = 0
 
     def opener(_request, timeout):
-        assert timeout == 3
+        assert timeout == 15
         nonlocal calls
         calls += 1
         if calls == 2:
@@ -265,7 +265,7 @@ def test_one_failed_query_and_other_empty_queries_is_partial_not_unavailable():
     calls = 0
 
     def opener(_request, timeout):
-        assert timeout == 3
+        assert timeout == 15
         nonlocal calls
         calls += 1
         if calls == 1:
