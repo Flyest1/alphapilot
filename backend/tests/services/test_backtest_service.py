@@ -76,6 +76,9 @@ def test_rule_backtest_returns_reproducible_simulation_groups():
     assert result["input_snapshot"]["data_sources"][0]["provider"] == "mock"
     assert result["market_results"][0]["market"] == "US"
     assert result["market_results"][0]["baselines"]
+    assert result["signal_research"]["research_only"] is True
+    assert result["signal_research"]["adoption_permitted"] is False
+    assert result["signal_research"]["signal_count"] > 0
     assert result["bias_warnings"]
     assert "시뮬레이션" in result["disclaimer"]
 
@@ -129,6 +132,29 @@ def test_rule_backtest_builds_walk_forward_and_regime_results():
     assert result["walk_forward"]["embargo_samples"] >= 1
     assert result["regime_groups"]
     assert sum(row["sample_count"] for row in result["regime_groups"]) == result["sample_count"]
+    assert result["signal_research"]["walk_forward"]["fold_count"] >= 3
+
+
+def test_research_folds_use_full_horizon_embargo_and_date_boundaries():
+    service = RuleBacktestService(InMemoryRepository(), FakeMarketData())
+    samples = []
+    for day in range(80):
+        decision_date = str((pd.Timestamp("2025-01-01") + pd.Timedelta(days=day)).date())
+        label_end_date = str((pd.Timestamp("2025-01-01") + pd.Timedelta(days=day + 20)).date())
+        for ticker in ("AAA", "BBB"):
+            samples.append(
+                {
+                    "date": decision_date,
+                    "label_end_date": label_end_date,
+                    "ticker": ticker,
+                }
+            )
+
+    folds = service._research_folds(samples, forward_days=20, sample_step=1)
+
+    assert folds
+    assert all("test_dates" in fold and "test_indices" not in fold for fold in folds)
+    assert all(len(fold["test_dates"]) == len(set(fold["test_dates"])) for fold in folds)
 
 
 def test_same_date_tickers_are_equal_weighted_before_compounding():
@@ -196,6 +222,105 @@ def test_backtest_enters_at_next_trading_day_price():
 
     assert samples[0]["entry_date"] == str(index[120].date())
     assert samples[0]["forward_return"] == -25.0
+
+
+def test_research_signals_use_only_information_available_at_decision_date():
+    service = RuleBacktestService(InMemoryRepository(), FakeMarketData())
+    index = pd.date_range("2024-01-02", periods=150, freq="B")
+    values = pd.Series(range(100, 250), index=index, dtype=float)
+    frame = pd.DataFrame(
+        {
+            "open": values,
+            "high": values + 1,
+            "low": values - 1,
+            "close": values,
+            "volume": values * 100,
+        },
+        index=index,
+    )
+    benchmark = frame.copy()
+    changed_future = benchmark.copy()
+    changed_future.loc[index[120] :, "close"] *= 10
+    changed_future.index = changed_future.index.tz_localize("UTC")
+
+    first = service._samples_for_frame(
+        {"ticker": "AAPL", "name": "Apple", "market": "US", "currency": "USD"},
+        frame,
+        forward_days=5,
+        sample_step=20,
+        risk_profile="balanced",
+        app_settings=Settings(),
+        benchmark_frame=benchmark,
+    )
+    second = service._samples_for_frame(
+        {"ticker": "AAPL", "name": "Apple", "market": "US", "currency": "USD"},
+        frame,
+        forward_days=5,
+        sample_step=20,
+        risk_profile="balanced",
+        app_settings=Settings(),
+        benchmark_frame=changed_future,
+    )
+
+    assert first[0]["signals"] == second[0]["signals"]
+    assert first[0]["score"] == second[0]["score"]
+    assert first[0]["action"] == second[0]["action"]
+
+
+def test_research_signal_failure_does_not_interrupt_operational_backtest():
+    class FailingResearchTechnicalAnalysis:
+        def analyze(self, *_args, **_kwargs):
+            return SimpleNamespace(technical_score=70, trend_label="bull", indicators={})
+
+        def calculate_research_signals(self, *_args, **_kwargs):
+            raise RuntimeError("research failed")
+
+    service = RuleBacktestService(
+        InMemoryRepository(),
+        FakeMarketData(),
+        technical_analysis_service=FailingResearchTechnicalAnalysis(),
+    )
+    frame = FakeMarketData(size=130).fetch_price_history().dataframe
+
+    samples = service._samples_for_frame(
+        {"ticker": "AAPL", "name": "Apple", "market": "US", "currency": "USD"},
+        frame,
+        forward_days=5,
+        sample_step=20,
+        risk_profile="balanced",
+        app_settings=Settings(),
+    )
+
+    assert samples
+    assert samples[0]["signals"] == {}
+    assert samples[0]["action"] == "HOLD"
+
+
+def test_research_evaluation_failure_does_not_interrupt_operational_backtest():
+    class FailingSignalResearch:
+        def evaluate(self, *_args, **_kwargs):
+            raise RuntimeError("evaluation failed")
+
+    repository = InMemoryRepository()
+    repository.upsert_candidate_universe(
+        {
+            "report_type": "global",
+            "market": "US",
+            "ticker": "AAPL",
+            "name": "Apple",
+            "currency": "USD",
+            "source": "test",
+        }
+    )
+    result = RuleBacktestService(
+        repository,
+        FakeMarketData(),
+        signal_research_service=FailingSignalResearch(),
+    ).run("global")
+
+    assert result["groups"]
+    assert result["signal_research"]["status"] == "unavailable"
+    assert result["signal_research"]["adoption_permitted"] is False
 
 
 def test_action_cost_and_turnover_match_recommendation_meaning():

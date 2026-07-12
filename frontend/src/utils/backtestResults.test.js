@@ -7,6 +7,7 @@ import {
   metricValue,
   marketRows,
   regimeRows,
+  signalResearchRows,
   walkForwardRows,
 } from "./backtestResults.js";
 
@@ -49,6 +50,22 @@ const result = {
       walk_forward: { fold_count: 2 },
     },
   ],
+  signal_research: {
+    research_only: true,
+    adoption_permitted: false,
+    signals: [
+      {
+        signal: "relative_strength_20",
+        status: "candidate",
+        sample_count: 30,
+        reasons: [],
+        standalone_spread: { net_return_spread_pct: 1.5 },
+        incremental_rank_combination: { incremental: { expected_value_pct: 0.4 } },
+        spearman: { signal_to_technical_score: 0.2 },
+        consistency: { walk_forward_direction: { valid_fold_count: 3 } },
+      },
+    ],
+  },
 };
 
 describe("backtestResults", () => {
@@ -75,11 +92,24 @@ describe("backtestResults", () => {
       benchmarkReturn: 2,
       excessReturn: 2,
     });
+    expect(signalResearchRows(result)[0]).toMatchObject({
+      signal: "relative_strength_20",
+      statusLabel: "검토 후보",
+      spread: 1.5,
+      incrementalValue: 0.4,
+      validFoldCount: 3,
+    });
   });
 
   it("supports legacy backtest responses", () => {
     expect(backtestSummary({}).every((row) => row.value === "-")).toBe(true);
     expect(baselineRows({})).toEqual([]);
     expect(walkForwardRows({})).toEqual([]);
+    expect(signalResearchRows({})).toEqual([]);
+    expect(
+      signalResearchRows({
+        signal_research: { research_only: true, adoption_permitted: true, signals: [{}] },
+      }),
+    ).toEqual([]);
   });
 });

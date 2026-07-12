@@ -43,6 +43,21 @@ class TechnicalAnalysisService:
         "high_20",
         "low_20",
     )
+    RESEARCH_SIGNAL_COLUMNS = (
+        "sma_20_slope_normalized",
+        "return_5d",
+        "return_20d",
+        "return_60d",
+        "return_120d",
+        "momentum_consistency",
+        "relative_volume_20",
+        "average_traded_value_20",
+        "realized_volatility_20",
+        "atr_percentile_120",
+        "drawdown_60",
+        "relative_strength_20",
+        "relative_strength_60",
+    )
 
     def calculate_indicators(self, dataframe: pd.DataFrame) -> pd.DataFrame:
         frame = dataframe.copy()
@@ -74,6 +89,75 @@ class TechnicalAnalysisService:
         frame["high_20"] = high.rolling(window=20).max()
         frame["low_20"] = low.rolling(window=20).min()
         return frame
+
+    def calculate_research_signals(
+        self,
+        dataframe: pd.DataFrame,
+        benchmark: pd.DataFrame | None = None,
+    ) -> pd.DataFrame:
+        """Calculate trailing-only research features without changing production scores."""
+        signals = pd.DataFrame(index=dataframe.index, columns=self.RESEARCH_SIGNAL_COLUMNS)
+        if dataframe.empty:
+            return signals
+
+        close = pd.to_numeric(dataframe["close"], errors="coerce")
+        high = pd.to_numeric(dataframe["high"], errors="coerce") if "high" in dataframe else close
+        low = pd.to_numeric(dataframe["low"], errors="coerce") if "low" in dataframe else close
+        volume = (
+            pd.to_numeric(dataframe["volume"], errors="coerce")
+            if "volume" in dataframe
+            else pd.Series(0.0, index=dataframe.index)
+        )
+
+        sma_20 = close.rolling(window=20).mean()
+        signals["sma_20_slope_normalized"] = (sma_20 / sma_20.shift(20)) - 1
+
+        returns = pd.DataFrame(
+            {
+                "return_5d": close.pct_change(periods=5, fill_method=None),
+                "return_20d": close.pct_change(periods=20, fill_method=None),
+                "return_60d": close.pct_change(periods=60, fill_method=None),
+                "return_120d": close.pct_change(periods=120, fill_method=None),
+            },
+            index=dataframe.index,
+        )
+        signals[returns.columns] = returns
+        signals["momentum_consistency"] = returns.gt(0).where(returns.notna()).mean(axis=1)
+        signals.loc[returns.isna().any(axis=1), "momentum_consistency"] = np.nan
+
+        volume_mean_20 = volume.rolling(window=20).mean()
+        signals["relative_volume_20"] = volume / volume_mean_20.replace(0, np.nan)
+        signals["average_traded_value_20"] = (close * volume).rolling(window=20).mean()
+
+        daily_returns = close.pct_change(fill_method=None)
+        signals["realized_volatility_20"] = daily_returns.rolling(window=20).std(ddof=0) * np.sqrt(
+            252
+        )
+        atr_14 = self._atr_wilder(high, low, close, 14)
+        signals["atr_percentile_120"] = atr_14.rolling(window=120).apply(
+            self._last_value_percentile,
+            raw=False,
+        )
+        signals["drawdown_60"] = (close / close.rolling(window=60).max()) - 1
+
+        if benchmark is None:
+            signals["relative_strength_20"] = None
+            signals["relative_strength_60"] = None
+            return signals
+
+        benchmark_close = pd.to_numeric(benchmark["close"], errors="coerce")
+        aligned = pd.concat(
+            [close.rename("asset"), benchmark_close.rename("benchmark")],
+            axis=1,
+            join="inner",
+        ).dropna()
+        for period in (20, 60):
+            relative_strength = (
+                (aligned["asset"] / aligned["asset"].shift(period))
+                / (aligned["benchmark"] / aligned["benchmark"].shift(period))
+            ) - 1
+            signals.loc[relative_strength.index, f"relative_strength_{period}"] = relative_strength
+        return signals
 
     def analyze(self, ticker: str, dataframe: pd.DataFrame) -> TechnicalAnalysisResult:
         if dataframe.empty:
@@ -234,6 +318,9 @@ class TechnicalAnalysisService:
         rsi = rsi.mask((average_loss == 0) & average_gain.notna(), 100)
         rsi = rsi.mask((average_gain == 0) & (average_loss > 0), 0)
         return rsi
+
+    def _last_value_percentile(self, values: pd.Series) -> float:
+        return float((values <= values.iloc[-1]).mean())
 
     def _numeric(self, value: Any) -> float:
         parsed = self._to_optional_float(value)

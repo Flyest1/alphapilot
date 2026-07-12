@@ -110,3 +110,23 @@ export function marketRows(backtest) {
     };
   });
 }
+
+export function signalResearchRows(backtest) {
+  if (
+    backtest?.signal_research?.research_only !== true ||
+    backtest?.signal_research?.adoption_permitted !== false
+  ) {
+    return [];
+  }
+  return (backtest?.signal_research?.signals || []).map((row) => ({
+    signal: row.signal,
+    status: row.status,
+    statusLabel: row.status === "candidate" ? "검토 후보" : "제외",
+    sampleCount: row.sample_count,
+    spread: row.standalone_spread?.net_return_spread_pct,
+    incrementalValue: row.incremental_rank_combination?.incremental?.expected_value_pct,
+    technicalCorrelation: row.spearman?.signal_to_technical_score,
+    validFoldCount: row.consistency?.walk_forward_direction?.valid_fold_count || 0,
+    reasons: row.reasons || [],
+  }));
+}

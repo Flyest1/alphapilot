@@ -22,6 +22,7 @@ from app.services.backtest_validation import (
 )
 from app.services.market_data_service import MarketDataService
 from app.services.report.tracking import evaluate_barriers, horizon_days
+from app.services.signal_research_service import SignalResearchService
 from app.services.strategy_service import StrategyService
 from app.services.technical_analysis_service import TechnicalAnalysisService
 from app.utils.logging import log_external_failure
@@ -49,10 +50,12 @@ class RuleBacktestService:
         repository: Repository,
         market_data_service: MarketDataService,
         technical_analysis_service: TechnicalAnalysisService | None = None,
+        signal_research_service: SignalResearchService | None = None,
     ) -> None:
         self.repository = repository
         self.market_data_service = market_data_service
         self.technical_analysis_service = technical_analysis_service or TechnicalAnalysisService()
+        self.signal_research_service = signal_research_service or SignalResearchService()
         self.strategy_service = StrategyService()
 
     def run(
@@ -71,6 +74,7 @@ class RuleBacktestService:
         resolved_forward_days = forward_days or horizon_days(app_settings.candidate_horizon)
         resolved_sample_step = max(sample_step, resolved_forward_days)
         universe = self.repository.list_candidate_universe(report_type)[: max(1, min(limit, 30))]
+        benchmark_frame = self._benchmark_frame(report_type)
         samples: list[dict[str, Any]] = []
         tested_tickers = []
         liquidity_missing = 0
@@ -89,6 +93,7 @@ class RuleBacktestService:
                     sample_step=resolved_sample_step,
                     risk_profile=resolved_risk_profile,
                     app_settings=app_settings,
+                    benchmark_frame=benchmark_frame,
                 )
             except Exception as exc:
                 log_external_failure(
@@ -146,6 +151,11 @@ class RuleBacktestService:
             ]
         )
         regime_groups = self._regime_groups(validation_groups)
+        signal_research = self._signal_research(
+            samples,
+            resolved_forward_days,
+            resolved_sample_step,
+        )
         market_results = self._market_results(
             samples,
             resolved_forward_days,
@@ -207,6 +217,7 @@ class RuleBacktestService:
             "validation_groups": validation_groups,
             "regime_groups": regime_groups,
             "market_results": market_results,
+            "signal_research": signal_research,
             "metric_definitions": {
                 "sortino": "MAR 0%, 전체 평가기간의 음수 편차를 사용",
                 "annualized_return": "날짜별 동일가중 신호 바스켓의 평가기간 연환산 수익률",
@@ -224,6 +235,7 @@ class RuleBacktestService:
         sample_step: int,
         risk_profile: str,
         app_settings: Any,
+        benchmark_frame: pd.DataFrame | None = None,
     ) -> list[dict[str, Any]]:
         if frame is None or frame.empty or len(frame) < 120 + forward_days:
             return []
@@ -231,6 +243,8 @@ class RuleBacktestService:
         for index in range(119, len(frame) - forward_days, sample_step):
             history = frame.iloc[: index + 1]
             result = self.technical_analysis_service.analyze(asset["ticker"], history)
+            benchmark_history = self._benchmark_history(benchmark_frame, frame.index[index])
+            research_signals = self._research_signals(history, benchmark_history)
             entry_index = index + 1
             entry_column = "open" if "open" in frame else "close"
             entry_price = float(frame.iloc[entry_index][entry_column])
@@ -283,6 +297,7 @@ class RuleBacktestService:
                     "entry_price": entry_price,
                     "horizon_price": future_price,
                     "score": result.technical_score,
+                    "technical_score": result.technical_score,
                     "action": strategy.action,
                     "regime": classify_market_regime(frame, index),
                     "gross_return_pct": self._bounded_return(gross_return_pct),
@@ -311,6 +326,7 @@ class RuleBacktestService:
                     },
                     "turnover": turnover,
                     "exposure_assumption": self._exposure_assumption(strategy.action),
+                    "signals": research_signals,
                 }
             )
         return rows
@@ -526,6 +542,101 @@ class RuleBacktestService:
             )
         return rows
 
+    def _benchmark_frame(self, report_type: str) -> pd.DataFrame | None:
+        try:
+            indices = self.market_data_service.fetch_major_indices(
+                report_type,
+                lookback_days=760,
+            )
+        except Exception as exc:
+            log_external_failure("backtest", exc, {"operation": "fetch_research_benchmark"})
+            return None
+        benchmark_name = "KOSPI" if report_type == "domestic" else "S&P 500"
+        result = indices.get(benchmark_name)
+        return result.dataframe if result is not None and not result.dataframe.empty else None
+
+    def _research_folds(
+        self,
+        samples: list[dict[str, Any]],
+        forward_days: int,
+        sample_step: int,
+    ) -> list[dict[str, Any]]:
+        decision_dates = sorted({str(sample["date"]) for sample in samples})
+        if len(decision_dates) < 16:
+            return []
+        validation = create_walk_forward_folds(
+            samples,
+            train_size=max(10, len(decision_dates) * 2 // 5),
+            test_size=max(5, len(decision_dates) // 6),
+            forward_days=max(1, ceil(forward_days / sample_step)),
+        )
+        return [
+            {"test_dates": sorted({str(samples[index]["date"]) for index in fold["test_indices"]})}
+            for fold in validation["folds"]
+        ]
+
+    def _research_signals(
+        self,
+        history: pd.DataFrame,
+        benchmark_history: pd.DataFrame | None,
+    ) -> dict[str, float | None]:
+        calculator = getattr(self.technical_analysis_service, "calculate_research_signals", None)
+        if calculator is None:
+            return {}
+        try:
+            research_frame = calculator(history, benchmark_history)
+        except Exception as exc:
+            log_external_failure("backtest", exc, {"operation": "calculate_research_signals"})
+            return {}
+        if research_frame is None or research_frame.empty:
+            return {}
+        return {key: self._optional_float(value) for key, value in research_frame.iloc[-1].items()}
+
+    def _signal_research(
+        self,
+        samples: list[dict[str, Any]],
+        forward_days: int,
+        sample_step: int,
+    ) -> dict[str, Any]:
+        try:
+            return self.signal_research_service.evaluate(
+                samples,
+                walk_forward_folds=self._research_folds(
+                    samples,
+                    forward_days,
+                    sample_step,
+                ),
+            )
+        except Exception as exc:
+            log_external_failure("backtest", exc, {"operation": "evaluate_signal_research"})
+            return {
+                "research_only": True,
+                "adoption_permitted": False,
+                "status": "unavailable",
+                "sample_count": len(samples),
+                "signal_count": 0,
+                "signals": [],
+                "disclaimer": (
+                    "연구 진단을 생성하지 못했습니다. 운영 점수와 추천 액션에는 영향이 없습니다."
+                ),
+            }
+
+    def _benchmark_history(
+        self,
+        benchmark_frame: pd.DataFrame | None,
+        decision_date: Any,
+    ) -> pd.DataFrame | None:
+        if benchmark_frame is None or benchmark_frame.empty:
+            return None
+        try:
+            normalized = benchmark_frame.copy()
+            normalized.index = pd.to_datetime(normalized.index, utc=True).tz_localize(None)
+            cutoff = pd.to_datetime(decision_date, utc=True).tz_localize(None)
+            return normalized[normalized.index <= cutoff]
+        except Exception as exc:
+            log_external_failure("backtest", exc, {"operation": "align_research_benchmark"})
+            return None
+
     def _average_trading_value(self, history: pd.DataFrame, asset: dict[str, Any], settings: Any):
         if "volume" not in history or history["volume"].tail(20).isna().all():
             return None
@@ -595,6 +706,10 @@ class RuleBacktestService:
 
     def _bounded_return(self, value: float) -> float:
         return round(max(float(value), -99.999999), 6)
+
+    def _optional_float(self, value: Any) -> float | None:
+        numeric = pd.to_numeric(value, errors="coerce")
+        return float(numeric) if pd.notna(numeric) else None
 
     def _average(self, values: list[Any]) -> float:
         return round(sum(float(value) for value in values) / len(values), 6) if values else 0.0

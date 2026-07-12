@@ -11,6 +11,7 @@ import {
   marketRows,
   metricValue,
   regimeRows,
+  signalResearchRows,
   walkForwardRows,
 } from "../utils/backtestResults.js";
 import { formatReturn } from "../utils/formatters.js";
@@ -77,6 +78,10 @@ export default function Performance() {
   const backtestRegimes = regimeRows(backtest);
   const backtestFolds = walkForwardRows(backtest);
   const backtestMarkets = marketRows(backtest);
+  const researchSignals = signalResearchRows(backtest);
+  const showSignalResearch =
+    backtest?.signal_research?.research_only === true &&
+    backtest?.signal_research?.adoption_permitted === false;
 
   return (
     <section className="page">
@@ -300,6 +305,52 @@ export default function Performance() {
                   </tbody>
                 </table>
               </div>
+            )}
+            {showSignalResearch && (
+              <section className="panel nested-panel">
+                <div className="section-heading">
+                  <div>
+                    <h3>직교 신호 연구 진단</h3>
+                    <p>연구 전용 결과이며 운영 점수와 추천 액션에는 반영되지 않습니다.</p>
+                  </div>
+                  <span className="status-pill warning">운영 미반영</span>
+                </div>
+                {researchSignals.length === 0 ? (
+                  <p className="empty-state">평가 가능한 연구 신호가 없습니다.</p>
+                ) : (
+                  <div className="table-wrap">
+                    <table className="compact-table">
+                      <thead>
+                        <tr>
+                          <th>신호</th>
+                          <th>상태</th>
+                          <th>표본</th>
+                          <th>상·하위 순수익 차이</th>
+                          <th>증분 기대값</th>
+                          <th>기술점수 상관</th>
+                          <th>유효 fold</th>
+                          <th>제외 사유</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {researchSignals.map((row) => (
+                          <tr key={row.signal}>
+                            <td>{row.signal}</td>
+                            <td>{row.statusLabel}</td>
+                            <td>{row.sampleCount}</td>
+                            <td>{metricValue(row.spread, 2, "%p")}</td>
+                            <td>{metricValue(row.incrementalValue, 2, "%p")}</td>
+                            <td>{metricValue(row.technicalCorrelation)}</td>
+                            <td>{row.validFoldCount}</td>
+                            <td>{row.reasons.join(", ") || "-"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <p className="field-hint">{backtest.signal_research.disclaimer}</p>
+              </section>
             )}
             {backtest.costs && (
               <div className="inline-metrics">
