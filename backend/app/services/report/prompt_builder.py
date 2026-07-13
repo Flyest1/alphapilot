@@ -6,7 +6,7 @@ from app.models.report import AssetStrategy
 from app.services.technical_analysis_service import TechnicalAnalysisResult
 
 DISCLAIMER = "이 리포트는 투자 의사결정 지원용이며 자동 매매를 실행하지 않습니다."
-PROMPT_VERSION = "2026-07-r2"
+PROMPT_VERSION = "2026-07-r3"
 
 
 def build_prompt(report_type: str) -> str:
@@ -23,6 +23,12 @@ def build_prompt(report_type: str) -> str:
         "output. Use decision-support language only. Do not add a news_factors field. Include "
         "action, confidence, ranges, target, stop-loss, reasoning, risk, and invalidation "
         "condition for each non-stale strategy. Write user-facing text fields in Korean, "
+        "Copy every quantitative and enum value from context exactly. Backend-owned fields are "
+        "report_type, generated_at, market_summary.key_indices, portfolio numeric values, and "
+        "each strategy's ticker, name, current_price, action, confidence, ranges, target_price, "
+        "stop_loss, confidence_detail, and position_sizing. Only author narrative text in summary, "
+        "macro_factors, key_risks, opportunities, allocation_comment, reasoning, risk, and "
+        "invalidation_condition. Never add a ticker absent from context.technical_strategies. "
         "including market_summary.summary, macro_factors, key_risks, opportunities, "
         "reasoning, risk, invalidation_condition, and allocation_comment. Keep schema keys, "
         "ticker symbols, and action enum values in English exactly as required. Do not write "

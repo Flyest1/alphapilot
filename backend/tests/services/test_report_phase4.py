@@ -182,7 +182,7 @@ def test_generate_report_calibrates_confidence_with_enough_samples():
     content = ReportContent.model_validate(report["content"])
 
     owned = next(s for s in content.asset_strategies if s.ticker == "005930")
-    assert owned.confidence == 78  # 60 × (0.5 + 0.8)
+    assert owned.confidence == 60
     assert owned.confidence_detail["calibrated"] is True
     assert owned.confidence_detail["sample_size"] == 30
     assert owned.confidence_detail["calibration_factor"] == 1.3

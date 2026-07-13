@@ -488,6 +488,8 @@ class AssetStrategy(BaseModel):
     reasoning: str
     risk: str
     invalidation_condition: str
+    confidence_detail: Optional[dict] = None
+    position_sizing: Optional[dict] = None
 
 
 class MarketSummary(BaseModel):

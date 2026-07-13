@@ -260,6 +260,19 @@ GDELT 뉴스 파이프라인을 코드와 실제 운영 상태를 기준으로 �
 
 목표: AI를 계산 엔진이 아니라 설명·반론·누락 탐지 계층으로 사용한다.
 
+구현 상태(2026-07-12): **코드·UI·로컬 검증 완료, 운영 배포 대기**
+
+- 사용자 승인에 따라 기존 `ReportContent`의 `confidence_detail`, `position_sizing` 선택 필드를
+  권위 스키마에 공식 반영했다.
+- AI 출력의 report type, 생성시각, 지수, 포트폴리오 숫자와 모든 전략 숫자·액션·범위를
+  백엔드 분석 결과로 재구성하고 unknown/중복 종목을 제거한다.
+- AI가 작성한 요약·위험·기회·근거·무효화 조건 등 narrative만 허용하며 stale/data-limited는
+  narrative도 백엔드 값으로 강제한다.
+- 금지된 수익 보장·무위험·강제 매수/매도 표현은 technical-only fallback으로 전환한다.
+- `report_inputs.ai_generation`에 생성 모드, 모델, 시도 횟수, fallback 사유와 안전한 사실 수정
+  경로를 저장하고 Status 화면에 최신 국내·글로벌 모드와 fallback 수를 표시한다.
+- technical-only fallback은 승률 보정 후에도 최종 confidence 60 상한을 유지한다.
+
 #### 4-1. 백엔드 소유 필드
 
 다음 값은 AI 응답을 신뢰하지 않고 백엔드 계산값으로 확정한다.

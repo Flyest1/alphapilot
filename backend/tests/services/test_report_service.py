@@ -165,6 +165,134 @@ def test_openai_failure_generates_technical_only_report_with_capped_confidence()
     assert content.asset_strategies[0].reasoning == "technical-only fallback (LLM unavailable)"
     assert content.asset_strategies[0].confidence == 60
     assert repo.list_performance_logs()
+    saved = repo.get_report(report["id"])
+    assert saved["report_inputs"]["ai_generation"]["mode"] == "technical_only"
+    assert saved["report_inputs"]["ai_generation"]["fallback_reason"] == "provider_error"
+
+
+def test_ai_cannot_override_backend_facts_or_inject_unknown_tickers():
+    class MaliciousAI:
+        def generate_report(self, _prompt, _context):
+            return {
+                "report_type": "global",
+                "generated_at": "2000-01-01T00:00:00+00:00",
+                "market_summary": {
+                    "summary": "AI narrative",
+                    "key_indices": [{"name": "fabricated", "technical_score": 0}],
+                    "macro_factors": [],
+                },
+                "portfolio_summary": {
+                    "total_market_value": 1,
+                    "total_return_rate": -99,
+                    "risk_level": "high",
+                    "allocation_comment": "AI allocation narrative",
+                },
+                "key_risks": [],
+                "opportunities": [],
+                "asset_strategies": [
+                    {
+                        "ticker": "005930.KS",
+                        "name": "AI Samsung",
+                        "current_price": 1,
+                        "action": "SELL",
+                        "confidence": 99,
+                        "buy_range_low": 1,
+                        "buy_range_high": 2,
+                        "sell_range_low": 3,
+                        "sell_range_high": 4,
+                        "target_price": 1,
+                        "stop_loss": 999,
+                        "reasoning": "AI reasoning",
+                        "risk": "AI risk",
+                        "invalidation_condition": "AI invalidation",
+                        "confidence_detail": {"fabricated": True},
+                        "position_sizing": {"fabricated": True},
+                    },
+                    {
+                        "ticker": "MALLORY",
+                        "name": "Unknown",
+                        "current_price": 1,
+                        "action": "BUY",
+                        "confidence": 100,
+                        "reasoning": "unknown",
+                        "risk": "unknown",
+                        "invalidation_condition": "unknown",
+                    },
+                ],
+                "disclaimer": "guaranteed profit",
+            }
+
+    repo = seeded_repo()
+    service = ReportService(
+        repo,
+        market_data_service=FakeMarketData(),
+        technical_analysis_service=FakeTechnical(),
+        ai_provider=MaliciousAI(),
+        news_service=FakeNews(),
+    )
+
+    report = service.generate_report("domestic")
+    content = ReportContent.model_validate(report["content"])
+    saved = repo.get_report(report["id"])
+    inputs = saved["report_inputs"]
+
+    assert content.report_type == "domestic"
+    assert content.disclaimer == DISCLAIMER
+    assert content.market_summary.summary == "AI narrative"
+    assert content.market_summary.key_indices[0]["name"] == "KOSPI"
+    assert content.portfolio_summary.total_market_value != 1
+    assert content.portfolio_summary.total_return_rate != -99
+    assert "MALLORY" not in {strategy.ticker for strategy in content.asset_strategies}
+    assert {strategy.ticker for strategy in content.asset_strategies} == {"005930", "035420"}
+    samsung = next(strategy for strategy in content.asset_strategies if strategy.ticker == "005930")
+    assert samsung.current_price == inputs["tickers"]["005930"]["current_price"]
+    assert samsung.action == inputs["tickers"]["005930"]["action"]
+    assert samsung.target_price == inputs["tickers"]["005930"]["target_price"]
+    assert samsung.stop_loss == inputs["tickers"]["005930"]["stop_loss"]
+    assert samsung.reasoning == "AI reasoning"
+    assert samsung.position_sizing is None
+    assert inputs["ai_generation"]["mode"] == "ai_narrative"
+    assert inputs["ai_generation"]["fact_correction_count"] > 0
+
+
+def test_forbidden_ai_narrative_uses_technical_only_fallback():
+    class ForbiddenNarrativeAI:
+        def generate_report(self, _prompt, _context):
+            return {
+                "report_type": "domestic",
+                "generated_at": "2026-07-12T00:00:00+00:00",
+                "market_summary": {
+                    "summary": "반드시 매수하면 수익 보장",
+                    "key_indices": [],
+                    "macro_factors": [],
+                },
+                "portfolio_summary": {
+                    "total_market_value": 0,
+                    "total_return_rate": 0,
+                    "risk_level": "medium",
+                    "allocation_comment": "balanced",
+                },
+                "key_risks": [],
+                "opportunities": [],
+                "asset_strategies": [],
+                "disclaimer": DISCLAIMER,
+            }
+
+    repo = seeded_repo()
+    report = ReportService(
+        repo,
+        market_data_service=FakeMarketData(),
+        technical_analysis_service=FakeTechnical(),
+        ai_provider=ForbiddenNarrativeAI(),
+        news_service=FakeNews(),
+    ).generate_report("domestic")
+    content = ReportContent.model_validate(report["content"])
+    saved = repo.get_report(report["id"])
+
+    assert "AI reasoning unavailable for this report" in content.key_risks
+    assert saved["report_inputs"]["ai_generation"]["mode"] == "technical_only"
+    assert saved["report_inputs"]["ai_generation"]["fallback_reason"] == "forbidden_narrative"
+    assert saved["report_inputs"]["ai_generation"]["validation_paths"] == ["market_summary.summary"]
 
 
 def test_data_limited_strategy_overrides_ai_quantitative_output():

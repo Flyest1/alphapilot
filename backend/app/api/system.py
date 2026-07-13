@@ -77,6 +77,7 @@ def get_system_status(repository: Repository = Depends(get_repository)) -> dict[
     database_error = "; ".join(database_errors) if database_errors else None
 
     active_candidates = [row for row in candidates if row.get("is_active", True)]
+    report_generations = [_report_generation(row) for row in reports[:20]]
 
     return {
         "backend": {
@@ -95,6 +96,11 @@ def get_system_status(repository: Repository = Depends(get_repository)) -> dict[
         },
         "openai": {
             "configured": openai_configured,
+            "latest_domestic_generation": _report_generation(domestic_report),
+            "latest_global_generation": _report_generation(global_report),
+            "recent_technical_only_count": sum(
+                generation.get("mode") == "technical_only" for generation in report_generations
+            ),
         },
         "assets": {
             "total_count": len(assets),
@@ -140,6 +146,20 @@ def _safe_database_call(func: Any, operation: str, fallback: Any) -> tuple[Any, 
     except Exception as exc:
         log_external_failure("system_status", exc, {"operation": operation})
         return fallback, f"{operation} failed"
+
+
+def _report_generation(report: dict[str, Any] | None) -> dict[str, Any]:
+    if not report:
+        return {"mode": "not_generated", "fallback_reason": None}
+    generation = ((report.get("report_inputs") or {}).get("ai_generation") or {}).copy()
+    if generation:
+        return generation
+    content = report.get("content") or {}
+    technical_only = "AI reasoning unavailable for this report" in (content.get("key_risks") or [])
+    return {
+        "mode": "technical_only" if technical_only else "legacy_unknown",
+        "fallback_reason": "legacy_inference" if technical_only else None,
+    }
 
 
 def _schedule_status(latest_report: dict[str, Any] | None, target_time: time) -> dict[str, Any]:

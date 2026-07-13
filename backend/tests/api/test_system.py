@@ -31,6 +31,12 @@ def test_system_status_endpoint_reports_operational_counts():
             "title": "Global report",
             "summary": "summary",
             "content": {},
+            "report_inputs": {
+                "ai_generation": {
+                    "mode": "technical_only",
+                    "fallback_reason": "provider_error",
+                }
+            },
         }
     )
     test_client = TestClient(create_app(repository=repository))
@@ -51,3 +57,6 @@ def test_system_status_endpoint_reports_operational_counts():
     assert body["scheduler"]["domestic"]["status"] in {"ok", "pending", "late"}
     assert body["scheduler"]["global"]["last_expected_at"]
     assert body["security"]["tokens_distinct"] is True
+    assert body["openai"]["latest_global_generation"]["mode"] == "technical_only"
+    assert body["openai"]["latest_global_generation"]["fallback_reason"] == "provider_error"
+    assert body["openai"]["recent_technical_only_count"] == 1

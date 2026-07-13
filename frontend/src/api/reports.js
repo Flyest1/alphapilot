@@ -29,6 +29,8 @@ export function splitStrategiesByAssets(strategies = [], assets = []) {
 }
 
 export function isTechnicalOnlyReport(report) {
+  const mode = report?.report_inputs?.ai_generation?.mode;
+  if (mode) return mode === "technical_only";
   return (
     report?.content?.key_risks?.includes("AI reasoning unavailable for this report") ||
     report?.content?.asset_strategies?.some((strategy) =>
@@ -36,6 +38,14 @@ export function isTechnicalOnlyReport(report) {
     ) ||
     false
   );
+}
+
+export function generationModeLabel(generation) {
+  const mode = generation?.mode;
+  if (mode === "ai_narrative") return "AI 설명 사용";
+  if (mode === "technical_only") return "기술분석 fallback";
+  if (mode === "not_generated") return "생성 전";
+  return "확인 불가";
 }
 
 export function pickReportWithStrategies(latestReports = {}) {

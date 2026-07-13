@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { api, isApiCacheFresh, readApiCache } from "../api/client.js";
-import { formatReportTime } from "../api/reports.js";
+import { formatReportTime, generationModeLabel } from "../api/reports.js";
 
 function statusText(value) {
   return value ? "정상" : "확인 필요";
@@ -89,6 +89,18 @@ export default function Status() {
               <div>
                 <span>OpenAI 키</span>
                 <strong>{statusText(status.openai?.configured)}</strong>
+              </div>
+              <div>
+                <span>최근 국내 AI 모드</span>
+                <strong>{generationModeLabel(status.openai?.latest_domestic_generation)}</strong>
+              </div>
+              <div>
+                <span>최근 글로벌 AI 모드</span>
+                <strong>{generationModeLabel(status.openai?.latest_global_generation)}</strong>
+              </div>
+              <div>
+                <span>최근 기술 fallback</span>
+                <strong>{status.openai?.recent_technical_only_count ?? 0}건</strong>
               </div>
               <div>
                 <span>자산</span>

@@ -538,6 +538,21 @@ python scripts/recalculate_recommendation_cycles.py --apply
 
 재산출 전 기존 승률은 전략의 실제 성공률 근거로 사용하지 않습니다.
 
+## AI 정량 사실 보호 (2026-07 Phase 4)
+
+- `ReportContent`의 `confidence_detail`과 `position_sizing`은 기존 UI 기능을 유지하기 위한
+  공식 선택 필드입니다.
+- OpenAI는 요약, 위험·기회, 종목 근거와 무효화 조건 같은 설명만 작성합니다. 리포트 유형,
+  생성 시각, 지수 데이터, 포트폴리오 평가액·수익률, 종목 목록, 현재가, 액션, confidence,
+  매수·매도 범위, ATR 목표가·손절가와 포지션 크기는 백엔드 값으로 다시 확정합니다.
+- 입력에 없는 종목과 정규화 중복 종목은 제거하고, 누락된 종목은 백엔드 전략으로 복원합니다.
+  stale/data-limited 종목은 WATCH, confidence 0과 백엔드 설명을 유지합니다.
+- 수익 보장, 무위험, 반드시 매수·매도 같은 금지 표현이 발견되면 AI 설명을 폐기하고
+  technical-only fallback을 저장합니다. fallback confidence는 최종 보정 후에도 60을 넘지 않습니다.
+- `report_inputs.ai_generation`에 `ai_narrative`/`technical_only` 모드, 모델, 시도 횟수,
+  fallback 사유와 백엔드가 복원한 필드 경로를 저장합니다. 상태 화면에서도 최신 모드를 확인할
+  수 있습니다.
+
 ## 알림 센터 (Phase 9)
 
 - **인앱 알림**: 스케줄 리포트가 완료되면 리포트 완료, 목표/손절 도달, 추천 cycle 종료,

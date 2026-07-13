@@ -26,6 +26,7 @@ from app.services.openai_provider import OpenAIProvider
 from app.services.portfolio_service import PortfolioService
 from app.services.recommendation_stats_service import ConfidenceCalibrator
 from app.services.report import candidate_screener
+from app.services.report.fact_enforcer import enforce_report_facts, forbidden_narrative_paths
 from app.services.report.persistence import ReportPersistence
 from app.services.report.prompt_builder import (
     DISCLAIMER,
@@ -41,7 +42,7 @@ from app.services.technical_analysis_service import (
     TechnicalAnalysisService,
 )
 from app.utils.labels import action_label, report_type_label, trend_label
-from app.utils.logging import log_external_failure
+from app.utils.logging import log_external_failure, log_structured_event
 from app.utils.tickers import infer_market, normalize_ticker
 
 # Phase 5-3: 신규 후보 1건당 가용 현금 투입 비율 (위험 성향별)
@@ -118,9 +119,10 @@ class ReportService:
                 report_type,
                 [row["asset"] for row in analysis_rows if not row["market_data"].is_stale],
             )
+        generated_at = self._now(app_settings.frontend_timezone)
 
         with self._timed_step("ai_report"):
-            content = self._generate_ai_content(
+            content, ai_generation = self._generate_ai_content(
                 report_type=report_type,
                 app_settings=app_settings.model_dump(),
                 portfolio_summary=portfolio_summary.model_dump(),
@@ -130,8 +132,18 @@ class ReportService:
                 stale_tickers=stale_tickers,
                 news_context=news_context,
                 asset_events=asset_events,
+                generated_at=generated_at,
             )
         if content is None:
+            log_structured_event(
+                "openai",
+                "technical_fallback",
+                {
+                    "report_type": report_type,
+                    "fallback_reason": ai_generation["fallback_reason"],
+                    "attempt_count": ai_generation["attempt_count"],
+                },
+            )
             content = self._technical_only_report(
                 report_type,
                 portfolio_summary.model_dump(),
@@ -140,9 +152,68 @@ class ReportService:
                 stale_tickers,
                 app_settings.frontend_timezone,
                 news_context,
+                generated_at=generated_at,
             )
         else:
-            content = self._enforce_stale_rules(content, analysis_rows, stale_tickers)
+            content, fact_corrections = enforce_report_facts(
+                content,
+                analysis_rows,
+                self._report_portfolio_summary(portfolio_summary.model_dump()).model_dump(),
+                index_rows,
+                report_type,
+                generated_at,
+            )
+            ai_generation["fact_corrections"] = fact_corrections
+            ai_generation["fact_correction_count"] = len(fact_corrections)
+            if fact_corrections:
+                log_structured_event(
+                    "openai",
+                    "backend_facts_restored",
+                    {
+                        "report_type": report_type,
+                        "correction_count": len(fact_corrections),
+                        "corrections": fact_corrections,
+                    },
+                )
+            narrative_violations = forbidden_narrative_paths(content)
+            if narrative_violations:
+                ai_generation.update(
+                    {
+                        "mode": "technical_only",
+                        "outcome": "fallback",
+                        "fallback_reason": "forbidden_narrative",
+                        "validation_paths": narrative_violations,
+                    }
+                )
+                log_structured_event(
+                    "openai",
+                    "technical_fallback",
+                    {
+                        "report_type": report_type,
+                        "fallback_reason": "forbidden_narrative",
+                        "validation_paths": narrative_violations,
+                    },
+                )
+                content = self._technical_only_report(
+                    report_type,
+                    portfolio_summary.model_dump(),
+                    index_rows,
+                    [row["strategy"] for row in analysis_rows],
+                    stale_tickers,
+                    app_settings.frontend_timezone,
+                    news_context,
+                    generated_at=generated_at,
+                )
+            else:
+                log_structured_event(
+                    "openai",
+                    "ai_narrative_used",
+                    {
+                        "report_type": report_type,
+                        "attempt_count": ai_generation["attempt_count"],
+                        "fact_correction_count": len(fact_corrections),
+                    },
+                )
         content = self._append_news_context_note(content, news_context)
         content = self._append_asset_event_notes(content, asset_events)
         with self._timed_step("confidence_calibration"):
@@ -152,6 +223,8 @@ class ReportService:
                 news_context,
                 analysis_rows,
             )
+        if ai_generation["mode"] == "technical_only":
+            content = self._cap_technical_only_confidence(content)
         content = self._apply_position_sizing(
             content,
             portfolio_summary.model_dump(),
@@ -172,6 +245,7 @@ class ReportService:
                     asset_events,
                     app_settings,
                     content,
+                    ai_generation,
                 ),
             )
         with self._timed_step("performance_backfill"):
@@ -205,12 +279,25 @@ class ReportService:
         stale_tickers: list[str],
         news_context: dict[str, Any],
         asset_events: dict[str, Any],
-    ) -> ReportContent | None:
+        generated_at: str,
+    ) -> tuple[ReportContent | None, dict[str, Any]]:
+        diagnostics = {
+            "mode": "technical_only",
+            "provider": app_settings.get("ai_provider"),
+            "model": app_settings.get("ai_model"),
+            "prompt_version": PROMPT_VERSION,
+            "attempt_count": 0,
+            "outcome": "fallback",
+            "fallback_reason": None,
+            "fact_correction_count": 0,
+            "fact_corrections": [],
+        }
         try:
             provider = self.ai_provider or self._build_ai_provider(app_settings)
         except Exception as exc:
             log_external_failure("openai", exc, {"operation": "build_ai_provider"})
-            return None
+            diagnostics["fallback_reason"] = "provider_configuration_error"
+            return None, diagnostics
         prompt = build_prompt(report_type)
         context = build_context(
             report_type=report_type,
@@ -225,15 +312,23 @@ class ReportService:
             stale_tickers=stale_tickers,
             news_context=news_context,
             asset_events=asset_events,
-            generated_at=self._now(app_settings["frontend_timezone"]),
+            generated_at=generated_at,
         )
 
         validation_error: ValidationError | None = None
         for attempt in range(2):
+            diagnostics["attempt_count"] = attempt + 1
             try:
                 response = provider.generate_report(prompt, context)
                 content = ReportContent.model_validate(response)
-                return content
+                diagnostics.update(
+                    {
+                        "mode": "ai_narrative",
+                        "outcome": "success",
+                        "fallback_reason": None,
+                    }
+                )
+                return content, diagnostics
             except ValidationError as exc:
                 validation_error = exc
                 log_external_failure(
@@ -244,7 +339,8 @@ class ReportService:
                 prompt = f"{prompt}\nValidation error to fix: {exc}"
             except Exception as exc:
                 log_external_failure("openai", exc, {"operation": "generate_report"})
-                return None
+                diagnostics["fallback_reason"] = "provider_error"
+                return None, diagnostics
 
         if validation_error is not None:
             log_external_failure(
@@ -252,7 +348,8 @@ class ReportService:
                 validation_error,
                 {"operation": "validation_failed_after_retry"},
             )
-        return None
+        diagnostics["fallback_reason"] = "validation_failed"
+        return None, diagnostics
 
     def _technical_only_report(
         self,
@@ -263,6 +360,7 @@ class ReportService:
         stale_tickers: list[str],
         frontend_timezone: str,
         news_context: dict[str, Any] | None = None,
+        generated_at: str | None = None,
     ) -> ReportContent:
         capped_strategies = []
         for strategy in strategies:
@@ -292,7 +390,7 @@ class ReportService:
 
         return ReportContent(
             report_type=report_type,
-            generated_at=self._now(frontend_timezone),
+            generated_at=generated_at or self._now(frontend_timezone),
             market_summary=MarketSummary(
                 summary=self._index_summary(report_type, index_rows),
                 key_indices=[
@@ -575,11 +673,13 @@ class ReportService:
         asset_events: dict[str, Any],
         app_settings: Any,
         content: ReportContent,
+        ai_generation: dict[str, Any],
     ) -> dict[str, Any]:
         """리포트 입력 스냅샷(데이터 품질 배지/사후 검증용, Phase 4-4)."""
         tickers: dict[str, Any] = {}
         for row in analysis_rows:
             market_data = row["market_data"]
+            strategy = row["strategy"]
             last_trading_date = market_data.last_trading_date
             tickers[row["asset"]["ticker"]] = {
                 "provider": market_data.provider,
@@ -587,11 +687,21 @@ class ReportService:
                 "is_stale": market_data.is_stale,
                 "data_quality_note": market_data.data_quality_note,
                 "technical_score": row["technical_analysis"].technical_score,
+                "current_price": strategy.current_price,
+                "action": strategy.action,
+                "base_confidence": strategy.confidence,
+                "buy_range_low": strategy.buy_range_low,
+                "buy_range_high": strategy.buy_range_high,
+                "sell_range_low": strategy.sell_range_low,
+                "sell_range_high": strategy.sell_range_high,
+                "target_price": strategy.target_price,
+                "stop_loss": strategy.stop_loss,
                 "is_candidate": row["asset"].get("id") is None,
                 "sector": row["asset"].get("sector"),
             }
         return {
             "prompt_version": PROMPT_VERSION,
+            "ai_generation": ai_generation,
             "tickers": tickers,
             "news_context": self._news_input_snapshot(news_context, content),
             "asset_events": asset_events,
@@ -601,6 +711,16 @@ class ReportService:
                 "stale_data_business_days": app_settings.stale_data_business_days,
             },
         }
+
+    def _cap_technical_only_confidence(self, content: ReportContent) -> ReportContent:
+        return content.model_copy(
+            update={
+                "asset_strategies": [
+                    strategy.model_copy(update={"confidence": min(strategy.confidence, 60)})
+                    for strategy in content.asset_strategies
+                ]
+            }
+        )
 
     def _build_asset_events(self, assets: list[dict[str, Any]]) -> dict[str, Any]:
         fetch_events = getattr(self.market_data_service, "fetch_asset_events", None)
