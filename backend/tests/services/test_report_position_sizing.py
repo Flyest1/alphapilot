@@ -89,6 +89,7 @@ def seeded_repo(cash=1_000_000):
             "ticker": "035420",
             "name": "NAVER",
             "currency": "KRW",
+            "sector": "Communication Services",
             "source": "test",
         }
     )
@@ -132,11 +133,18 @@ def test_candidates_receive_position_sizing_amount_range():
     # 리스크 한도 = 총 평가액(현금 + 시세 기준 보유분) × 1%
     assert sizing["risk_budget_amount"] > 0
     assert sizing["risk_cap_amount"] > sizing["risk_budget_amount"]
-    assert sizing["suggested_max_amount"] == min(
-        sizing["risk_cap_amount"], sizing["cash_cap_amount"]
-    )
+    assert sizing["suggested_max_amount"] <= sizing["risk_cap_amount"]
+    assert sizing["suggested_max_amount"] <= sizing["cash_cap_amount"]
     assert sizing["currency"] == "KRW"
-    assert sizing["method"] == "fixed-fractional"
+    assert sizing["method"] == "fixed-fractional-portfolio-risk"
+    assert sizing["constraints"]["liquidity"]["status"] == "available"
+    assert sizing["expected_value"]["status"] == "insufficient_sample"
+    saved_inputs = repo.get_report(report["id"])["report_inputs"]
+    assert saved_inputs["tickers"][sized[0].ticker]["position_sizing"] == sizing
+    assert saved_inputs["tickers"][sized[0].ticker]["sector"] == "Communication Services"
+    assert saved_inputs["settings"]["position_sizing"]["minimum_ev_outcome_samples"] == 30
+    assert saved_inputs["portfolio_risk"]["model_version"] == "portfolio-risk-v1"
+    assert saved_inputs["portfolio_risk"]["candidate_order"] == [sized[0].ticker]
     # 보유 자산에는 사이징을 제공하지 않는다
     assert owned.position_sizing is None
 
@@ -146,4 +154,32 @@ def test_no_position_sizing_without_cash():
     report = build_service(repo).generate_report("domestic")
     content = ReportContent.model_validate(report["content"])
 
-    assert all(s.position_sizing is None for s in content.asset_strategies)
+    candidates = [s for s in content.asset_strategies if s.ticker != "005930"]
+    assert candidates
+    assert all(s.position_sizing["suggested_max_amount"] == 0 for s in candidates)
+    assert all(s.position_sizing["binding_constraint"] == "remaining_cash" for s in candidates)
+
+
+def test_position_sizing_correlation_context_includes_other_market_holdings():
+    repo = seeded_repo()
+    repo.create_asset(
+        {
+            "market": "US",
+            "ticker": "AAPL",
+            "name": "Apple",
+            "quantity": 1,
+            "avg_price": 100,
+            "currency": "USD",
+        }
+    )
+
+    report = build_service(repo).generate_report("domestic")
+    content = ReportContent.model_validate(report["content"])
+    candidate = next(
+        strategy for strategy in content.asset_strategies if strategy.ticker == "035420"
+    )
+    correlations = candidate.position_sizing["correlation_metrics"]["correlations"]
+    saved_inputs = repo.get_report(report["id"])["report_inputs"]
+
+    assert any(row["market"] == "US" and row["ticker"] == "AAPL" for row in correlations)
+    assert saved_inputs["portfolio_risk"]["market_inputs"]["US:AAPL"]["is_candidate"] is False

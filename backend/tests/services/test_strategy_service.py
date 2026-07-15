@@ -143,3 +143,15 @@ def test_data_limited_technical_analysis_forces_watch():
     assert strategy.action == "WATCH"
     assert strategy.confidence == 0
     assert strategy.reasoning == "data-limited"
+
+
+def test_non_finite_market_price_forces_data_limited_watch():
+    strategy = StrategyService().generate_strategy(
+        asset(),
+        SimpleNamespace(is_stale=False, current_price=float("nan")),
+        SimpleNamespace(technical_score=80, trend_label="strong bullish setup", indicators={}),
+        "balanced",
+    )
+
+    assert strategy.action == "WATCH"
+    assert strategy.confidence == 0

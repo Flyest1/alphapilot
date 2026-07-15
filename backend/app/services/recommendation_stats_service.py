@@ -108,6 +108,9 @@ class RecommendationStatsService:
                     "cycle_count": 0,
                     "closed_count": 0,
                     "win_count": 0,
+                    "target_hit_count": 0,
+                    "stop_hit_count": 0,
+                    "other_closed_count": 0,
                     "_returns_5d": [],
                     "_returns_20d": [],
                     "_holding_days": [],
@@ -124,6 +127,11 @@ class RecommendationStatsService:
                 if status == "hit_target":
                     group["win_count"] += 1
                     win_total += 1
+                    group["target_hit_count"] += 1
+                elif status == "hit_stop":
+                    group["stop_hit_count"] += 1
+                else:
+                    group["other_closed_count"] += 1
                 holding = _holding_days(cycle)
                 if holding is not None:
                     group["_holding_days"].append(holding)
@@ -143,6 +151,18 @@ class RecommendationStatsService:
                     "closed_count": closed,
                     "win_count": group["win_count"],
                     "win_rate": round(win_rate, 4) if win_rate is not None else None,
+                    "target_hit_count": group["target_hit_count"],
+                    "stop_hit_count": group["stop_hit_count"],
+                    "other_closed_count": group["other_closed_count"],
+                    "target_hit_frequency": (
+                        round(group["target_hit_count"] / closed, 4) if closed else None
+                    ),
+                    "stop_hit_frequency": (
+                        round(group["stop_hit_count"] / closed, 4) if closed else None
+                    ),
+                    "other_closed_frequency": (
+                        round(group["other_closed_count"] / closed, 4) if closed else None
+                    ),
                     "avg_return_5d": _average(group["_returns_5d"]),
                     "avg_return_20d": _average(group["_returns_20d"]),
                     "avg_holding_days": _average(group["_holding_days"]),
@@ -200,6 +220,13 @@ class ConfidenceCalibrator:
             "news_context_used": news_context_used,
             "sample_size": group["closed_count"] if group else 0,
             "win_rate": group["win_rate"] if group else None,
+            "outcome_sample_size": group["closed_count"] if group else 0,
+            "target_hit_count": group["target_hit_count"] if group else 0,
+            "stop_hit_count": group["stop_hit_count"] if group else 0,
+            "other_closed_count": group["other_closed_count"] if group else 0,
+            "target_hit_frequency": group["target_hit_frequency"] if group else None,
+            "stop_hit_frequency": group["stop_hit_frequency"] if group else None,
+            "other_closed_frequency": group["other_closed_frequency"] if group else None,
             "calibrated": False,
             "calibration_factor": None,
         }

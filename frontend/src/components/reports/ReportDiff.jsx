@@ -34,11 +34,11 @@ export default function ReportDiff({ selected, previous }) {
       )}
       {diff.confidenceChanges.length > 0 && (
         <>
-          <h3>신뢰도 변화 (±10 이상)</h3>
+          <h3>신호 점수 변화 (±10 이상)</h3>
           <ul>
             {diff.confidenceChanges.map((row) => (
               <li key={`confidence-${row.ticker}`}>
-                <strong>{row.ticker}</strong> {row.name}: {row.from}% → {row.to}%{" "}
+                <strong>{row.ticker}</strong> {row.name}: {row.from}/100 → {row.to}/100{" "}
                 <em className={row.delta >= 0 ? "positive-text" : "negative-text"}>
                   ({row.delta > 0 ? "+" : ""}
                   {row.delta})

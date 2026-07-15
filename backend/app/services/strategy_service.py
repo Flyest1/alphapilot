@@ -1,3 +1,4 @@
+from math import isfinite
 from typing import Any
 
 from app.models.report import AssetStrategy
@@ -53,7 +54,21 @@ class StrategyService:
                 invalidation_condition="최신 시장 데이터가 확보되면 다시 판단합니다.",
             )
 
-        current_price = float(market_data.current_price)
+        try:
+            current_price = float(market_data.current_price)
+        except (TypeError, ValueError):
+            current_price = 0.0
+        if not isfinite(current_price) or current_price <= 0:
+            return AssetStrategy(
+                ticker=ticker,
+                name=name,
+                current_price=None,
+                action="WATCH",
+                confidence=0,
+                reasoning="data-limited",
+                risk="market data unavailable",
+                invalidation_condition="fresh market data is required before reassessment",
+            )
         score = int(getattr(technical_analysis, "technical_score", 0))
         action = self.action_for_score(score, risk_profile)
         confidence = (
@@ -102,7 +117,7 @@ class StrategyService:
             atr = float(indicators.get("atr_14"))
         except (TypeError, ValueError):
             return None
-        if atr <= 0 or current_price <= 0:
+        if not isfinite(atr) or not isfinite(current_price) or atr <= 0 or current_price <= 0:
             return None
         ratio = atr / current_price
         if ratio < ATR_MIN_RATIO or ratio > ATR_MAX_RATIO:

@@ -72,7 +72,7 @@ function ExitLine({ strategy }) {
   const confidence =
     strategy.confidence == null || strategy.confidence === ""
       ? ""
-      : `신뢰도 ${strategy.confidence}%`;
+      : `신호 점수 ${strategy.confidence}/100`;
   const parts = [
     target
       ? `목표 ${target}${formatCurrentPercent(strategy.target_price, strategy.current_price)}`
@@ -109,8 +109,8 @@ export default function KeyMessageList({ strategies = [], limit = 8, performance
                 <dd>{formatValue(strategy.current_price)}</dd>
               </div>
               <div>
-                <dt>신뢰도</dt>
-                <dd>{strategy.confidence == null ? "-" : `${strategy.confidence}%`}</dd>
+                <dt>신호 점수</dt>
+                <dd>{strategy.confidence == null ? "-" : `${strategy.confidence}/100`}</dd>
               </div>
               <div>
                 <dt>매수구간</dt>

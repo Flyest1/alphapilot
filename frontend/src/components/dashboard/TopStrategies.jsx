@@ -1,6 +1,6 @@
 import { actionLabel } from "../../api/reports.js";
 
-// 신뢰도 순 상위 전략/후보 목록. 대시보드의 "최신 전략 요약"과 "추가 매수 후보"가 함께 쓴다.
+// 신호 점수 순 상위 전략/후보 목록. 대시보드의 "최신 전략 요약"과 "추가 매수 후보"가 함께 쓴다.
 export default function TopStrategies({ strategies = [], limit = 5, emptyMessage }) {
   const top = [...strategies]
     .sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
@@ -18,7 +18,7 @@ export default function TopStrategies({ strategies = [], limit = 5, emptyMessage
           <span className={`badge ${strategy.action.toLowerCase()}`}>
             {actionLabel(strategy.action)}
           </span>
-          <span>{strategy.confidence}%</span>
+          <span>{strategy.confidence}/100</span>
         </div>
       ))}
     </div>

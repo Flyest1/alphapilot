@@ -24,6 +24,7 @@ from app.services.market_data_service import MarketDataService
 from app.services.news_service import NewsService
 from app.services.openai_provider import OpenAIProvider
 from app.services.portfolio_service import PortfolioService
+from app.services.portfolio_risk_service import PortfolioRiskService
 from app.services.recommendation_stats_service import ConfidenceCalibrator
 from app.services.report import candidate_screener
 from app.services.report.fact_enforcer import enforce_report_facts, forbidden_narrative_paths
@@ -44,9 +45,6 @@ from app.services.technical_analysis_service import (
 from app.utils.labels import action_label, report_type_label, trend_label
 from app.utils.logging import log_external_failure, log_structured_event
 from app.utils.tickers import infer_market, normalize_ticker
-
-# Phase 5-3: 신규 후보 1건당 가용 현금 투입 비율 (위험 성향별)
-CASH_DEPLOY_RATIO = {"conservative": 0.1, "balanced": 0.2, "aggressive": 0.3}
 
 
 class ReportService:
@@ -104,6 +102,30 @@ class ReportService:
                 app_settings.candidate_horizon,
             )
         analysis_rows = analysis_rows + candidate_rows
+        analyzed_asset_keys = {
+            (
+                str(row["asset"].get("market") or "").upper(),
+                normalize_ticker(row["asset"].get("ticker", "")),
+            )
+            for row in analysis_rows
+        }
+        portfolio_risk_assets = [
+            asset
+            for asset in all_assets
+            if asset.get("market") != "CASH"
+            and (
+                str(asset.get("market") or "").upper(),
+                normalize_ticker(asset.get("ticker", "")),
+            )
+            not in analyzed_asset_keys
+        ]
+        with self._timed_step("portfolio_risk_context"):
+            portfolio_risk_rows = self._build_analysis_rows(
+                portfolio_risk_assets,
+                app_settings.stale_data_business_days,
+                app_settings.risk_profile,
+            )
+        portfolio_risk_analysis_rows = analysis_rows + portfolio_risk_rows
         with self._timed_step("market_indices"):
             index_rows = self._build_index_analysis(
                 report_type, app_settings.stale_data_business_days
@@ -225,11 +247,12 @@ class ReportService:
             )
         if ai_generation["mode"] == "technical_only":
             content = self._cap_technical_only_confidence(content)
-        content = self._apply_position_sizing(
+        content, position_sizing_snapshot = self._apply_position_sizing(
             content,
             portfolio_summary.model_dump(),
             app_settings,
             owned_tickers={normalize_ticker(asset.get("ticker", "")) for asset in all_assets},
+            analysis_rows=portfolio_risk_analysis_rows,
         )
 
         with self._timed_step("save_report"):
@@ -241,11 +264,13 @@ class ReportService:
                 app_settings.frontend_timezone,
                 report_inputs=self._build_report_inputs(
                     analysis_rows,
+                    portfolio_risk_analysis_rows,
                     news_context,
                     asset_events,
                     app_settings,
                     content,
                     ai_generation,
+                    position_sizing_snapshot,
                 ),
             )
         with self._timed_step("performance_backfill"):
@@ -608,75 +633,52 @@ class ReportService:
         portfolio_summary: dict[str, Any],
         app_settings: Any,
         owned_tickers: set[str],
-    ) -> ReportContent:
+        analysis_rows: list[dict[str, Any]],
+    ) -> tuple[ReportContent, dict[str, Any]]:
         """신규 매수 후보에 고정 리스크(fixed-fractional) 기반 제안 투입 한도를 채운다 (Phase 5-3).
 
         suggested = min(가용 현금 × 성향별 비율, 1회 리스크 한도 ÷ 손절까지 거리 비율).
         금액 범위만 안내하며 주문 수량/티켓은 만들지 않는다 (자동매매 금지 원칙 유지).
         """
         try:
-            total_value = float(portfolio_summary.get("total_market_value") or 0)
-            cash_value = float(portfolio_summary.get("cash_value") or 0)
-            if total_value <= 0:
-                return content
-            cash_ratio = CASH_DEPLOY_RATIO.get(app_settings.risk_profile, 0.2)
-            risk_budget = total_value * float(app_settings.risk_per_trade_pct) / 100
-            updated_strategies = []
-            for strategy in content.asset_strategies:
-                is_candidate = normalize_ticker(strategy.ticker) not in owned_tickers
-                if (
-                    not is_candidate
-                    or strategy.action not in {"BUY", "WATCH"}
-                    or strategy.reasoning == "data-limited"
-                    or strategy.current_price is None
-                    or strategy.stop_loss is None
-                    or strategy.current_price <= 0
-                    or strategy.stop_loss >= strategy.current_price
-                ):
-                    updated_strategies.append(strategy)
-                    continue
-                stop_distance_ratio = (
-                    strategy.current_price - strategy.stop_loss
-                ) / strategy.current_price
-                risk_cap = risk_budget / stop_distance_ratio
-                cash_cap = cash_value * cash_ratio
-                suggested_max = min(risk_cap, cash_cap)
-                if suggested_max <= 0:
-                    updated_strategies.append(strategy)
-                    continue
-                updated_strategies.append(
+            sizes, snapshot = PortfolioRiskService().calculate_position_sizing(
+                strategies=content.asset_strategies,
+                analysis_rows=analysis_rows,
+                portfolio_summary=portfolio_summary,
+                app_settings=app_settings,
+                owned_tickers=owned_tickers,
+            )
+            updated_strategies = [
+                (
                     strategy.model_copy(
-                        update={
-                            "position_sizing": {
-                                "suggested_max_amount": round(suggested_max, 0),
-                                "risk_cap_amount": round(risk_cap, 0),
-                                "cash_cap_amount": round(cash_cap, 0),
-                                "risk_budget_amount": round(risk_budget, 0),
-                                "risk_per_trade_pct": float(app_settings.risk_per_trade_pct),
-                                "cash_deploy_ratio": cash_ratio,
-                                "stop_distance_pct": round(stop_distance_ratio * 100, 2),
-                                "currency": "KRW",
-                                "method": "fixed-fractional",
-                            }
-                        }
+                        update={"position_sizing": sizes[normalize_ticker(strategy.ticker)]}
                     )
+                    if normalize_ticker(strategy.ticker) in sizes
+                    else strategy
                 )
-            return content.model_copy(update={"asset_strategies": updated_strategies})
+                for strategy in content.asset_strategies
+            ]
+            return content.model_copy(update={"asset_strategies": updated_strategies}), snapshot
         except Exception as exc:
             log_external_failure("position_sizing", exc, {"operation": "apply_position_sizing"})
-            return content
+            return content, {"status": "unavailable"}
 
     def _build_report_inputs(
         self,
         analysis_rows: list[dict[str, Any]],
+        portfolio_risk_analysis_rows: list[dict[str, Any]],
         news_context: dict[str, Any],
         asset_events: dict[str, Any],
         app_settings: Any,
         content: ReportContent,
         ai_generation: dict[str, Any],
+        position_sizing_snapshot: dict[str, Any],
     ) -> dict[str, Any]:
         """리포트 입력 스냅샷(데이터 품질 배지/사후 검증용, Phase 4-4)."""
         tickers: dict[str, Any] = {}
+        position_sizing_by_ticker = {
+            strategy.ticker: strategy.position_sizing for strategy in content.asset_strategies
+        }
         for row in analysis_rows:
             market_data = row["market_data"]
             strategy = row["strategy"]
@@ -698,17 +700,41 @@ class ReportService:
                 "stop_loss": strategy.stop_loss,
                 "is_candidate": row["asset"].get("id") is None,
                 "sector": row["asset"].get("sector"),
+                "position_sizing": position_sizing_by_ticker.get(row["asset"]["ticker"]),
             }
+        portfolio_risk_market_inputs: dict[str, Any] = {}
+        for row in portfolio_risk_analysis_rows:
+            asset = row["asset"]
+            market_data = row["market_data"]
+            last_trading_date = market_data.last_trading_date
+            key = f"{str(asset.get('market') or '').upper()}:{asset.get('ticker')}"
+            portfolio_risk_market_inputs[key] = {
+                "market": asset.get("market"),
+                "ticker": asset.get("ticker"),
+                "currency": asset.get("currency"),
+                "provider": market_data.provider,
+                "last_trading_date": (last_trading_date.isoformat() if last_trading_date else None),
+                "is_stale": market_data.is_stale,
+                "data_quality_note": market_data.data_quality_note,
+                "return_observations": max(len(market_data.dataframe.index) - 1, 0),
+                "is_candidate": asset.get("id") is None,
+            }
+        portfolio_risk_snapshot = {
+            **position_sizing_snapshot,
+            "market_inputs": portfolio_risk_market_inputs,
+        }
         return {
             "prompt_version": PROMPT_VERSION,
             "ai_generation": ai_generation,
             "tickers": tickers,
+            "portfolio_risk": portfolio_risk_snapshot,
             "news_context": self._news_input_snapshot(news_context, content),
             "asset_events": asset_events,
             "settings": {
                 "risk_profile": app_settings.risk_profile,
                 "candidate_horizon": app_settings.candidate_horizon,
                 "stale_data_business_days": app_settings.stale_data_business_days,
+                "position_sizing": position_sizing_snapshot,
             },
         }
 

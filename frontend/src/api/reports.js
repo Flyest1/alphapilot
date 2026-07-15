@@ -134,7 +134,7 @@ export function importantStrategyMessages(strategies = [], limit = 8) {
       const confidence =
         strategy.confidence == null || strategy.confidence === ""
           ? ""
-          : `신뢰도 ${strategy.confidence}%`;
+          : `신호 점수 ${strategy.confidence}/100`;
       const rangeLine = buyRange ? `매수구간 ${buyRange}` : "";
       const exitLine = [
         target ? `목표 ${target}` : "",

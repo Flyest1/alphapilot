@@ -94,7 +94,7 @@ export function buildActionBriefing({
         kind: "candidate",
         tone: "positive",
         key: `candidate-${strategy.ticker}`,
-        text: `신규 매수 후보 ${strategy.ticker} (신뢰도 ${strategy.confidence}%) — 제안 투입 한도를 확인하세요.`,
+        text: `신규 매수 후보 ${strategy.ticker} (신호 점수 ${strategy.confidence}/100) — 검토용 투입 금액 상한을 확인하세요.`,
       });
     });
 

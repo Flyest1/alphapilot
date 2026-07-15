@@ -65,6 +65,12 @@ def test_compute_stats_groups_by_action_horizon_and_band():
     assert buy_group["closed_count"] == 4
     assert buy_group["win_count"] == 3
     assert buy_group["win_rate"] == 0.75
+    assert buy_group["target_hit_count"] == 3
+    assert buy_group["stop_hit_count"] == 1
+    assert buy_group["other_closed_count"] == 0
+    assert buy_group["target_hit_frequency"] == 0.75
+    assert buy_group["stop_hit_frequency"] == 0.25
+    assert buy_group["other_closed_frequency"] == 0
     assert buy_group["avg_return_20d"] == -5
     assert buy_group["avg_holding_days"] == 14
     assert buy_group["calibration_applied"] is False  # 표본 30 미만
@@ -116,6 +122,10 @@ def test_ambiguous_is_closed_but_not_a_win_and_sell_target_is_favorable():
     assert group["closed_count"] == 2
     assert group["win_count"] == 1
     assert group["win_rate"] == 0.5
+    assert group["target_hit_count"] == 1
+    assert group["stop_hit_count"] == 0
+    assert group["other_closed_count"] == 1
+    assert group["other_closed_frequency"] == 0.5
 
 
 def test_compute_stats_excludes_measurement_quarantined_cycles():
@@ -161,6 +171,9 @@ def test_calibrator_applies_factor_only_with_enough_samples():
     assert calibrated["detail"]["calibrated"] is True
     assert calibrated["detail"]["sample_size"] == 30
     assert calibrated["detail"]["win_rate"] == 0.8
+    assert calibrated["detail"]["outcome_sample_size"] == 30
+    assert calibrated["detail"]["target_hit_frequency"] == 0.8
+    assert calibrated["detail"]["stop_hit_frequency"] == 0.2
     assert calibrated["detail"]["news_context_used"] is True
     assert untouched["confidence"] == 85
     assert untouched["detail"]["calibrated"] is False
