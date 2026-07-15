@@ -83,6 +83,15 @@ def test_high_correlation_with_existing_score_and_other_signal_is_rejected() -> 
     )
 
 
+def test_spearman_uses_average_ranks_without_optional_scipy_dependency() -> None:
+    first = pd.Series([1.0, 2.0, 2.0, 4.0])
+    second = pd.Series([10.0, 20.0, 20.0, 40.0])
+    inverse = pd.Series([40.0, 20.0, 20.0, 10.0])
+
+    assert SignalResearchService._spearman(first, second) == pytest.approx(1.0)
+    assert SignalResearchService._spearman(first, inverse) == pytest.approx(-1.0)
+
+
 def test_constant_nan_and_insufficient_samples_are_rejected_with_reasons() -> None:
     samples = _samples(days=2)
     for sample in samples:

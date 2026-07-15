@@ -649,7 +649,9 @@ class SignalResearchService:
         paired = pd.concat([first, second], axis=1).dropna()
         if len(paired) < 2 or paired.iloc[:, 0].nunique() < 2 or paired.iloc[:, 1].nunique() < 2:
             return None
-        value = paired.iloc[:, 0].corr(paired.iloc[:, 1], method="spearman")
+        first_ranks = paired.iloc[:, 0].rank(method="average")
+        second_ranks = paired.iloc[:, 1].rank(method="average")
+        value = first_ranks.corr(second_ranks, method="pearson")
         return float(value) if pd.notna(value) and np.isfinite(value) else None
 
     def _cross_sectional_spearman(
