@@ -560,6 +560,8 @@ python scripts/recalculate_recommendation_cycles.py --apply
 - `report_inputs.ai_generation`에 `ai_narrative`/`technical_only` 모드, 모델, 시도 횟수,
   fallback 사유와 백엔드가 복원한 필드 경로를 저장합니다. 상태 화면에서도 최신 모드를 확인할
   수 있습니다.
+- 2026-07-15 Oracle 운영 환경에서 국내·글로벌 리포트를 각각 생성해 `ai_narrative`,
+  `gpt-5.4-mini`, 1회 성공과 백엔드 사실 복원 진단이 저장되는 것을 확인했습니다.
 
 ## 알림 센터 (Phase 9)
 
