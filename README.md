@@ -536,6 +536,14 @@ python scripts/recalculate_recommendation_cycles.py
 python scripts/recalculate_recommendation_cycles.py --apply
 ```
 
+운영 Supabase에는 2026-07-15 migration 008과 015를 적용하고 기존 사이클을 재산출했습니다.
+재산출 과정에서 구형 SELL/REDUCE 사이클 53건의 목표·손절 위치를 방향 규칙에 맞게 교환했고,
+목표와 손절이 모두 기준가 아래에 있던 비정상 사이클 9건은 `measurement_excluded`로 격리해
+추천 통계와 confidence 보정 표본에서 제외했습니다. 미리보기와 적용 결과는 gitignored
+`backups/recommendation_cycles_recalculation_*.json`에 기록되며, 실제 적용 전에 전체 JSON
+백업을 생성합니다. 적용 중 오류나 사후 검증 실패가 발생하면 백업값으로 변경 행을 복원하고
+0이 아닌 종료 코드로 실패합니다. 동일 상태에서 재실행하면 변경 건수는 0이어야 합니다.
+
 재산출 전 기존 승률은 전략의 실제 성공률 근거로 사용하지 않습니다.
 
 ## AI 정량 사실 보호 (2026-07 Phase 4)

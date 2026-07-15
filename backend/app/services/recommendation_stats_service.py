@@ -70,6 +70,10 @@ def _technical_score(cycle: dict[str, Any]) -> Any:
     return (cycle.get("metadata") or {}).get("technical_score")
 
 
+def _is_measurement_excluded(cycle: dict[str, Any]) -> bool:
+    return bool((cycle.get("metadata") or {}).get("measurement_excluded"))
+
+
 class RecommendationStatsService:
     def __init__(self, repository: Repository) -> None:
         self.repository = repository
@@ -84,6 +88,8 @@ class RecommendationStatsService:
         closed_total = 0
         win_total = 0
         for cycle in cycles:
+            if _is_measurement_excluded(cycle):
+                continue
             status = str(cycle.get("status") or "")
             if status == "superseded":
                 # 신호가 교체된 사이클은 결과가 아니므로 통계에서 제외한다.

@@ -5,7 +5,12 @@ import pytest
 
 from app.db.supabase_client import InMemoryRepository
 from app.services.market_data_service import MarketDataResult
-from app.services.report.tracking import PerformanceTracker
+from app.services.report.tracking import (
+    INVALID_SHORT_BARRIER_LAYOUT,
+    MEASUREMENT_POLICY_VERSION,
+    PerformanceTracker,
+    normalized_cycle_barrier_updates,
+)
 
 
 class StaticMarketData:
@@ -193,6 +198,128 @@ def test_recalculate_resets_and_rebuilds_existing_terminal_cycles():
     assert updated["status"] == "hit_stop"
     assert updated["barrier_hit_at"] == "2026-01-02T00:00:00+00:00"
     assert updated["price_after_60d"] is None
+
+
+@pytest.mark.parametrize("action", ["SELL", "REDUCE"])
+def test_recalculate_normalizes_legacy_bullish_short_barriers(action):
+    repository = InMemoryRepository()
+    cycle = create_cycle(
+        repository,
+        action=action,
+        status="hit_target",
+        target_price=110,
+        stop_loss=90,
+        barrier_hit_at="2026-01-10T00:00:00+00:00",
+        closed_at="2026-01-10T00:00:00+00:00",
+    )
+    dataframe = price_frame(
+        [
+            ("2026-01-02", 100, 105, 95, 100),
+            ("2026-01-05", 100, 101, 89, 91),
+        ]
+    )
+
+    recalculated = PerformanceTracker(
+        repository, StaticMarketData(dataframe)
+    ).recalculate_recommendation_cycles()
+
+    updated = next(
+        row for row in repository.list_recommendation_cycles() if row["id"] == cycle["id"]
+    )
+    assert recalculated == 1
+    assert updated["target_price"] == 90
+    assert updated["stop_loss"] == 110
+    assert updated["status"] == "hit_target"
+    assert updated["barrier_hit_at"] == "2026-01-05T00:00:00+00:00"
+
+
+@pytest.mark.parametrize(
+    "cycle",
+    [
+        {"action": "SELL", "reference_price": 100, "target_price": 90, "stop_loss": 110},
+        {"action": "BUY", "reference_price": 100, "target_price": 110, "stop_loss": 90},
+        {"action": "REDUCE", "reference_price": 100, "target_price": 110},
+    ],
+)
+def test_barrier_normalization_leaves_correct_or_incomplete_layouts_unchanged(cycle):
+    assert normalized_cycle_barrier_updates(cycle) == {}
+
+
+@pytest.mark.parametrize("action", ["SELL", "REDUCE"])
+def test_recalculate_quarantines_noncanonical_complete_short_barriers(action):
+    repository = InMemoryRepository()
+    cycle = create_cycle(
+        repository,
+        action=action,
+        status="hit_target",
+        target_price=90,
+        stop_loss=80,
+        barrier_hit_at="2026-01-02T00:00:00+00:00",
+        closed_at="2026-01-02T00:00:00+00:00",
+        horizon="short",
+    )
+    dataframe = price_frame(
+        [
+            ("2026-01-02", 100, 105, 95, 100),
+            ("2026-01-05", 100, 105, 95, 100),
+            ("2026-01-06", 100, 105, 95, 100),
+            ("2026-01-07", 100, 105, 95, 100),
+            ("2026-01-08", 100, 105, 95, 100),
+        ]
+    )
+
+    recalculated = PerformanceTracker(
+        repository, StaticMarketData(dataframe)
+    ).recalculate_recommendation_cycles()
+
+    updated = next(
+        row for row in repository.list_recommendation_cycles() if row["id"] == cycle["id"]
+    )
+    assert recalculated == 1
+    assert updated["status"] == "expired"
+    assert updated["barrier_hit_at"] is None
+    assert updated["metadata"] == {
+        "measurement_excluded": True,
+        "measurement_exclusion_reason": INVALID_SHORT_BARRIER_LAYOUT,
+        "measurement_policy_version": MEASUREMENT_POLICY_VERSION,
+    }
+
+
+@pytest.mark.parametrize(
+    ("target_price", "stop_loss", "excluded"),
+    [(110, 90, False), (90, 80, True)],
+)
+def test_recalculate_persists_short_layout_policy_without_market_history(
+    target_price, stop_loss, excluded
+):
+    repository = InMemoryRepository()
+    cycle = create_cycle(
+        repository,
+        action="SELL",
+        status="hit_target",
+        target_price=target_price,
+        stop_loss=stop_loss,
+        barrier_hit_at="2026-01-02T00:00:00+00:00",
+        closed_at="2026-01-02T00:00:00+00:00",
+    )
+    tracker = PerformanceTracker(repository, EmptyMarketData())
+
+    first_recalculation = tracker.recalculate_recommendation_cycles()
+    updated = next(
+        row for row in repository.list_recommendation_cycles() if row["id"] == cycle["id"]
+    )
+    second_recalculation = tracker.recalculate_recommendation_cycles()
+
+    assert first_recalculation == 1
+    assert second_recalculation == 0
+    assert updated["metadata"]["measurement_excluded"] is excluded
+    assert updated["metadata"]["measurement_policy_version"] == MEASUREMENT_POLICY_VERSION
+    if excluded:
+        assert updated["barrier_hit_at"] is None
+        assert updated["status"] == "active"
+    else:
+        assert updated["target_price"] == 90
+        assert updated["stop_loss"] == 110
 
 
 def test_recalculate_requests_history_covering_old_cycle_start():

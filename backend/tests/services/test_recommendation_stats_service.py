@@ -118,6 +118,30 @@ def test_ambiguous_is_closed_but_not_a_win_and_sell_target_is_favorable():
     assert group["win_rate"] == 0.5
 
 
+def test_compute_stats_excludes_measurement_quarantined_cycles():
+    repo = InMemoryRepository()
+    make_cycle(repo, status="hit_target", ticker="INCLUDED")
+    make_cycle(
+        repo,
+        status="hit_target",
+        ticker="EXCLUDED",
+        metadata={
+            "measurement_excluded": True,
+            "measurement_exclusion_reason": "invalid_short_barrier_layout",
+            "measurement_policy_version": "short_barrier_layout_v1",
+        },
+    )
+
+    stats = RecommendationStatsService(repo).compute_stats()
+
+    assert stats["totals"] == {
+        "cycle_count": 1,
+        "closed_count": 1,
+        "win_count": 1,
+        "win_rate": 1.0,
+    }
+
+
 def test_calibrator_applies_factor_only_with_enough_samples():
     repo = InMemoryRepository()
     # 70대 밴드 BUY/medium: 종료 30건, 승률 80% → 계수 1.3

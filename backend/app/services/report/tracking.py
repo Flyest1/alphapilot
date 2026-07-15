@@ -15,10 +15,68 @@ from app.utils.tickers import infer_market
 
 HORIZON_DAYS = {"short": 5, "medium": 20, "long": 60}
 SHORT_ACTIONS = {"SELL", "REDUCE"}
+SHORT_LAYOUT_NOT_APPLICABLE = "not_applicable"
+SHORT_LAYOUT_INCOMPLETE = "incomplete"
+SHORT_LAYOUT_CANONICAL = "canonical"
+SHORT_LAYOUT_LEGACY_SWAP = "legacy_swap"
+SHORT_LAYOUT_INVALID = "invalid"
+MEASUREMENT_POLICY_VERSION = "short_barrier_layout_v1"
+INVALID_SHORT_BARRIER_LAYOUT = "invalid_short_barrier_layout"
 
 
 def horizon_days(horizon: Any) -> int:
     return HORIZON_DAYS.get(str(horizon or "medium"), 20)
+
+
+def classify_short_barrier_layout(cycle: dict[str, Any]) -> str:
+    if str(cycle.get("action") or "").upper() not in SHORT_ACTIONS:
+        return SHORT_LAYOUT_NOT_APPLICABLE
+    try:
+        reference_price = float(cycle["reference_price"])
+        target_price = float(cycle["target_price"])
+        stop_loss = float(cycle["stop_loss"])
+    except (KeyError, TypeError, ValueError):
+        return SHORT_LAYOUT_INCOMPLETE
+
+    if target_price < reference_price < stop_loss:
+        return SHORT_LAYOUT_CANONICAL
+    if stop_loss < reference_price < target_price:
+        return SHORT_LAYOUT_LEGACY_SWAP
+    return SHORT_LAYOUT_INVALID
+
+
+def normalized_cycle_barrier_updates(cycle: dict[str, Any]) -> dict[str, float]:
+    """Correct only the strict inverse layout from legacy short recommendations."""
+    if classify_short_barrier_layout(cycle) != SHORT_LAYOUT_LEGACY_SWAP:
+        return {}
+    return {
+        "target_price": float(cycle["stop_loss"]),
+        "stop_loss": float(cycle["target_price"]),
+    }
+
+
+def measurement_metadata_updates(cycle: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    layout = classify_short_barrier_layout(cycle)
+    if layout not in {
+        SHORT_LAYOUT_CANONICAL,
+        SHORT_LAYOUT_LEGACY_SWAP,
+        SHORT_LAYOUT_INVALID,
+    }:
+        return {}
+
+    metadata = dict(cycle.get("metadata") or {})
+    excluded = layout == SHORT_LAYOUT_INVALID
+    updated_metadata = {
+        **metadata,
+        "measurement_excluded": excluded,
+        "measurement_exclusion_reason": INVALID_SHORT_BARRIER_LAYOUT if excluded else None,
+        "measurement_policy_version": MEASUREMENT_POLICY_VERSION,
+    }
+    return {"metadata": updated_metadata} if updated_metadata != metadata else {}
+
+
+def is_measurement_excluded(cycle: dict[str, Any]) -> bool:
+    return bool((cycle.get("metadata") or {}).get("measurement_excluded"))
 
 
 def evaluate_barriers(
@@ -109,13 +167,27 @@ class PerformanceTracker:
             "return_after_5d": None,
             "return_after_20d": None,
             "return_after_60d": None,
-            "evaluated_at": None,
         }
         for cycle in cycles:
             if cycle.get("status") == "superseded":
                 continue
-            reset_cycle = {**cycle, **reset_fields}
-            if self._backfill_cycle_row(reset_cycle, initial_updates=reset_fields):
+            layout = classify_short_barrier_layout(cycle)
+            normalization_updates = normalized_cycle_barrier_updates(cycle)
+            policy_updates = {
+                **normalization_updates,
+                **measurement_metadata_updates(cycle),
+            }
+            initial_updates = {**reset_fields, **policy_updates}
+            reset_cycle = {**cycle, **initial_updates}
+            unavailable_updates = policy_updates
+            if layout == SHORT_LAYOUT_INVALID:
+                unavailable_updates = {**reset_fields, **policy_updates}
+            if self._backfill_cycle_row(
+                reset_cycle,
+                initial_updates=initial_updates,
+                comparison_cycle=cycle,
+                unavailable_updates=unavailable_updates,
+            ):
                 recalculated += 1
         return recalculated
 
@@ -185,27 +257,29 @@ class PerformanceTracker:
         self,
         cycle: dict[str, Any],
         initial_updates: dict[str, Any] | None = None,
+        comparison_cycle: dict[str, Any] | None = None,
+        unavailable_updates: dict[str, Any] | None = None,
     ) -> bool:
         ticker = cycle.get("ticker")
         if not ticker:
-            return False
+            return self._persist_cycle_updates(cycle, unavailable_updates or {}, comparison_cycle)
         started_at = parse_iso_datetime(cycle.get("started_at") or cycle.get("created_at"))
         if started_at is None:
-            return False
+            return self._persist_cycle_updates(cycle, unavailable_updates or {}, comparison_cycle)
         today = datetime.now(timezone.utc).date()
         age_days = max(0, (today - started_at.date()).days)
         result = self._price_history(str(ticker), lookback_days=max(160, age_days + 30))
         if result.dataframe.empty:
-            return False
+            return self._persist_cycle_updates(cycle, unavailable_updates or {}, comparison_cycle)
         future_rows = result.dataframe[
             (result.dataframe.index.date > started_at.date())
             & (result.dataframe.index.date <= today)
         ]
         if future_rows.empty:
-            return False
+            return self._persist_cycle_updates(cycle, unavailable_updates or {}, comparison_cycle)
         reference_price = cycle.get("reference_price")
         if reference_price is None:
-            return False
+            return self._persist_cycle_updates(cycle, unavailable_updates or {}, comparison_cycle)
         reference_price = float(reference_price)
         updates: dict[str, Any] = dict(initial_updates or {})
         for days in (1, 5, 20, 60):
@@ -218,7 +292,9 @@ class PerformanceTracker:
             updates[return_field] = round(((price - reference_price) / reference_price) * 100, 4)
 
         if cycle.get("status") == "active":
-            terminal_result = self._cycle_terminal_status(cycle, future_rows)
+            terminal_result = None
+            if not is_measurement_excluded(cycle):
+                terminal_result = self._cycle_terminal_status(cycle, future_rows)
             if terminal_result:
                 terminal_status, barrier_hit_at = terminal_result
                 updates["status"] = terminal_status
@@ -229,11 +305,23 @@ class PerformanceTracker:
                 updates["status"] = "expired"
                 updates["closed_at"] = trading_timestamp(future_rows.index[expiry_index])
 
-        if updates:
-            updates["evaluated_at"] = datetime.now(timezone.utc).isoformat()
-            self.repository.update_recommendation_cycle(cycle["id"], updates)
-            return True
-        return False
+        return self._persist_cycle_updates(cycle, updates, comparison_cycle)
+
+    def _persist_cycle_updates(
+        self,
+        cycle: dict[str, Any],
+        updates: dict[str, Any],
+        comparison_cycle: dict[str, Any] | None,
+    ) -> bool:
+        if comparison_cycle is not None:
+            updates = {
+                key: value for key, value in updates.items() if comparison_cycle.get(key) != value
+            }
+        if not updates:
+            return False
+        updates["evaluated_at"] = datetime.now(timezone.utc).isoformat()
+        self.repository.update_recommendation_cycle(cycle["id"], updates)
+        return True
 
     def _cycle_terminal_status(
         self,
