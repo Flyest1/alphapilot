@@ -87,9 +87,27 @@ def test_spearman_uses_average_ranks_without_optional_scipy_dependency() -> None
     first = pd.Series([1.0, 2.0, 2.0, 4.0])
     second = pd.Series([10.0, 20.0, 20.0, 40.0])
     inverse = pd.Series([40.0, 20.0, 20.0, 10.0])
+    non_monotonic = pd.Series([5.0, 1.0, 2.0, 4.0])
 
     assert SignalResearchService._spearman(first, second) == pytest.approx(1.0)
     assert SignalResearchService._spearman(first, inverse) == pytest.approx(-1.0)
+    assert SignalResearchService._spearman(first, non_monotonic) == pytest.approx(-0.316227766)
+
+
+def test_spearman_omits_nan_pairs_and_rejects_undefined_inputs() -> None:
+    first = pd.Series([1.0, float("nan"), 3.0, 4.0])
+    second = pd.Series([1.0, 2.0, 4.0, 3.0])
+
+    assert SignalResearchService._spearman(first, second) == pytest.approx(0.5)
+    assert SignalResearchService._spearman(pd.Series([1.0]), pd.Series([2.0])) is None
+    assert SignalResearchService._spearman(pd.Series([1.0, 1.0]), pd.Series([1.0, 2.0])) is None
+    assert (
+        SignalResearchService._spearman(
+            pd.Series([float("nan"), float("nan")]),
+            pd.Series([1.0, 2.0]),
+        )
+        is None
+    )
 
 
 def test_constant_nan_and_insufficient_samples_are_rejected_with_reasons() -> None:
