@@ -18,6 +18,7 @@ from app.api import (
     recommendations,
     reports,
     settings,
+    signal_models,
     system,
     toss,
 )
@@ -137,6 +138,7 @@ def create_app(repository: Repository | None = None) -> FastAPI:
     app.include_router(recommendations.router)
     app.include_router(reports.router)
     app.include_router(settings.router)
+    app.include_router(signal_models.router)
     app.include_router(system.router)
     app.include_router(toss.router)
     return app

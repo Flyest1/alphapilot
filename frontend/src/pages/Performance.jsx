@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { api, isApiCacheFresh, readApiCache } from "../api/client.js";
+import SignalModelEvaluationPanel from "../components/SignalModelEvaluationPanel.jsx";
 import Skeleton from "../components/Skeleton.jsx";
 import SummaryCard from "../components/SummaryCard.jsx";
 import { MESSAGES } from "../constants/strings.js";
@@ -19,6 +20,7 @@ import { groupTitle, statsHeadlines } from "../utils/recommendationStats.js";
 
 const STATS_CACHE_MS = 5 * 60 * 1000;
 const STATS_PATH = "/api/recommendation-stats";
+const EVALUATION_PATH = "/api/signal-models/evaluation";
 
 function formatWinRate(value) {
   if (value == null) return "-";
@@ -37,6 +39,10 @@ export default function Performance() {
   const [error, setError] = useState("");
   const [backtest, setBacktest] = useState(null);
   const [backtestLoading, setBacktestLoading] = useState(false);
+  const cachedEvaluation = readApiCache(EVALUATION_PATH, { maxAgeMs: STATS_CACHE_MS });
+  const [evaluation, setEvaluation] = useState(cachedEvaluation);
+  const [evaluationLoading, setEvaluationLoading] = useState(!cachedEvaluation);
+  const [evaluationError, setEvaluationError] = useState(null);
 
   function loadStats() {
     setIsLoading(true);
@@ -50,9 +56,27 @@ export default function Performance() {
       .finally(() => setIsLoading(false));
   }
 
+  function loadEvaluation() {
+    setEvaluationLoading(true);
+    api.signalModels
+      .evaluation()
+      .then((result) => {
+        setEvaluation(result);
+        setEvaluationError(null);
+      })
+      .catch((err) => {
+        setEvaluation(null);
+        setEvaluationError(err);
+      })
+      .finally(() => setEvaluationLoading(false));
+  }
+
   useEffect(() => {
     if (!isApiCacheFresh(STATS_PATH, STATS_CACHE_MS)) {
       loadStats();
+    }
+    if (!isApiCacheFresh(EVALUATION_PATH, STATS_CACHE_MS)) {
+      loadEvaluation();
     }
   }, []);
 
@@ -132,6 +156,12 @@ export default function Performance() {
           과거 성과는 미래 수익을 보장하지 않습니다.
         </p>
       </section>
+
+      <SignalModelEvaluationPanel
+        error={evaluationError}
+        evaluation={evaluation}
+        isLoading={evaluationLoading}
+      />
 
       <section className="panel">
         <div className="section-heading">

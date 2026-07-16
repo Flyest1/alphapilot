@@ -193,6 +193,9 @@ export const api = {
   recommendationStats: {
     get: () => apiRequest("/api/recommendation-stats"),
   },
+  signalModels: {
+    evaluation: () => apiRequest("/api/signal-models/evaluation"),
+  },
   notifications: {
     list: (unreadOnly = false, limit = 100) =>
       apiRequest(`/api/notifications?unread_only=${unreadOnly}&limit=${limit}`),

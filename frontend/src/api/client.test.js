@@ -97,4 +97,15 @@ describe("apiRequest", () => {
     expect(url).toContain("/api/toss/sync");
     expect(init.method).toBe("POST");
   });
+
+  it("gets the read-only signal model evaluation", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: "collecting" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.signalModels.evaluation()).resolves.toEqual({ status: "collecting" });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/api/signal-models/evaluation");
+    expect(init.method).toBeUndefined();
+  });
 });

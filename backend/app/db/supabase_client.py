@@ -1,6 +1,8 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from hashlib import sha256
+from json import dumps
 from threading import RLock
 from typing import Any, Protocol
 from uuid import uuid4
@@ -120,6 +122,28 @@ class Repository(Protocol):
 
     def mark_all_notifications_read(self) -> int: ...
 
+    def list_signal_model_versions(self) -> list[dict[str, Any]]: ...
+
+    def create_signal_model_version(self, data: dict[str, Any]) -> dict[str, Any]: ...
+
+    def list_signal_model_assignments(self) -> list[dict[str, Any]]: ...
+
+    def create_signal_model_assignment(self, data: dict[str, Any]) -> dict[str, Any]: ...
+
+    def list_signal_model_evaluation_runs(self) -> list[dict[str, Any]]: ...
+
+    def create_signal_model_evaluation_run(self, data: dict[str, Any]) -> dict[str, Any]: ...
+
+    def list_signal_model_evaluation_observations(self) -> list[dict[str, Any]]: ...
+
+    def create_signal_model_evaluation_observation(
+        self, data: dict[str, Any]
+    ) -> dict[str, Any]: ...
+
+    def list_signal_model_report_links(self) -> list[dict[str, Any]]: ...
+
+    def create_signal_model_report_link(self, data: dict[str, Any]) -> dict[str, Any]: ...
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -127,6 +151,142 @@ def _now_iso() -> str:
 
 def _copy_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     return [deepcopy(row) for row in rows]
+
+
+def _prepare_signal_model_version(data: dict[str, Any]) -> dict[str, Any]:
+    row = deepcopy(data)
+    config = row.get("config")
+    if not isinstance(config, Mapping):
+        raise ValueError("signal model version config must be an object")
+    try:
+        config_sha256 = sha256(
+            dumps(dict(config), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+    except (TypeError, ValueError) as exc:
+        raise ValueError("signal model version config must be JSON serializable") from exc
+    provided_sha256 = row.get("config_sha256")
+    if provided_sha256 is not None and provided_sha256 != config_sha256:
+        raise ValueError("signal model version config_sha256 does not match config")
+    row["config"] = dict(config)
+    row["config_sha256"] = config_sha256
+    row["metadata"] = row.get("metadata") or {
+        "research_only": True,
+        "adoption_permitted": False,
+        "promotion_mode": "manual_only",
+        "evaluation_window_weeks": 12,
+    }
+    return row
+
+
+def _canonical_json_sha256(value: Mapping[str, Any]) -> str:
+    try:
+        payload = dumps(dict(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("signal model snapshot must be JSON serializable") from exc
+    return sha256(payload.encode()).hexdigest()
+
+
+def _twelve_week_end(started_at: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+    except (AttributeError, ValueError) as exc:
+        raise ValueError("evaluation started_at must be an ISO datetime") from exc
+    return (parsed + timedelta(weeks=12)).isoformat()
+
+
+def _prepare_signal_model_evaluation_run(
+    data: dict[str, Any],
+    versions: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    row = deepcopy(data)
+    champion_model_version_id = str(row.get("champion_model_version_id") or "")
+    challenger_model_version_id = str(row.get("challenger_model_version_id") or "")
+    if (
+        champion_model_version_id not in versions
+        or challenger_model_version_id not in versions
+        or champion_model_version_id == challenger_model_version_id
+    ):
+        raise ValueError("evaluation run requires distinct known champion and challenger versions")
+    if row.get("evaluation_window_weeks", 12) != 12:
+        raise ValueError("evaluation_window_weeks is fixed at 12")
+    if row.get("trigger_type") != "scheduled":
+        raise ValueError("evaluation run trigger_type must be scheduled")
+    if not row.get("report_type") or not row.get("decision_at"):
+        raise ValueError("evaluation run requires report_type and decision_at")
+    input_snapshot = row.get("input_snapshot")
+    if not isinstance(input_snapshot, Mapping):
+        raise ValueError("evaluation run input_snapshot must be an object")
+
+    now = _now_iso()
+    started_at = row.get("started_at") or now
+    ends_at = _twelve_week_end(started_at)
+    if row.get("ends_at") is not None and row["ends_at"] != ends_at:
+        raise ValueError("evaluation run ends_at must equal started_at plus 12 weeks")
+    champion_sha256 = str(versions[champion_model_version_id].get("config_sha256") or "")
+    challenger_sha256 = str(versions[challenger_model_version_id].get("config_sha256") or "")
+    if row.get("champion_config_sha256") not in {None, champion_sha256}:
+        raise ValueError("evaluation run champion config hash does not match its model version")
+    if row.get("challenger_config_sha256") not in {None, challenger_sha256}:
+        raise ValueError("evaluation run challenger config hash does not match its model version")
+    input_sha256 = _canonical_json_sha256(input_snapshot)
+    if row.get("input_sha256") not in {None, input_sha256}:
+        raise ValueError("evaluation run input hash does not match input_snapshot")
+
+    status = row.get("status") or "pending"
+    if status not in {"pending", "collecting", "review_ready", "failed"}:
+        raise ValueError("evaluation run status is invalid")
+    if (status == "failed") != bool(row.get("failure_reason")):
+        raise ValueError("failed evaluations require failure_reason and other states must omit it")
+    completed_at = row.get("completed_at")
+    if status == "review_ready":
+        if completed_at is None:
+            raise ValueError("review-ready evaluations require completed_at")
+        try:
+            completed = datetime.fromisoformat(str(completed_at).replace("Z", "+00:00"))
+            ends = datetime.fromisoformat(ends_at.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("evaluation completed_at must be an ISO datetime") from exc
+        if completed.tzinfo is None or ends.tzinfo is None:
+            raise ValueError("evaluation timestamps must include a timezone")
+        if completed < ends:
+            raise ValueError("review-ready evaluations must complete after the 12-week window")
+        if ends.tzinfo is None or datetime.now(timezone.utc) < ends:
+            raise ValueError("review-ready evaluations must wait for the 12-week window")
+    for field in (
+        "expected_observation_count",
+        "observed_observation_count",
+        "excluded_observation_count",
+    ):
+        if int(row.get(field) or 0) < 0:
+            raise ValueError(f"{field} must not be negative")
+
+    row["champion_model_version_id"] = champion_model_version_id
+    row["challenger_model_version_id"] = challenger_model_version_id
+    row["champion_config_sha256"] = champion_sha256
+    row["challenger_config_sha256"] = challenger_sha256
+    row["evaluation_window_weeks"] = 12
+    row["started_at"] = started_at
+    row["ends_at"] = ends_at
+    row["status"] = status
+    row["expected_observation_count"] = int(row.get("expected_observation_count") or 0)
+    row["observed_observation_count"] = int(row.get("observed_observation_count") or 0)
+    row["excluded_observation_count"] = int(row.get("excluded_observation_count") or 0)
+    row["input_snapshot"] = dict(input_snapshot)
+    row["input_sha256"] = input_sha256
+    return row
+
+
+def _prepare_signal_model_report_link(data: dict[str, Any]) -> dict[str, Any]:
+    row = deepcopy(data)
+    snapshot = row.get("report_inputs_snapshot")
+    if not isinstance(snapshot, Mapping):
+        raise ValueError("signal model report link requires report_inputs_snapshot")
+    input_sha256 = _canonical_json_sha256(snapshot)
+    if row.get("input_sha256") not in {None, input_sha256}:
+        raise ValueError("signal model report link input hash does not match snapshot")
+    row["report_inputs_snapshot"] = dict(snapshot)
+    row["input_sha256"] = input_sha256
+    return row
 
 
 class InMemoryRepository:
@@ -143,6 +303,11 @@ class InMemoryRepository:
         self.recommendation_cycles: dict[str, dict[str, Any]] = {}
         self.market_data_cache: dict[str, dict[str, Any]] = {}
         self.notifications: dict[str, dict[str, Any]] = {}
+        self.signal_model_versions: dict[str, dict[str, Any]] = {}
+        self.signal_model_assignments: dict[str, dict[str, Any]] = {}
+        self.signal_model_evaluation_runs: dict[str, dict[str, Any]] = {}
+        self.signal_model_evaluation_observations: dict[str, dict[str, Any]] = {}
+        self.signal_model_report_links: dict[str, dict[str, Any]] = {}
 
     def list_assets(self) -> list[dict[str, Any]]:
         return sorted(_copy_rows(self.assets.values()), key=lambda row: row["created_at"])
@@ -473,6 +638,247 @@ class InMemoryRepository:
             row["updated_at"] = now
             updated += 1
         return updated
+
+    def list_signal_model_versions(self) -> list[dict[str, Any]]:
+        return sorted(
+            _copy_rows(self.signal_model_versions.values()),
+            key=lambda row: (row.get("model_key") or "", row.get("version") or ""),
+        )
+
+    def create_signal_model_version(self, data: dict[str, Any]) -> dict[str, Any]:
+        row = _prepare_signal_model_version(data)
+        if not row.get("model_key") or not row.get("version"):
+            raise ValueError("signal model version requires model_key and version")
+        if any(
+            existing.get("model_key") == row["model_key"]
+            and existing.get("version") == row["version"]
+            for existing in self.signal_model_versions.values()
+        ):
+            raise ValueError("signal model version already exists")
+        if any(
+            existing.get("config_sha256") == row["config_sha256"]
+            for existing in self.signal_model_versions.values()
+        ):
+            raise ValueError("signal model configuration already exists")
+        row["id"] = row.get("id") or str(uuid4())
+        row["created_at"] = row.get("created_at") or _now_iso()
+        self.signal_model_versions[row["id"]] = row
+        return deepcopy(row)
+
+    def list_signal_model_assignments(self) -> list[dict[str, Any]]:
+        return sorted(
+            _copy_rows(self.signal_model_assignments.values()),
+            key=lambda row: row.get("effective_at") or row.get("created_at") or "",
+            reverse=True,
+        )
+
+    def create_signal_model_assignment(self, data: dict[str, Any]) -> dict[str, Any]:
+        row = deepcopy(data)
+        model_version_id = str(row.get("model_version_id") or "")
+        role = row.get("role")
+        if model_version_id not in self.signal_model_versions:
+            raise ValueError("signal model assignment references an unknown model version")
+        if role not in {"champion", "challenger"}:
+            raise ValueError("signal model assignment role must be champion or challenger")
+        if row.get("ended_at") is None and any(
+            existing.get("role") == role and existing.get("ended_at") is None
+            for existing in self.signal_model_assignments.values()
+        ):
+            raise ValueError("an active assignment already exists for this role")
+        now = _now_iso()
+        row["id"] = row.get("id") or str(uuid4())
+        row["model_version_id"] = model_version_id
+        row["effective_at"] = row.get("effective_at") or now
+        row["assignment_reason"] = row.get("assignment_reason") or "manual_review"
+        row["metadata"] = row.get("metadata") or {
+            "research_only": True,
+            "promotion_mode": "manual_only",
+        }
+        row["created_at"] = row.get("created_at") or now
+        self.signal_model_assignments[row["id"]] = row
+        return deepcopy(row)
+
+    def list_signal_model_evaluation_runs(self) -> list[dict[str, Any]]:
+        return sorted(
+            _copy_rows(self.signal_model_evaluation_runs.values()),
+            key=lambda row: row.get("created_at") or "",
+            reverse=True,
+        )
+
+    def create_signal_model_evaluation_run(self, data: dict[str, Any]) -> dict[str, Any]:
+        row = deepcopy(data)
+        champion_model_version_id = str(row.get("champion_model_version_id") or "")
+        challenger_model_version_id = str(row.get("challenger_model_version_id") or "")
+        if (
+            champion_model_version_id not in self.signal_model_versions
+            or challenger_model_version_id not in self.signal_model_versions
+            or champion_model_version_id == challenger_model_version_id
+        ):
+            raise ValueError(
+                "evaluation run requires distinct known champion and challenger versions"
+            )
+        if row.get("evaluation_window_weeks", 12) != 12:
+            raise ValueError("evaluation_window_weeks is fixed at 12")
+        if row.get("trigger_type") != "scheduled":
+            raise ValueError("evaluation run trigger_type must be scheduled")
+        if not row.get("report_type") or not row.get("decision_at"):
+            raise ValueError("evaluation run requires report_type and decision_at")
+        input_snapshot = row.get("input_snapshot")
+        if not isinstance(input_snapshot, Mapping):
+            raise ValueError("evaluation run input_snapshot must be an object")
+        now = _now_iso()
+        started_at = row.get("started_at") or now
+        ends_at = _twelve_week_end(started_at)
+        if row.get("ends_at") is not None and row["ends_at"] != ends_at:
+            raise ValueError("evaluation run ends_at must equal started_at plus 12 weeks")
+        champion_sha256 = self.signal_model_versions[champion_model_version_id]["config_sha256"]
+        challenger_sha256 = self.signal_model_versions[challenger_model_version_id]["config_sha256"]
+        if row.get("champion_config_sha256") not in {None, champion_sha256}:
+            raise ValueError("evaluation run champion config hash does not match its model version")
+        if row.get("challenger_config_sha256") not in {None, challenger_sha256}:
+            raise ValueError(
+                "evaluation run challenger config hash does not match its model version"
+            )
+        input_sha256 = _canonical_json_sha256(input_snapshot)
+        if row.get("input_sha256") not in {None, input_sha256}:
+            raise ValueError("evaluation run input hash does not match input_snapshot")
+        status = row.get("status") or "pending"
+        if status not in {"pending", "collecting", "review_ready", "failed"}:
+            raise ValueError("evaluation run status is invalid")
+        if (status == "failed") != bool(row.get("failure_reason")):
+            raise ValueError(
+                "failed evaluations require failure_reason and other states must omit it"
+            )
+        if status == "review_ready":
+            completed_at = row.get("completed_at")
+            if completed_at is None:
+                raise ValueError("review-ready evaluations require completed_at")
+            try:
+                completed = datetime.fromisoformat(str(completed_at).replace("Z", "+00:00"))
+                ends = datetime.fromisoformat(ends_at.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError("evaluation completed_at must be an ISO datetime") from exc
+            if completed.tzinfo is None or ends.tzinfo is None:
+                raise ValueError("evaluation timestamps must include a timezone")
+            if completed < ends:
+                raise ValueError("review-ready evaluations must complete after the 12-week window")
+            if ends.tzinfo is None or datetime.now(timezone.utc) < ends:
+                raise ValueError("review-ready evaluations must wait for the 12-week window")
+        for field in (
+            "expected_observation_count",
+            "observed_observation_count",
+            "excluded_observation_count",
+        ):
+            if int(row.get(field) or 0) < 0:
+                raise ValueError(f"{field} must not be negative")
+        row["id"] = row.get("id") or str(uuid4())
+        row["champion_model_version_id"] = champion_model_version_id
+        row["challenger_model_version_id"] = challenger_model_version_id
+        row["champion_config_sha256"] = champion_sha256
+        row["challenger_config_sha256"] = challenger_sha256
+        row["evaluation_window_weeks"] = 12
+        row["started_at"] = started_at
+        row["ends_at"] = ends_at
+        row["status"] = status
+        row["expected_observation_count"] = int(row.get("expected_observation_count") or 0)
+        row["observed_observation_count"] = int(row.get("observed_observation_count") or 0)
+        row["excluded_observation_count"] = int(row.get("excluded_observation_count") or 0)
+        row["input_snapshot"] = dict(input_snapshot)
+        row["input_sha256"] = input_sha256
+        row["created_at"] = row.get("created_at") or now
+        self.signal_model_evaluation_runs[row["id"]] = row
+        return deepcopy(row)
+
+    def list_signal_model_evaluation_observations(self) -> list[dict[str, Any]]:
+        return sorted(
+            _copy_rows(self.signal_model_evaluation_observations.values()),
+            key=lambda row: row.get("observed_at") or "",
+        )
+
+    def create_signal_model_evaluation_observation(self, data: dict[str, Any]) -> dict[str, Any]:
+        row = deepcopy(data)
+        run_id = str(row.get("evaluation_run_id") or "")
+        run = self.signal_model_evaluation_runs.get(run_id)
+        arm = row.get("arm")
+        if run is None or arm not in {"champion", "challenger"}:
+            raise ValueError("evaluation observation requires a known run and arm")
+        expected_model_version_id = str(run[f"{arm}_model_version_id"])
+        if str(row.get("model_version_id") or "") != expected_model_version_id:
+            raise ValueError("evaluation observation model version does not match its arm")
+        required_fields = (
+            "observation_key",
+            "observed_at",
+            "market",
+            "ticker",
+            "action",
+            "horizon",
+        )
+        if any(not row.get(field) for field in required_fields):
+            raise ValueError("evaluation observation is missing required audit fields")
+        returns = row.get("returns") or {}
+        outcome_snapshot = row.get("outcome_snapshot") or {}
+        if not isinstance(returns, Mapping) or not isinstance(outcome_snapshot, Mapping):
+            raise ValueError("evaluation observation returns and outcome_snapshot must be objects")
+        if any(
+            existing.get("evaluation_run_id") == run_id
+            and existing.get("arm") == arm
+            and existing.get("observation_key") == row["observation_key"]
+            for existing in self.signal_model_evaluation_observations.values()
+        ):
+            raise ValueError("evaluation observation already exists for this arm and key")
+        row["id"] = row.get("id") or str(uuid4())
+        row["evaluation_run_id"] = run_id
+        row["model_version_id"] = expected_model_version_id
+        row["outcome_status"] = row.get("outcome_status") or "pending"
+        row["returns"] = dict(returns)
+        row["outcome_snapshot"] = dict(outcome_snapshot)
+        row["created_at"] = row.get("created_at") or _now_iso()
+        self.signal_model_evaluation_observations[row["id"]] = row
+        return deepcopy(row)
+
+    def list_signal_model_report_links(self) -> list[dict[str, Any]]:
+        return sorted(
+            _copy_rows(self.signal_model_report_links.values()),
+            key=lambda row: row.get("created_at") or "",
+            reverse=True,
+        )
+
+    def create_signal_model_report_link(self, data: dict[str, Any]) -> dict[str, Any]:
+        row = _prepare_signal_model_report_link(data)
+        report_id = str(row.get("report_id") or "")
+        champion_assignment_id = str(row.get("champion_assignment_id") or "")
+        champion_version_id = str(row.get("champion_version_id") or "")
+        generation_source = row.get("generation_source")
+        if report_id not in self.reports:
+            raise ValueError("signal model report link references an unknown report")
+        if champion_version_id not in self.signal_model_versions:
+            raise ValueError("signal model report link references an unknown champion version")
+        champion_assignment = self.signal_model_assignments.get(champion_assignment_id)
+        if (
+            champion_assignment is None
+            or champion_assignment.get("role") != "champion"
+            or str(champion_assignment.get("model_version_id")) != champion_version_id
+            or champion_assignment.get("ended_at") is not None
+        ):
+            raise ValueError(
+                "signal model report link champion assignment does not match its model version"
+            )
+        if generation_source not in {"scheduled", "manual"}:
+            raise ValueError("signal model report link generation_source is invalid")
+        if row.get("is_official_sample") is not (generation_source == "scheduled"):
+            raise ValueError("scheduled report links must be official and manual links must not")
+        if generation_source == "manual" and row.get("evaluation_id") is not None:
+            raise ValueError("manual report links must not reference an evaluation")
+        if report_id in self.signal_model_report_links:
+            raise ValueError("signal model report link already exists for this report")
+        now = _now_iso()
+        row["report_id"] = report_id
+        row["champion_assignment_id"] = champion_assignment_id
+        row["champion_version_id"] = champion_version_id
+        row["created_at"] = row.get("created_at") or now
+        row["updated_at"] = row.get("updated_at") or now
+        self.signal_model_report_links[report_id] = row
+        return deepcopy(row)
 
 
 class SupabaseRepository:
@@ -824,6 +1230,78 @@ class SupabaseRepository:
             .eq("is_read", False)
         )
         return len(self._run(builder, {"operation": "mark_all_notifications_read"}))
+
+    def list_signal_model_versions(self) -> list[dict[str, Any]]:
+        builder = self.client.table("signal_model_versions").select("*").order("created_at")
+        return self._run(builder, {"operation": "list_signal_model_versions"})
+
+    def create_signal_model_version(self, data: dict[str, Any]) -> dict[str, Any]:
+        builder = self.client.table("signal_model_versions").insert(
+            _prepare_signal_model_version(data)
+        )
+        rows = self._run(builder, {"operation": "create_signal_model_version"})
+        return rows[0]
+
+    def list_signal_model_assignments(self) -> list[dict[str, Any]]:
+        builder = (
+            self.client.table("signal_model_assignments")
+            .select("*")
+            .order("effective_at", desc=True)
+        )
+        return self._run(builder, {"operation": "list_signal_model_assignments"})
+
+    def create_signal_model_assignment(self, data: dict[str, Any]) -> dict[str, Any]:
+        builder = self.client.table("signal_model_assignments").insert(data)
+        rows = self._run(builder, {"operation": "create_signal_model_assignment"})
+        return rows[0]
+
+    def list_signal_model_evaluation_runs(self) -> list[dict[str, Any]]:
+        builder = (
+            self.client.table("signal_model_evaluation_runs")
+            .select("*")
+            .order("created_at", desc=True)
+        )
+        return self._run(builder, {"operation": "list_signal_model_evaluation_runs"})
+
+    def create_signal_model_evaluation_run(self, data: dict[str, Any]) -> dict[str, Any]:
+        versions = {
+            str(row["id"]): row
+            for row in self.list_signal_model_versions()
+            if row.get("id") is not None
+        }
+        builder = self.client.table("signal_model_evaluation_runs").insert(
+            _prepare_signal_model_evaluation_run(data, versions)
+        )
+        rows = self._run(builder, {"operation": "create_signal_model_evaluation_run"})
+        return rows[0]
+
+    def list_signal_model_evaluation_observations(self) -> list[dict[str, Any]]:
+        builder = (
+            self.client.table("signal_model_evaluation_observations")
+            .select("*")
+            .order("observed_at")
+        )
+        return self._run(builder, {"operation": "list_signal_model_evaluation_observations"})
+
+    def create_signal_model_evaluation_observation(self, data: dict[str, Any]) -> dict[str, Any]:
+        builder = self.client.table("signal_model_evaluation_observations").insert(data)
+        rows = self._run(builder, {"operation": "create_signal_model_evaluation_observation"})
+        return rows[0]
+
+    def list_signal_model_report_links(self) -> list[dict[str, Any]]:
+        builder = (
+            self.client.table("signal_model_report_links")
+            .select("*")
+            .order("created_at", desc=True)
+        )
+        return self._run(builder, {"operation": "list_signal_model_report_links"})
+
+    def create_signal_model_report_link(self, data: dict[str, Any]) -> dict[str, Any]:
+        builder = self.client.table("signal_model_report_links").insert(
+            _prepare_signal_model_report_link(data)
+        )
+        rows = self._run(builder, {"operation": "create_signal_model_report_link"})
+        return rows[0]
 
 
 def create_repository(env: EnvironmentSettings | None = None) -> Repository:

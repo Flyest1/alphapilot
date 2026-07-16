@@ -52,6 +52,8 @@ Phase: Post-MVP (development plan v2)
 Status: MVP complete; Track R and Post-MVP Phases 1-6, 8-9 implemented in code
 Primary goal now: keep improving reliability, signal quality, and daily usability.
 Phase 10 is documented in docs/phase10_multi_user_design.md but remains implementation-blocked.
+Signal-quality improvement Phase 6 shadow-evaluation foundation is implemented in code; migration 016
+must be applied manually, and no challenger model or promotion threshold is configured yet.
 ```
 
 The detailed upgrade plan lives in `docs/development_plan_v2.md` and the code review baseline in `docs/code_review_2026_06.md`. When this file and the plan conflict, this file wins.
@@ -445,7 +447,12 @@ User-token protected:
 
 ```text
 POST /api/backtests/rules/run
+GET  /api/signal-models/evaluation
 ```
+
+The signal-model evaluation endpoint is read-only and research-only. It must not expose mutation,
+automatic promotion, scheduling, or trading behavior. Scheduled reports are official future shadow
+samples; manual reports may store input lineage only. The evaluation window is fixed at 12 weeks.
 
 ### Settings
 
@@ -542,6 +549,11 @@ Existing Supabase tables:
 - `market_data_cache`
 - `candidate_universe`
 - `notifications`
+- `signal_model_versions`
+- `signal_model_assignments`
+- `signal_model_evaluation_runs`
+- `signal_model_evaluation_observations`
+- `signal_model_report_links`
 
 Existing additive settings columns:
 
@@ -549,6 +561,9 @@ Existing additive settings columns:
 - `usd_krw_rate`
 - target allocation, rebalance, risk-per-trade, and cost-rate columns from migration 011
 - Telegram event opt-in columns from migration 013
+
+Signal-model lineage tables are introduced by additive migration 016. It seeds the immutable current
+champion only; it must not seed a challenger, evaluation run, promotion decision, or automatic workflow.
 
 Do not alter or remove existing columns without explicit approval. New tables must be introduced through migration files under:
 

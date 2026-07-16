@@ -69,7 +69,13 @@ class ReportService:
         self.report_job_id = report_job_id
         self.persistence = ReportPersistence(repository)
 
-    def generate_report(self, report_type: str) -> dict[str, Any]:
+    def generate_report(
+        self,
+        report_type: str,
+        generation_source: str = "manual",
+    ) -> dict[str, Any]:
+        if generation_source not in {"scheduled", "manual"}:
+            raise ValueError("generation_source must be scheduled or manual")
         with self._timed_step("settings"):
             app_settings = resolve_application_settings(
                 self.repository.get_settings(),
@@ -255,6 +261,16 @@ class ReportService:
             analysis_rows=portfolio_risk_analysis_rows,
         )
 
+        report_inputs = self._build_report_inputs(
+            analysis_rows,
+            portfolio_risk_analysis_rows,
+            news_context,
+            asset_events,
+            app_settings,
+            content,
+            ai_generation,
+            position_sizing_snapshot,
+        )
         with self._timed_step("save_report"):
             saved = self.persistence.save_report(
                 content,
@@ -262,23 +278,65 @@ class ReportService:
                 app_settings.candidate_horizon,
                 portfolio_summary.model_dump(mode="json"),
                 app_settings.frontend_timezone,
-                report_inputs=self._build_report_inputs(
-                    analysis_rows,
-                    portfolio_risk_analysis_rows,
-                    news_context,
-                    asset_events,
-                    app_settings,
-                    content,
-                    ai_generation,
-                    position_sizing_snapshot,
-                ),
+                report_inputs=report_inputs,
             )
+        self._save_signal_model_report_link(saved, report_inputs, generation_source)
         with self._timed_step("performance_backfill"):
             self.backfill_performance_logs()
         with self._timed_step("recommendation_backfill"):
             self.backfill_recommendation_cycles()
         saved["content"] = content.model_dump(mode="json")
         return saved
+
+    def _save_signal_model_report_link(
+        self,
+        report: dict[str, Any],
+        report_inputs: dict[str, Any],
+        generation_source: str,
+    ) -> None:
+        try:
+            versions = {
+                str(row.get("id")): row
+                for row in self.repository.list_signal_model_versions()
+                if row.get("id") is not None
+            }
+            active_champion_assignment = max(
+                (
+                    row
+                    for row in self.repository.list_signal_model_assignments()
+                    if row.get("role") == "champion" and row.get("ended_at") is None
+                ),
+                key=lambda row: str(row.get("effective_at") or row.get("created_at") or ""),
+                default=None,
+            )
+            champion_version_id = (
+                str(active_champion_assignment.get("model_version_id"))
+                if active_champion_assignment is not None
+                else None
+            )
+            if champion_version_id not in versions:
+                return
+            self.repository.create_signal_model_report_link(
+                {
+                    "report_id": report["id"],
+                    "generation_source": generation_source,
+                    "is_official_sample": generation_source == "scheduled",
+                    "champion_assignment_id": str(active_champion_assignment["id"]),
+                    "champion_version_id": champion_version_id,
+                    "report_inputs_snapshot": report_inputs,
+                    "evaluation_id": None,
+                }
+            )
+        except Exception as exc:
+            log_external_failure(
+                "signal_model_report_links",
+                exc,
+                {
+                    "operation": "create_report_link",
+                    "report_id": report.get("id"),
+                    "generation_source": generation_source,
+                },
+            )
 
     def backfill_performance_logs(self) -> None:
         PerformanceTracker(self.repository, self.market_data_service).backfill_performance_logs()

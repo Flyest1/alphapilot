@@ -84,7 +84,10 @@ def test_scheduler_report_endpoint_queues_job_with_scheduler_token(monkeypatch):
     monkeypatch.setattr(
         ReportService,
         "generate_report",
-        lambda _self, report_type: {"id": "report-1", "report_type": report_type},
+        lambda _self, report_type, generation_source="manual": {
+            "id": "report-1",
+            "report_type": report_type,
+        },
     )
     test_client = client()
 
@@ -111,7 +114,10 @@ def test_manual_report_endpoint_uses_api_token(monkeypatch):
     monkeypatch.setattr(
         ReportService,
         "generate_report",
-        lambda _self, report_type: {"id": "report-1", "report_type": report_type},
+        lambda _self, report_type, generation_source="manual": {
+            "id": "report-1",
+            "report_type": report_type,
+        },
     )
     test_client = client()
 

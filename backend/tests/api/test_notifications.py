@@ -54,7 +54,10 @@ def test_only_scheduled_report_generation_creates_notifications(monkeypatch):
     monkeypatch.setattr(
         ReportService,
         "generate_report",
-        lambda _self, report_type: {"id": f"{report_type}-report", "report_type": report_type},
+        lambda _self, report_type, generation_source="manual": {
+            "id": f"{report_type}-report",
+            "report_type": report_type,
+        },
     )
     scheduled_repository = InMemoryRepository()
     scheduled_client = TestClient(create_app(repository=scheduled_repository))

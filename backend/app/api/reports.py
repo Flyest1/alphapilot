@@ -27,7 +27,10 @@ def _run_manual_report_job(
             market_data_service=app_state.market_data_service,
             report_job_store=app_state.report_jobs,
             report_job_id=job_id,
-        ).generate_report(report_type)
+        ).generate_report(
+            report_type,
+            generation_source="scheduled" if scheduled else "manual",
+        )
         app_state.report_jobs.mark_completed(job_id, report.get("id"))
         if scheduled:
             try:
