@@ -53,7 +53,8 @@ Status: MVP complete; Track R and Post-MVP Phases 1-6, 8-9 implemented in code
 Primary goal now: keep improving reliability, signal quality, and daily usability.
 Phase 10 is documented in docs/phase10_multi_user_design.md but remains implementation-blocked.
 Signal-quality improvement Phase 6 shadow-evaluation foundation is implemented in code; migration 016
-must be applied manually, and no challenger model or promotion threshold is configured yet.
+was applied manually to the operating Supabase project on 2026-07-17. No challenger model or promotion
+threshold is configured yet.
 ```
 
 The detailed upgrade plan lives in `docs/development_plan_v2.md` and the code review baseline in `docs/code_review_2026_06.md`. When this file and the plan conflict, this file wins.

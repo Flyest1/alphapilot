@@ -276,6 +276,11 @@ SQL Editor에서 008과 015를 순서대로 수동 적용해야 합니다.
 backend/app/db/migrations/016_create_signal_model_evaluations.sql
 ```
 
+현재 운영 Supabase에는 2026-07-17에 016을 수동 적용했습니다. 새 Supabase 환경을 구성하거나
+데이터베이스를 복원한 경우에는 동일한 마이그레이션을 별도로 실행해야 합니다.
+적용 직후 운영 저장소 조회 결과는 `available / not_configured`, champion `technical_score/v1`,
+challenger와 활성 평가 없음, 정기·수동 표본 각각 0건으로 확인했습니다.
+
 016은 현재 운영 기술점수 모델을 변경하지 않고, 불변 모델 버전과 역할 배정 이력, 12주 평가
 원장, 모델별 관측값, 리포트 입력 연결을 별도 테이블에 저장합니다. 기존 리포트와 추천 사이클
 테이블은 변경하지 않습니다. 마이그레이션은 현재 모델을 champion으로 한 번 등록하지만
