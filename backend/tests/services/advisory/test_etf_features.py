@@ -11,7 +11,8 @@ from app.services.market_data_service import MarketDataResult
 def _history(periods: int = 2_700, start: float = 100.0) -> pd.DataFrame:
     index = pd.bdate_range("2015-01-01", periods=periods)
     close = [start * (1.00025**day) for day in range(periods)]
-    return pd.DataFrame({"close": close}, index=index)
+    volume = [1_000_000 + day * 100 for day in range(periods)]
+    return pd.DataFrame({"close": close, "volume": volume}, index=index)
 
 
 class FakeMarketDataService:
@@ -192,6 +193,11 @@ def test_sector_outlook_covers_fixed_proxy_universe_and_three_portfolios():
     assert all(row["representative_holdings"] for row in result["sectors"])
     assert all(row["fundamentals"]["earnings_growth_pct"] == 12 for row in result["sectors"])
     assert all(row["fundamentals"]["forward_pe"] == 21 for row in result["sectors"])
+    assert all(
+        row["etf_flow_context"]["provider"] == "yfinance_price_volume_proxy"
+        and row["etf_flow_context"]["status"] == "proxy"
+        for row in result["sectors"]
+    )
     assert [row["investor_profile"] for row in result["investor_portfolios"]] == [
         "aggressive",
         "balanced",

@@ -64,7 +64,9 @@ class OpenAIAdvisoryProvider:
                     "limitation 중 하나로 구분하세요. summary와 limitation 이외의 모든 "
                     "항목은 반드시 context의 evidence_id를 하나 이상 인용하세요. summary도 "
                     "summary_evidence_ids에 근거를 인용하세요. 근거 없는 수치나 날짜는 "
-                    "쓰지 마세요."
+                    "쓰지 마세요. 수치는 결정론적 표에서 별도로 제공되므로 summary, findings, "
+                    "risks, actions, limitations 문장에는 숫자·날짜·백분율 문자를 전혀 쓰지 "
+                    "말고 방향성·상대평가·한계만 서술하세요."
                 ),
             },
             {
@@ -109,7 +111,8 @@ class OpenAIAdvisoryProvider:
                                 "content": (
                                     "이전 응답이 근거 검증에 실패했습니다. 오류: "
                                     f"{exc}. context에 실제 존재하는 evidence_id와 수치만 "
-                                    "사용해 JSON 전체를 다시 생성하세요."
+                                    "사용해 JSON 전체를 다시 생성하세요. 설명 문장에는 숫자·날짜·"
+                                    "백분율 문자를 전혀 쓰지 마세요."
                                 ),
                             },
                         ]

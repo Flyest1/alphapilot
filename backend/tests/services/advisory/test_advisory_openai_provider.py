@@ -80,6 +80,10 @@ def test_openai_advisory_provider_uses_separate_json_schema():
     assert result.summary == "근거 기반 관찰 결과입니다."
     schema = client.chat.completions.kwargs["response_format"]["json_schema"]
     assert schema["name"] == "AdvisoryNarrative"
+    assert (
+        "숫자·날짜·백분율 문자를 전혀 쓰지"
+        in client.chat.completions.kwargs["messages"][0]["content"]
+    )
 
 
 def test_openai_advisory_provider_rejects_forbidden_language():

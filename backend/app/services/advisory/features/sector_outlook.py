@@ -229,8 +229,12 @@ class SectorOutlookService:
                 }
         frame = getattr(market_data, "dataframe", None)
         volume_change = None
-        if frame is not None and "Volume" in frame and len(frame["Volume"].dropna()) >= 40:
-            volume = frame["Volume"].dropna()
+        volume_column = next(
+            (column for column in ("Volume", "volume") if frame is not None and column in frame),
+            None,
+        )
+        if volume_column is not None and len(frame[volume_column].dropna()) >= 40:
+            volume = frame[volume_column].dropna()
             prior = finite_number(volume.iloc[-40:-20].mean())
             recent = finite_number(volume.iloc[-20:].mean())
             if prior not in (None, 0) and recent is not None:
