@@ -229,7 +229,7 @@ curl http://127.0.0.1:8000/health
 
 ## 11. Bundle B 운영 안정성 (2026-07-17)
 
-구현 및 로컬 검증 완료, 운영 배포 검증 대기 상태다.
+구현·배포·운영 검증 완료 상태다.
 
 - complete-submission 원문만 `backend/.cache/sec-edgar`에 accession별로 영속 저장한다.
 - CIK, accession, 공식 Archives URL, SHA-256, 바이트 길이를 읽을 때마다 검증하고 16MB를 초과하거나 손상된 캐시는 사용하지 않는다.
@@ -242,7 +242,7 @@ curl http://127.0.0.1:8000/health
 
 ## 12. Bundle C 결과 활용성 (2026-07-17)
 
-구현 및 로컬 검증 완료, GitHub Pages 배포 검증 대기 상태다.
+구현·배포·GitHub Pages 번들 검증 완료 상태다.
 
 - 8개 분석 유형마다 핵심 컬럼, 단위, 한국어 라벨, 기본 정렬, 상태·위험 배지와 모바일 축약 카드를 제공한다.
 - 구조화된 OpenAI 설명은 요약·핵심 발견·핵심 위험·검토 사항·한계와 evidence ID를 별도 표시한다.
@@ -252,4 +252,11 @@ curl http://127.0.0.1:8000/health
 - `sessionStorage`에는 활성 job ID만 저장해 새로고침 후 polling을 복원하며 토큰·입력·결과는 저장하지 않는다.
 - 알려지지 않았거나 형식이 잘못된 확장 필드는 깊이·행·열 수를 제한한 범용 fallback으로 안전하게 표시한다.
 
-로컬 완료 기준은 백엔드 408개, 프론트엔드 102개 테스트와 backend/frontend lint·format·build 통과, Luna 독립 검증 P0/P1 0건이다. 운영 완료는 Oracle 재시작 복구, SEC cold/warm cache, 8개 요청·저장·결과 화면을 배포 후 확인한 시점으로 판단한다.
+로컬 완료 기준은 백엔드 408개, 프론트엔드 102개 테스트와 backend/frontend lint·format·build 통과, Luna 독립 검증 P0/P1 0건이다.
+
+운영 검증 결과:
+
+- 기본 미국 주식 15개와 ETF 10개를 사용한 8개 자문 유형이 모두 완료됐으며, 각 결과는 OpenAI 설명과 evidence ID·provider·retrieved_at을 저장했다.
+- 대규모 자문 job에서 15초 heartbeat 전진을 확인한 뒤 Oracle 프로세스를 재시작했다. startup recovery는 동일 job을 완료 상태로 수렴시키고 `advisory_analyses`를 정확히 1건만 저장했다.
+- 재시작 후 AAPL SEC 분석은 영속 캐시의 기존 payload 85개를 변경하지 않고 추가 payload 없이 최신 10-K·10-Q·8-K와 `available` 평가를 반환했다.
+- GitHub CI, GitHub Pages, Oracle 배포 workflow가 성공했고 Pages 배포 자산에서 AI 설명, 완료 결과 재시도, N-PORT 지연 경고, active job session key를 확인했다.
