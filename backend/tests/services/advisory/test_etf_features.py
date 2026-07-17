@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 import pandas as pd
+from app.services.advisory.features import top_holdings_from_funds_data
 from app.services.advisory.features.etf_overlap import EtfOverlapService
 from app.services.advisory.features.etf_rebalancing import EtfRebalancingService
 from app.services.advisory.features.high_dividend_etfs import HighDividendEtfService
@@ -35,7 +36,7 @@ class FakeMarketDataService:
 
 class FakeFundsData:
     top_holdings = pd.DataFrame(
-        {"holdingPercent": [0.1, 0.08, 0.06]}, index=["AAPL", "MSFT", "NVDA"]
+        {"Holding Percent": [0.1, 0.08, 0.06]}, index=["AAPL", "MSFT", "NVDA"]
     )
     sector_weightings = {"technology": 0.35, "financial_services": 0.2}
 
@@ -65,6 +66,38 @@ class FakeTicker:
 class FakeYfinance:
     def Ticker(self, ticker):
         return FakeTicker(ticker)
+
+
+class MissingHoldingsFundsData:
+    top_holdings = pd.DataFrame({"unsupported": [0.1]}, index=["AAPL"])
+    sector_weightings = {"technology": 0.35}
+
+
+class MissingHoldingsTicker(FakeTicker):
+    funds_data = MissingHoldingsFundsData()
+
+
+class MissingHoldingsYfinance:
+    def Ticker(self, ticker):
+        return MissingHoldingsTicker(ticker)
+
+
+class HistoryTrackingTicker(FakeTicker):
+    def __init__(self, ticker):
+        super().__init__(ticker)
+        self.history_periods = []
+
+    def history(self, period, auto_adjust):
+        self.history_periods.append(period)
+        return super().history(period, auto_adjust)
+
+
+class HistoryTrackingYfinance:
+    def __init__(self):
+        self.ticker = HistoryTrackingTicker("SCHD")
+
+    def Ticker(self, ticker):
+        return self.ticker
 
 
 class FakeMacroProvider:
@@ -131,6 +164,25 @@ def test_etf_rebalancing_calculates_metrics_scenarios_and_marks_stale_data():
     )
 
 
+def test_top_holdings_accepts_yfinance_holding_percent_column():
+    holdings, status = top_holdings_from_funds_data(FakeFundsData())
+
+    assert status == "available"
+    assert holdings == [
+        {"ticker": "AAPL", "weight_pct": 10},
+        {"ticker": "MSFT", "weight_pct": 8},
+        {"ticker": "NVDA", "weight_pct": 6},
+    ]
+
+
+def test_etf_rebalancing_requests_history_beyond_three_year_return_boundary():
+    yfinance = HistoryTrackingYfinance()
+    result = EtfRebalancingService(FakeMarketDataService(), yfinance).analyze(["SCHD"])
+
+    assert yfinance.ticker.history_periods == ["5y"]
+    assert result["etfs"][0]["metrics"]["return_3y_pct"] is not None
+
+
 def test_high_dividend_etfs_returns_ranked_five_and_five_without_network_calls():
     tickers = [f"DIV{index}" for index in range(10)]
     service = HighDividendEtfService(FakeMarketDataService(), FakeYfinance())
@@ -168,6 +220,22 @@ def test_etf_overlap_uses_top_holdings_for_overlap_and_actual_company_exposure()
     assert result["pairwise_overlap"][0]["coverage_status"] == "available"
     assert result["pairwise_overlap"][0]["left_top10_coverage_pct"] == 24
     assert len(result["target_weight_scenarios"]) == 3
+    assert all(item["provider"] == "yfinance" for item in result["evidence"])
+
+
+def test_etf_overlap_fails_closed_when_holdings_coverage_is_unavailable():
+    result = EtfOverlapService(MissingHoldingsYfinance()).analyze(
+        [{"ticker": "QQQ", "weight_pct": 60}, {"ticker": "SCHD", "weight_pct": 40}]
+    )
+
+    assessment = result["diversification_assessment"]
+    assert assessment["status"] == "data-limited"
+    assert assessment["level"] is None
+    assert assessment["largest_company_exposure_pct"] is None
+    assert assessment["maximum_pairwise_top10_overlap_pct"] is None
+    assert result["pairwise_overlap"][0]["top10_overlap_pct"] is None
+    assert all(plan["status"] == "data-limited" for plan in result["rebalancing_plans"])
+    assert all(plan["condition"] is None for plan in result["rebalancing_plans"])
 
 
 def test_sector_outlook_covers_fixed_proxy_universe_and_three_portfolios():

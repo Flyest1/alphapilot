@@ -12,6 +12,20 @@ from app.services.advisory.job_service import (
 )
 
 
+class TrackingAdvisoryRepository(InMemoryRepository):
+    def __init__(self):
+        super().__init__()
+        self.storage_checks = []
+
+    def list_advisory_jobs(self, limit=None):
+        self.storage_checks.append(("advisory_jobs", limit))
+        return super().list_advisory_jobs(limit)
+
+    def list_advisory_analyses(self, analysis_type=None, limit=None):
+        self.storage_checks.append(("advisory_analyses", limit))
+        return super().list_advisory_analyses(analysis_type, limit)
+
+
 def test_all_supported_advisory_request_types_validate_strictly():
     payloads = [
         {"analysis_type": "undervalued_us_stocks"},
@@ -65,6 +79,14 @@ def test_advisory_job_store_reuses_active_request_hash():
     assert second_created is False
     assert second.job_id == first.job_id
     assert second.request_hash == first.request_hash
+
+
+def test_advisory_storage_check_minimally_queries_both_relations():
+    repository = TrackingAdvisoryRepository()
+
+    AdvisoryJobStore(repository).check_storage()
+
+    assert repository.storage_checks == [("advisory_jobs", 1), ("advisory_analyses", 1)]
 
 
 def test_advisory_job_store_expires_stale_active_request_before_recreating():

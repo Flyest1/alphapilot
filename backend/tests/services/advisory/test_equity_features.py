@@ -281,5 +281,26 @@ def test_ai_beneficiary_without_disclosures_is_caution_not_fabricated():
     assert result["rows"][0]["analysis_status"] == "data-limited"
     assert result["rows"][0]["action"] == "WATCH"
     assert result["rows"][0]["investment_appeal_10"] is None
-    assert result["ai_theme_caution"] == []
+    assert [row["ticker"] for row in result["ai_theme_caution"]] == ["EXM"]
     assert result["data_quality"]["status"] == "partial"
+
+
+def test_ai_beneficiary_caution_prioritizes_available_scores_without_dropping_data_limited():
+    analyzer = AIBeneficiariesAnalyzer(FakeMarketData(), FakeYFinance())
+    analyzer._analyze_ticker = lambda ticker, _generated_at: {
+        "ticker": ticker,
+        "classification": "ai_theme_caution",
+        "analysis_status": "available" if ticker == "AMD" else "data-limited",
+        "overheating_risk_10": 7.5 if ticker == "AMD" else None,
+        "disclosure_evidence": [],
+        "as_of": None,
+    }
+
+    result = analyzer.analyze(["NVDA", "AMD", "MSFT"])
+
+    assert [row["ticker"] for row in result["ai_theme_caution"]] == ["AMD", "MSFT", "NVDA"]
+    assert all(
+        row["overheating_risk_10"] is None
+        for row in result["ai_theme_caution"]
+        if row["analysis_status"] == "data-limited"
+    )

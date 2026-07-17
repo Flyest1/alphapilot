@@ -171,6 +171,11 @@ class AdvisoryJobStore:
         )
         return AdvisoryJob.from_row(row), True
 
+    def check_storage(self) -> None:
+        """Verify that both advisory persistence relations are queryable."""
+        self.repository.list_advisory_jobs(limit=1)
+        self.repository.list_advisory_analyses(limit=1)
+
     def get(self, job_id: str) -> AdvisoryJob | None:
         row = self.repository.get_advisory_job(job_id)
         if row and self._expire_if_stale(row):

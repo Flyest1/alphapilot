@@ -39,6 +39,13 @@ class MissingAdvisoryMigrationRepository(InMemoryRepository):
         self._missing_relation()
 
 
+class MissingAdvisoryJobsMigrationRepository(InMemoryRepository):
+    def list_advisory_jobs(self, limit=None):
+        exc = RuntimeError("Could not find the table 'public.advisory_jobs' in the schema cache")
+        exc.code = "PGRST205"
+        raise exc
+
+
 def test_advisory_routes_require_normal_api_token():
     client = TestClient(create_app(repository=InMemoryRepository()))
 
@@ -58,6 +65,15 @@ def test_advisory_status_reports_storage_and_ai_configuration():
         "ai_narrative_status": "not_configured",
         "migration_file": "backend/app/db/migrations/017_create_advisory_analyses.sql",
     }
+
+
+def test_advisory_status_requires_advisory_jobs_relation_too():
+    client = TestClient(create_app(repository=MissingAdvisoryJobsMigrationRepository()))
+
+    response = client.get("/api/advisory/status", headers=AUTH)
+
+    assert response.status_code == 200
+    assert response.json()["storage_status"] == "migration_required"
 
 
 def test_advisory_routes_report_required_migration_without_generic_500():

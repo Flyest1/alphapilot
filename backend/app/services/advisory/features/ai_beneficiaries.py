@@ -50,13 +50,8 @@ class AIBeneficiariesAnalyzer:
             key=lambda row: (-row["investment_appeal_10"], row["ticker"]),
         )[:10]
         caution = sorted(
-            [
-                row
-                for row in rows
-                if row["classification"] == "ai_theme_caution"
-                and row["analysis_status"] == "available"
-            ],
-            key=lambda row: (-row["overheating_risk_10"], row["ticker"]),
+            [row for row in rows if row["classification"] == "ai_theme_caution"],
+            key=self._caution_sort_key,
         )[:5]
         limitations = []
         if self.disclosure_provider is None:
@@ -137,6 +132,15 @@ class AIBeneficiariesAnalyzer:
             "source_as_of": source_as_of,
             "retrieved_at": retrieved_at or now_iso(self.now_provider),
         }
+
+    @staticmethod
+    def _caution_sort_key(row: dict[str, Any]) -> tuple[int, float, str]:
+        risk_score = finite_float(row.get("overheating_risk_10"))
+        if row.get("analysis_status") == "available" and risk_score is not None:
+            return (0, -risk_score, row["ticker"])
+        if row.get("analysis_status") == "available":
+            return (1, 0.0, row["ticker"])
+        return (2, 0.0, row["ticker"])
 
     def _disclosures(self, ticker: str) -> list[dict[str, Any]]:
         if self.disclosure_provider is None:

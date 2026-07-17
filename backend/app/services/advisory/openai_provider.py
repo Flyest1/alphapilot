@@ -8,6 +8,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.utils.logging import log_external_failure
 
+ADVISORY_DISCLAIMER = " ".join(
+    (
+        "투자 의사결정 지원 정보이며 수익을 보장하지 않습니다.",
+        "자동매매나 주문을 실행하지 않습니다.",
+    )
+)
+
 
 class AdvisoryNarrativePoint(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -98,6 +105,7 @@ class OpenAIAdvisoryProvider:
                     raise RuntimeError("OpenAI returned an empty advisory response")
                 try:
                     narrative = AdvisoryNarrative.model_validate_json(message)
+                    narrative = narrative.model_copy(update={"disclaimer": ADVISORY_DISCLAIMER})
                     self._validate_language(narrative)
                     self._validate_grounding(narrative, context)
                     return narrative
@@ -129,6 +137,7 @@ class OpenAIAdvisoryProvider:
     @staticmethod
     def _response_schema(context: dict[str, Any]) -> dict[str, Any]:
         schema = AdvisoryNarrative.model_json_schema()
+        schema["properties"]["disclaimer"] = {"const": ADVISORY_DISCLAIMER}
         evidence_ids = sorted(
             {
                 str(item.get("evidence_id"))
@@ -165,7 +174,6 @@ class OpenAIAdvisoryProvider:
                 *(point.text for point in narrative.key_risks),
                 *(point.text for point in narrative.actions_to_consider),
                 *narrative.limitations,
-                narrative.disclaimer,
             ]
         ).casefold()
         if any(phrase in text for phrase in forbidden):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Iterable
 
 import numpy as np
@@ -60,6 +61,10 @@ def normalize_weight(value: Any) -> float | None:
     return number * 100 if number <= 1 else number
 
 
+def normalize_column_name(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value).casefold())
+
+
 def top_holdings_from_funds_data(
     funds_data: Any, limit: int = 10
 ) -> tuple[list[dict[str, Any]], str]:
@@ -73,7 +78,8 @@ def top_holdings_from_funds_data(
         (
             column
             for column in raw.columns
-            if str(column).lower() in {"holdingpercent", "weight", "weight_pct", "percentage"}
+            if normalize_column_name(column)
+            in {"holdingpercent", "weight", "weightpct", "percentage"}
         ),
         None,
     )

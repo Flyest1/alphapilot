@@ -53,13 +53,19 @@ class EtfOverlapService:
         )
         total_weight = sum(item["portfolio_weight_pct"] or 0 for item in etfs)
         normalized = weights_available and total_weight > 0
+        holdings_coverage_available = bool(etfs) and all(item["top_holdings"] for item in etfs)
         corporate = self._corporate_exposure(etfs, total_weight) if normalized else []
         overlaps = self._pairwise_overlap(etfs)
         style = (
             self._style_exposure(etfs, total_weight) if normalized else self._empty_style_exposure()
         )
         requested_exposure = self._requested_exposure(etfs, corporate, style, total_weight)
-        diversification = self._diversification_assessment(overlaps, corporate, normalized)
+        diversification = self._diversification_assessment(
+            overlaps,
+            corporate,
+            normalized,
+            holdings_coverage_available,
+        )
         evidence = [item["evidence"] for item in etfs]
         return {
             "analysis_type": "etf_overlap",
@@ -70,7 +76,12 @@ class EtfOverlapService:
             "requested_exposure_summary": requested_exposure,
             "diversification_assessment": diversification,
             "portfolio_weight_status": "available" if normalized else "unavailable",
-            "rebalancing_plans": self._plans(overlaps, corporate, normalized),
+            "rebalancing_plans": self._plans(
+                overlaps,
+                corporate,
+                normalized,
+                holdings_coverage_available,
+            ),
             "target_weight_scenarios": self._target_weight_scenarios(
                 etfs,
                 overlaps,
@@ -102,6 +113,7 @@ class EtfOverlapService:
             sectors, sectors_status = [], "unavailable"
         evidence = {
             "ticker": ticker,
+            "provider": "yfinance",
             "top_holdings_status": holdings_status,
             "sector_weights_status": sectors_status,
             "status": "available" if holdings_status == "available" else "limited",
@@ -231,12 +243,17 @@ class EtfOverlapService:
         overlaps: list[dict[str, Any]],
         corporate: list[dict[str, Any]],
         weights_available: bool,
+        holdings_coverage_available: bool,
     ) -> dict[str, Any]:
-        if not weights_available:
+        if not weights_available or not holdings_coverage_available:
             return {
                 "status": "data-limited",
                 "level": None,
-                "reason": "포트폴리오 비중이 없어 분산 수준을 계산할 수 없습니다.",
+                "largest_company_exposure_pct": None,
+                "maximum_pairwise_top10_overlap_pct": None,
+                "reason": (
+                    "포트폴리오 비중 또는 보유종목 coverage가 없어 분산 수준을 계산할 수 없습니다."
+                ),
             }
         max_overlap = max(
             (item["minimum_confirmed_overlap_pct"] or 0.0 for item in overlaps),
@@ -262,10 +279,31 @@ class EtfOverlapService:
         overlaps: list[dict[str, Any]],
         corporate: list[dict[str, Any]],
         weights_available: bool,
+        holdings_coverage_available: bool,
     ) -> list[dict[str, Any]]:
+        if not weights_available or not holdings_coverage_available:
+            return [
+                {
+                    "name": "concentration_reduction",
+                    "condition": None,
+                    "guidance": "보유종목 coverage가 없어 집중도 조정안을 만들지 않습니다.",
+                    "status": "data-limited",
+                },
+                {
+                    "name": "core_satellite",
+                    "condition": None,
+                    "guidance": "보유종목 coverage가 없어 코어·위성 조정안을 만들지 않습니다.",
+                    "status": "data-limited",
+                },
+                {
+                    "name": "income_growth_balance",
+                    "condition": None,
+                    "guidance": "보유종목 coverage가 없어 배당·성장 조정안을 만들지 않습니다.",
+                    "status": "data-limited",
+                },
+            ]
         max_overlap = max((item["top10_overlap_pct"] or 0 for item in overlaps), default=0)
         max_company = corporate[0]["portfolio_exposure_pct"] if corporate else None
-        availability = "available" if weights_available else "needs portfolio weights"
         return [
             {
                 "name": "concentration_reduction",
@@ -273,19 +311,19 @@ class EtfOverlapService:
                     f"top-10 overlap {max_overlap}% or single-company exposure {max_company}%"
                 ),
                 "guidance": "공개 상위 10개 보유종목의 중복과 단일 기업 노출을 함께 검토합니다.",
-                "status": availability,
+                "status": "available",
             },
             {
                 "name": "core_satellite",
                 "condition": "broad core and sector satellite exposures are identifiable",
                 "guidance": "스타일 분류는 알려진 ETF 티커 범주에 한정된 근사치입니다.",
-                "status": availability,
+                "status": "available",
             },
             {
                 "name": "income_growth_balance",
                 "condition": "dividend and growth buckets are both represented",
                 "guidance": "배당·성장 스타일 노출은 ETF 전체 편입종목 분석이 아닙니다.",
-                "status": availability,
+                "status": "available",
             },
         ]
 

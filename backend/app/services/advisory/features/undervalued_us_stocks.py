@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from statistics import median
 from typing import Any
 
@@ -47,7 +48,7 @@ class UndervaluedUSStocksAnalyzer:
         candidates = [
             row
             for row in rows
-            if row["analysis_status"] == "available"
+            if row["candidate_eligible"]
             and (
                 min_market_cap_usd is None
                 or (
@@ -134,6 +135,13 @@ class UndervaluedUSStocksAnalyzer:
             and has_fundamental_evidence
             and historical_valuation is not None
         )
+        candidate_eligible, eligibility_reasons = self._candidate_eligibility(
+            analysis_available,
+            three_month_return,
+            revenue_growth,
+            margin_change,
+            fcf_change,
+        )
         score = (
             self._score(
                 three_month_return,
@@ -147,7 +155,7 @@ class UndervaluedUSStocksAnalyzer:
             if analysis_available
             else None
         )
-        action = "BUY" if score is not None and score >= 65 else "WATCH"
+        action = "BUY" if candidate_eligible and score is not None and score >= 65 else "WATCH"
         last_trading_date = (
             market_data.last_trading_date.isoformat()
             if getattr(market_data, "last_trading_date", None)
@@ -178,11 +186,13 @@ class UndervaluedUSStocksAnalyzer:
                 if historical_valuation is not None
                 else "data-limited"
             ),
-            "market_risk": None,
+            "market_risk": self._market_risk(official_release),
             "company_profile": info.get("longBusinessSummary"),
             "investment_score": score,
             "investment_appeal_10": round(score / 10, 1) if score is not None else None,
             "action": action,
+            "candidate_eligible": candidate_eligible,
+            "eligibility_reasons": eligibility_reasons,
             "analysis_status": "available" if analysis_available else "data-limited",
             "data_quality_status": "fresh" if analysis_available else "data-limited",
             "provider": getattr(market_data, "provider", "yfinance"),
@@ -205,6 +215,63 @@ class UndervaluedUSStocksAnalyzer:
         if income is None or revenue in {None, 0.0}:
             return None
         return round(income / revenue * 100, 2)
+
+    @staticmethod
+    def _candidate_eligibility(
+        analysis_available: bool,
+        three_month_return: float | None,
+        revenue_growth: float | None,
+        margin_change: float | None,
+        fcf_change: float | None,
+    ) -> tuple[bool, list[str]]:
+        reasons = []
+        if not analysis_available:
+            reasons.append("analysis_not_available")
+
+        if three_month_return is None:
+            reasons.append("three_month_return_unavailable")
+        elif three_month_return < 0:
+            reasons.append("three_month_return_negative")
+        else:
+            reasons.append("three_month_return_not_negative")
+
+        improvements = {
+            "revenue_growth_positive": revenue_growth,
+            "operating_margin_improvement": margin_change,
+            "free_cash_flow_improvement": fcf_change,
+        }
+        positive_improvements = [
+            reason for reason, value in improvements.items() if value is not None and value > 0
+        ]
+        reasons.extend(positive_improvements)
+        if not positive_improvements:
+            reasons.append("no_positive_fundamental_improvement")
+
+        return (
+            analysis_available
+            and three_month_return is not None
+            and three_month_return < 0
+            and bool(positive_improvements),
+            reasons,
+        )
+
+    @staticmethod
+    def _market_risk(official_release: dict[str, Any]) -> str | None:
+        if official_release.get("provider") != "sec_edgar":
+            return None
+        key_risks = official_release.get("key_risks")
+        if not isinstance(key_risks, list):
+            return None
+        for risk in key_risks:
+            if not isinstance(risk, str):
+                continue
+            normalized = " ".join(risk.split())
+            if not normalized or any(ord(character) < 32 for character in normalized):
+                continue
+            first_sentence = re.split(r"(?<=[.!?])\s+", normalized, maxsplit=1)[0]
+            if first_sentence:
+                return first_sentence
+        return None
 
     @staticmethod
     def _score(

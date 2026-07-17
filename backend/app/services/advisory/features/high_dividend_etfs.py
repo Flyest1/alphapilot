@@ -31,6 +31,7 @@ DEFAULT_HIGH_DIVIDEND_ETFS = (
 )
 RATE_SENSITIVE = {"JEPI", "JEPQ", "SPYD"}
 RECESSION_RESILIENT = {"SCHD", "VYM", "DGRO", "HDV", "SDY", "NOBL"}
+MAX_RETURN_HISTORY_SHORTFALL_DAYS = 31
 
 
 class HighDividendEtfService:
@@ -168,11 +169,19 @@ class HighDividendEtfService:
 
     @staticmethod
     def _total_return(close: pd.Series, years: int) -> float | None:
-        sessions = years * 252
-        if len(close) <= sessions:
+        if close.empty or not isinstance(close.index, pd.DatetimeIndex):
             return None
-        start = finite_number(close.iloc[-sessions - 1])
-        end = finite_number(close.iloc[-1])
+        history = close.sort_index()
+        latest_date = history.index[-1]
+        requested_start = latest_date - pd.DateOffset(years=years)
+        available_window = history.loc[history.index >= requested_start]
+        if available_window.empty:
+            return None
+        start_date = available_window.index[0]
+        if start_date - requested_start > pd.Timedelta(days=MAX_RETURN_HISTORY_SHORTFALL_DAYS):
+            return None
+        start = finite_number(available_window.iloc[0])
+        end = finite_number(history.iloc[-1])
         if start is None or end is None or start <= 0:
             return None
         return (end / start - 1) * 100

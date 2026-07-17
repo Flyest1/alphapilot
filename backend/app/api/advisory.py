@@ -30,7 +30,7 @@ def _raise_advisory_storage_error(exc: Exception) -> None:
 @router.get("/status", response_model=AdvisoryStatusResponse)
 def get_advisory_status(request: Request) -> dict:
     try:
-        request.app.state.advisory_jobs.list_analyses(limit=1)
+        request.app.state.advisory_jobs.check_storage()
         storage_status = "available"
     except Exception as exc:
         storage_status = (

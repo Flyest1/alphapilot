@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   createAdvisoryJob,
@@ -75,16 +75,25 @@ export default function Advisory() {
   const [error, setError] = useState("");
   const [advisoryStatus, setAdvisoryStatus] = useState(null);
   const [advisoryStatusError, setAdvisoryStatusError] = useState("");
+  const [isCreatingJob, setIsCreatingJob] = useState(false);
+  const submissionLockRef = useRef(false);
 
   const feature = getAdvisoryFeature(selectedType);
   const activeJobId = jobIdentifier(job);
-  const isSubmitting = Boolean(activeJobId && !isComplete(job?.status) && !isFailed(job?.status));
+  const hasActiveJob = Boolean(activeJobId && !isComplete(job?.status) && !isFailed(job?.status));
+  const isSubmitting = isCreatingJob || hasActiveJob;
+  const isAdvisoryStorageAvailable = advisoryStatus?.storage_status === "available";
 
   useEffect(() => {
     let cancelled = false;
     getAdvisoryStatus()
       .then((nextStatus) => {
-        if (!cancelled) setAdvisoryStatus(nextStatus);
+        if (cancelled) return;
+        if (nextStatus?.storage_status) {
+          setAdvisoryStatus(nextStatus);
+          return;
+        }
+        setAdvisoryStatusError("자문 운영 상태 응답이 올바르지 않습니다.");
       })
       .catch((requestError) => {
         if (!cancelled) {
@@ -117,7 +126,7 @@ export default function Advisory() {
   }, []);
 
   useEffect(() => {
-    if (!activeJobId || !isSubmitting) return undefined;
+    if (!activeJobId || !hasActiveJob) return undefined;
     let cancelled = false;
     async function pollJob() {
       try {
@@ -148,7 +157,7 @@ export default function Advisory() {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [activeJobId, isSubmitting]);
+  }, [activeJobId, hasActiveJob]);
 
   function selectFeature(analysisType) {
     setSelectedType(analysisType);
@@ -158,12 +167,15 @@ export default function Advisory() {
 
   async function submit(event) {
     event.preventDefault();
-    if (advisoryStatus?.storage_status === "migration_required") {
-      setError(`자문 저장소 migration이 필요합니다. ${MIGRATION_FILE}`);
-      return;
-    }
-    if (advisoryStatus?.storage_status === "unavailable") {
-      setError("자문 저장소를 사용할 수 없어 요청을 접수할 수 없습니다.");
+    if (submissionLockRef.current) return;
+    if (!isAdvisoryStorageAvailable) {
+      if (advisoryStatus?.storage_status === "migration_required") {
+        setError(`자문 저장소 migration이 필요합니다. ${MIGRATION_FILE}`);
+      } else if (advisoryStatus?.storage_status === "unavailable") {
+        setError("자문 저장소를 사용할 수 없어 요청을 접수할 수 없습니다.");
+      } else {
+        setError("자문 운영 상태를 확인할 수 없어 요청을 접수할 수 없습니다.");
+      }
       return;
     }
     const payload = buildAdvisoryPayload(feature, form);
@@ -174,11 +186,16 @@ export default function Advisory() {
     }
     setError("");
     setSelectedAnalysis(null);
+    submissionLockRef.current = true;
+    setIsCreatingJob(true);
     try {
       const createdJob = await createAdvisoryJob(payload);
       setJob(createdJob);
     } catch (requestError) {
       setError(advisoryErrorMessage(requestError));
+    } finally {
+      submissionLockRef.current = false;
+      setIsCreatingJob(false);
     }
   }
 
@@ -241,13 +258,18 @@ export default function Advisory() {
         </div>
       )}
       <AdvisoryFeatureCards selectedType={selectedType} onSelect={selectFeature} />
-      <AdvisoryInputForm
-        feature={feature}
-        form={form}
-        isSubmitting={isSubmitting}
-        onChange={setForm}
-        onSubmit={submit}
-      />
+      <fieldset
+        disabled={!isAdvisoryStorageAvailable}
+        style={{ border: 0, margin: 0, minInlineSize: 0, padding: 0 }}
+      >
+        <AdvisoryInputForm
+          feature={feature}
+          form={form}
+          isSubmitting={isSubmitting}
+          onChange={setForm}
+          onSubmit={submit}
+        />
+      </fieldset>
       {isSubmitting && (
         <p className="notice">
           {job?.status === "queued" ? "AI 자문 요청이 대기 중입니다." : "AI 자문을 분석 중입니다."}{" "}

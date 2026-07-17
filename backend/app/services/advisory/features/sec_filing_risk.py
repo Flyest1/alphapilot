@@ -25,6 +25,7 @@ CAUTION_PHRASES = (
     "no assurance",
 )
 REQUIRED_FORMS = {"10-K", "10-Q", "8-K"}
+SEC_ARCHIVES_URL_PREFIX = "https://www.sec.gov/Archives/"
 
 
 class SECFilingRiskAnalyzer:
@@ -37,9 +38,8 @@ class SECFilingRiskAnalyzer:
         latest_by_form = self._latest_by_form(filings)
         generated_at = now_iso(self.now_provider)
         missing_forms = sorted(REQUIRED_FORMS - set(latest_by_form))
-        evaluation_available = not missing_forms and all(
-            str(latest_by_form[form].get("text") or "").strip() for form in REQUIRED_FORMS
-        )
+        missing_evidence = self._missing_evidence(latest_by_form)
+        evaluation_available = not missing_forms and not missing_evidence
         category_findings = self._category_findings(latest_by_form)
         newly_emphasized = self._newly_emphasized(filings)
         cautious_signals = self._cautious_signals(latest_by_form)
@@ -60,6 +60,11 @@ class SECFilingRiskAnalyzer:
             limitations.append("분석 가능한 10-K, 10-Q, 8-K 본문이 없습니다.")
         if missing_forms:
             limitations.append(f"필수 최신 공시가 누락되었습니다: {', '.join(missing_forms)}")
+        if missing_evidence:
+            limitations.append(
+                "SEC filing evidence integrity is incomplete for the latest required filings: "
+                f"{', '.join(missing_evidence)}."
+            )
         if not evaluation_available:
             limitations.append("SEC filing evidence is unavailable; evaluation unavailable.")
         source_as_of = (
@@ -84,9 +89,12 @@ class SECFilingRiskAnalyzer:
             "evaluation_status": "available" if evaluation_available else "unavailable",
             "required_forms_complete": not missing_forms,
             "missing_forms": missing_forms,
+            "missing_evidence": missing_evidence,
             "rating_reason": self._rating_reason(rating, rows),
             "evidence": self._evidence(latest_by_form),
-            "data_quality": data_quality(rows if evaluation_available else [], limitations),
+            "data_quality": self._data_quality(
+                rows, limitations, missing_evidence, evaluation_available
+            ),
             "disclaimer": "공시 위험 분석은 법률·회계 자문이 아니며 원문 확인이 필요합니다.",
         }
 
@@ -107,6 +115,37 @@ class SECFilingRiskAnalyzer:
             if form in {"10-K", "10-Q", "8-K"} and form not in result:
                 result[form] = filing
         return result
+
+    @staticmethod
+    def _missing_evidence(filings: Mapping[str, Mapping[str, Any]]) -> list[str]:
+        missing = []
+        for form in sorted(REQUIRED_FORMS):
+            filing = filings.get(form)
+            if filing is None:
+                continue
+            if not str(filing.get("text") or "").strip():
+                missing.append(f"{form}.text")
+            if not str(filing.get("accession_number") or "").strip():
+                missing.append(f"{form}.accession_number")
+            if not SECFilingRiskAnalyzer._is_sec_archives_url(filing.get("url")):
+                missing.append(f"{form}.url")
+        return missing
+
+    @staticmethod
+    def _is_sec_archives_url(value: Any) -> bool:
+        return isinstance(value, str) and value.strip().startswith(SEC_ARCHIVES_URL_PREFIX)
+
+    @staticmethod
+    def _data_quality(
+        rows: list[dict[str, Any]],
+        limitations: list[str],
+        missing_evidence: list[str],
+        evaluation_available: bool,
+    ) -> dict[str, Any]:
+        quality = data_quality(rows if evaluation_available else [], limitations)
+        if missing_evidence:
+            quality["missing_fields"] = missing_evidence
+        return quality
 
     def _category_findings(
         self, filings: Mapping[str, Mapping[str, Any]]

@@ -447,15 +447,22 @@ class AdvisoryPipeline:
             result["evidence"] = evidence
         providers: set[str] = set()
         as_of_values: list[str] = []
+        evidence_ids: set[str] = set()
         for index, item in enumerate(evidence, start=1):
             if not isinstance(item, dict):
                 continue
-            provider = str(item.get("provider") or "unknown")
+            provider = str(item.get("provider") or "unknown").strip() or "unknown"
+            item["provider"] = provider
             providers.add(provider)
-            item.setdefault("evidence_id", f"{analysis_type}:{provider}:{index}")
+            evidence_id = str(item.get("evidence_id") or "").strip()
+            if not evidence_id or evidence_id in evidence_ids:
+                evidence_id = f"{analysis_type}:{provider}:{index}"
+            item["evidence_id"] = evidence_id
+            evidence_ids.add(evidence_id)
             item.setdefault("retrieved_at", retrieved_at)
             as_of = item.get("as_of") or item.get("last_trading_date")
             if as_of:
+                item["as_of"] = str(as_of)
                 as_of_values.append(str(as_of))
         quality = result.setdefault("data_quality", {})
         if isinstance(quality, dict):

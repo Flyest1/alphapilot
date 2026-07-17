@@ -40,7 +40,7 @@ class PostEarningsOpportunitiesAnalyzer:
             self._analyze_ticker(ticker.upper(), generated_at, lookback_days)
             for ticker in dict.fromkeys(tickers)
         ]
-        ranked = [row for row in rows if row["analysis_status"] == "available"]
+        ranked = [row for row in rows if row["ranking_eligible"]]
         ranked.sort(key=lambda row: (-row["opportunity_score"], row["ticker"]))
         limitations = []
         if self.filing_provider is None:
@@ -111,7 +111,14 @@ class PostEarningsOpportunitiesAnalyzer:
             if analysis_available
             else None
         )
-        action = "BUY" if score is not None and score >= 65 else "WATCH"
+        ranking_eligible, ranking_eligibility_reasons = self._ranking_eligibility(
+            analysis_available,
+            post_return,
+            revenue_growth,
+            eps_change,
+            margin_change,
+        )
+        action = "BUY" if ranking_eligible and score is not None and score >= 65 else "WATCH"
         interest_range = (
             {"low": round(current_price * 0.95, 2), "high": round(current_price, 2)}
             if current_price is not None and post_return is not None and post_return < 0
@@ -137,6 +144,8 @@ class PostEarningsOpportunitiesAnalyzer:
             "opportunity_status": action,
             "opportunity_score": score,
             "action": action,
+            "ranking_eligible": ranking_eligible,
+            "ranking_eligibility_reasons": ranking_eligibility_reasons,
             "analysis_status": "available" if analysis_available else "data-limited",
             "data_quality_status": "fresh" if analysis_available else "data-limited",
             "interest_price_range": interest_range,
@@ -224,6 +233,45 @@ class PostEarningsOpportunitiesAnalyzer:
         if income is None or revenue in {None, 0.0}:
             return None
         return round(income / revenue * 100, 2)
+
+    @staticmethod
+    def _ranking_eligibility(
+        analysis_available: bool,
+        post_return: float | None,
+        revenue_growth: float | None,
+        eps_change: float | None,
+        margin_change: float | None,
+    ) -> tuple[bool, list[str]]:
+        reasons = []
+        if not analysis_available:
+            reasons.append("analysis_not_available")
+
+        if post_return is None:
+            reasons.append("post_earnings_return_unavailable")
+        elif post_return < 0:
+            reasons.append("post_earnings_return_negative")
+        else:
+            reasons.append("post_earnings_return_not_negative")
+
+        improvements = {
+            "revenue_growth_positive": revenue_growth,
+            "eps_change_positive": eps_change,
+            "operating_margin_improvement": margin_change,
+        }
+        positive_improvements = [
+            reason for reason, value in improvements.items() if value is not None and value > 0
+        ]
+        reasons.extend(positive_improvements)
+        if not positive_improvements:
+            reasons.append("no_positive_earnings_improvement")
+
+        return (
+            analysis_available
+            and post_return is not None
+            and post_return < 0
+            and bool(positive_improvements),
+            reasons,
+        )
 
     @staticmethod
     def _score(

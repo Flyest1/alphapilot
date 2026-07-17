@@ -48,6 +48,7 @@ describe("Advisory page", () => {
     render(<Advisory />);
 
     await waitFor(() => expect(api.listAdvisoryAnalyses).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "AI 자문 요청" })).toBeEnabled());
     fireEvent.change(screen.getByPlaceholderText("예: AAPL, MSFT, NVDA"), {
       target: { value: "aapl" },
     });
@@ -84,6 +85,45 @@ describe("Advisory page", () => {
     expect(screen.getAllByText(/017_create_advisory_analyses\.sql/)).not.toHaveLength(0);
   });
 
+  it.each([
+    ["returns no status", () => api.getAdvisoryStatus.mockResolvedValue(null)],
+    [
+      "fails to load status",
+      () => api.getAdvisoryStatus.mockRejectedValue(new Error("status failed")),
+    ],
+  ])("fails closed when the advisory status %s", async (_scenario, setStatusResponse) => {
+    setStatusResponse();
+    render(<Advisory />);
+
+    const submitButton = screen.getByRole("button", { name: "AI 자문 요청" });
+    await waitFor(() => expect(submitButton).toBeDisabled());
+    expect(api.createAdvisoryJob).not.toHaveBeenCalled();
+  });
+
+  it("prevents duplicate submissions while the create request is pending", async () => {
+    let resolveCreate;
+    api.createAdvisoryJob.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    render(<Advisory />);
+
+    const submitButton = screen.getByRole("button", { name: "AI 자문 요청" });
+    await waitFor(() => expect(submitButton).toBeEnabled());
+    fireEvent.change(screen.getByPlaceholderText("예: AAPL, MSFT, NVDA"), {
+      target: { value: "aapl" },
+    });
+
+    fireEvent.click(submitButton);
+    fireEvent.click(submitButton);
+
+    expect(api.createAdvisoryJob).toHaveBeenCalledTimes(1);
+    resolveCreate({ job_id: "job-1", status: "queued" });
+    await waitFor(() => expect(api.getAdvisoryJob).toHaveBeenCalledWith("job-1"));
+  });
+
   it("shows when OpenAI narrative generation is not configured", async () => {
     api.getAdvisoryStatus.mockResolvedValue({
       storage_status: "available",
@@ -112,6 +152,7 @@ describe("Advisory page", () => {
     });
     render(<Advisory />);
 
+    await waitFor(() => expect(screen.getByRole("button", { name: "AI 자문 요청" })).toBeEnabled());
     fireEvent.change(screen.getByPlaceholderText("예: AAPL, MSFT, NVDA"), {
       target: { value: "aapl" },
     });

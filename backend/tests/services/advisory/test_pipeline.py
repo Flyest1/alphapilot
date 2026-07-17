@@ -80,6 +80,40 @@ def test_pipeline_prepares_traceable_result_metadata():
     assert "자동매매" in result["disclaimer"]
 
 
+def test_pipeline_repairs_blank_duplicate_evidence_metadata():
+    result = {
+        "analysis_type": "etf_overlap",
+        "evidence": [
+            {
+                "evidence_id": "",
+                "provider": "",
+                "last_trading_date": "2026-07-16",
+            },
+            {
+                "evidence_id": "etf-overlap-source",
+                "provider": "yfinance",
+                "last_trading_date": "2026-07-15",
+            },
+            {
+                "evidence_id": "etf-overlap-source",
+                "provider": "yfinance",
+                "last_trading_date": "2026-07-14",
+            },
+        ],
+    }
+
+    AdvisoryPipeline._prepare_result(result)
+
+    assert [item["evidence_id"] for item in result["evidence"]] == [
+        "etf_overlap:unknown:1",
+        "etf-overlap-source",
+        "etf_overlap:yfinance:3",
+    ]
+    assert result["evidence"][0]["provider"] == "unknown"
+    assert result["evidence"][0]["as_of"] == "2026-07-16"
+    assert result["data_quality"]["source_as_of"] == "2026-07-16"
+
+
 def test_pipeline_marks_ai_narrative_as_not_configured():
     pipeline = AdvisoryPipeline(InMemoryRepository(), FakeMarketData(), yf_module=FakeYFinance())
     result = {

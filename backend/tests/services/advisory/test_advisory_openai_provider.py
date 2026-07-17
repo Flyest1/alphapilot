@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from app.services.advisory.openai_provider import OpenAIAdvisoryProvider
+from app.services.advisory.openai_provider import ADVISORY_DISCLAIMER, OpenAIAdvisoryProvider
 
 
 class FakeCompletions:
@@ -88,6 +88,38 @@ def test_openai_advisory_provider_uses_separate_json_schema():
         "숫자·날짜·백분율 문자를 전혀 쓰지"
         in client.chat.completions.kwargs["messages"][0]["content"]
     )
+
+
+def test_openai_advisory_provider_forces_backend_disclaimer():
+    schema = OpenAIAdvisoryProvider._response_schema({})
+    assert schema["properties"]["disclaimer"] == {"const": ADVISORY_DISCLAIMER}
+
+    payload = json.loads(narrative_payload())
+    payload["disclaimer"] = "This analysis does not promise guaranteed profit."
+    provider = OpenAIAdvisoryProvider(None, "gpt-test", client=FakeClient(json.dumps(payload)))
+
+    result = provider.generate_narrative(
+        "sector_outlook",
+        {"evidence": [{"evidence_id": "market:1"}]},
+    )
+
+    assert result.disclaimer == ADVISORY_DISCLAIMER
+
+
+@pytest.mark.parametrize("field", ["summary", "key_findings", "key_risks", "actions_to_consider"])
+def test_openai_advisory_provider_rejects_forbidden_recommendations_in_content(field):
+    payload = json.loads(narrative_payload())
+    if field == "summary":
+        payload[field] = "You must buy this ETF."
+    else:
+        payload[field][0]["text"] = "You must buy this ETF."
+    provider = OpenAIAdvisoryProvider(None, "gpt-test", client=FakeClient(json.dumps(payload)))
+
+    with pytest.raises(ValueError, match="forbidden language"):
+        provider.generate_narrative(
+            "sector_outlook",
+            {"evidence": [{"evidence_id": "market:1"}]},
+        )
 
 
 def test_openai_advisory_provider_rejects_forbidden_language():

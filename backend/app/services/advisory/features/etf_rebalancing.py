@@ -191,7 +191,7 @@ class EtfRebalancingService:
         if fund is None:
             return pd.Series(dtype=float)
         try:
-            history = fund.history(period="3y", auto_adjust=True)
+            history = fund.history(period="5y", auto_adjust=True)
         except Exception:
             return pd.Series(dtype=float)
         return close_series(history)
