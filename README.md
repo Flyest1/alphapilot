@@ -728,7 +728,9 @@ npm run build
 
 ## SEC EDGAR·FRED 운영 설정 (2026-07)
 
-SEC EDGAR와 FRED는 사용자 승인된 읽기 전용 데이터 소스이며, AI 자문 기능에 코드 연결 작업을 진행하고 있습니다. SEC 공시 분석과 FRED 기반 거시 입력은 설정과 원천 데이터가 모두 준비된 경우에만 사용합니다. 데이터가 없거나 오래되었거나 형식이 올바르지 않으면 값을 추정하지 않고 `data-limited`, `insufficient_data` 또는 사용할 수 없는 결과로 표시합니다.
+SEC EDGAR와 FRED는 사용자 승인된 읽기 전용 데이터 소스이며, AI 자문 기능의 기본 코드 연결과 운영 배포가 완료되었습니다. SEC 공시 분석과 FRED 기반 거시 입력은 설정과 원천 데이터가 모두 준비된 경우에만 사용합니다. 데이터가 없거나 오래되었거나 형식이 올바르지 않으면 값을 추정하지 않고 `data-limited`, `insufficient_data` 또는 사용할 수 없는 결과로 표시합니다.
+
+2026-07-17 운영 검증에서는 8가지 자문 유형의 인증 요청, 비동기 polling, Supabase 작업·분석 이력 저장을 모두 확인했습니다. 저평가·실적 발표 후 기회는 가격 조건과 펀더멘털 개선 조건을 동시에 만족하지 않으면 후보에서 제외하며, ETF 보유종목이 없으면 중복률·분산도를 0으로 단정하지 않습니다. AAPL SEC 검증에서는 최신 10-K, 10-Q, 8-K 공식 문서와 근거 추적을 확인했습니다.
 
 Oracle VM에서 실제 운영 값을 설정하는 절차는 다음과 같습니다. 아래 예시의 자리표시자에는 실제 값을 **서버에서만** 입력합니다. API 키와 실제 연락 이메일은 채팅, Git 저장소, 커밋, 이슈, 프론트엔드 번들, GitHub Pages, Supabase 또는 로그에 노출하지 마세요.
 
@@ -753,7 +755,8 @@ sudo systemctl status alphapilot-backend --no-pager
 curl http://127.0.0.1:8000/health
 ```
 
-- SEC EDGAR는 공식 `data.sec.gov`, 승인된 `www.sec.gov` 티커 매핑, 공식 Archives 공시 자료만 읽기 전용으로 사용합니다. 요청은 `SEC_EDGAR_USER_AGENT`를 선언하고 애플리케이션 전체에서 초당 5회 이하로 제한합니다.
+- SEC EDGAR는 공식 `data.sec.gov`, 승인된 `www.sec.gov` 티커 매핑, 공식 Archives 공시 자료만 읽기 전용으로 사용합니다. 요청은 `SEC_EDGAR_USER_AGENT`를 선언하고 애플리케이션 전체에서 초당 5회 이하로 제한합니다. complete-submission 응답은 최대 16MB, 정규화 텍스트는 최대 750,000자로 제한합니다.
 - FRED 관측값은 과거 증거이며 미래 전망이나 투자 수익을 보장하지 않습니다. FRED 기반 화면에는 다음 고지를 표시합니다: “This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.”
 - SEC N-PORT 보유·흐름 자료에는 공시 기준 기간과 공시 지연을 함께 표시합니다. 현재 또는 일별 ETF 자금 흐름으로 제시하지 않습니다.
 - yfinance 가격·거래량 및 ETF 메타데이터는 제공 범위와 갱신 시점에 제한이 있는 프록시입니다. 이를 실시간 ETF 자금 흐름, 완전한 ETF 구성 내역 또는 확정적 시장 신호로 해석하지 않습니다.
+- 현재 ETF 구성 분석은 공급자가 제공하는 상위 10개 보유종목 범위이며, SEC accession 문서 캐시는 프로세스 메모리 기반입니다. 영속 불변 캐시, 작업 heartbeat·재시작 복구, 기능별 상세 결과표 고도화는 후속 작업입니다.

@@ -55,8 +55,9 @@ Phase 10 is documented in docs/phase10_multi_user_design.md but remains implemen
 Signal-quality improvement Phase 6 shadow-evaluation foundation is implemented in code; migration 016
 was applied manually to the operating Supabase project on 2026-07-17. No challenger model or promotion
 threshold is configured yet.
-The manually requested AI advisory feature set is tracked in `docs/ai_advisory_plan_2026_07.md`
-and is in progress.
+The manually requested AI advisory baseline tracked in `docs/ai_advisory_plan_2026_07.md` is implemented
+and deployed. Migration 017 and all eight authenticated request-to-persistence workflows were verified
+against the operating environment on 2026-07-17.
 ```
 
 The detailed upgrade plan lives in `docs/development_plan_v2.md` and the code review baseline in `docs/code_review_2026_06.md`. When this file and the plan conflict, this file wins.
@@ -1057,7 +1058,8 @@ Do not implement any part of this phase without approval.
 
 ### AI Advisory (Manual Analysis)
 
-Status: implementation in progress (2026-07). Migration 017 is required for deployed persistence.
+Status: baseline implemented and deployed (2026-07). Migration 017 was applied to the operating
+Supabase project, and Bundle A operational verification completed on 2026-07-17.
 
 Goal: provide the eight manual analysis workflows defined in `docs/ai_advisory_plan_2026_07.md`
 without automatic trading, order tickets, or unsupported factual claims.
@@ -1093,7 +1095,7 @@ Follow this order unless the user explicitly changes priority:
 11. Phase 8: candidate universe table and refresh, rule backtest service, dividend/earnings calendar.
 12. Phase 9: in-app notification center.
 13. Decide and implement stronger security (Phase 7) if approved; Phase 10 only with explicit approval.
-14. Complete the eight manual AI advisory workflows and deploy migration 017.
+14. Complete the eight manual AI advisory workflows and deploy migration 017. Done.
 
 Each step must include:
 
