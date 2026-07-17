@@ -279,6 +279,23 @@ def test_one_failed_query_and_other_empty_queries_is_partial_not_unavailable():
     assert context["failure_count"] == 1
 
 
+def test_fetch_report_context_can_bound_advisory_query_count():
+    calls = []
+
+    def opener(request, timeout):
+        calls.append(request.full_url)
+        return FakeResponse({"articles": []})
+
+    context = build_service(opener).fetch_report_context(
+        "global",
+        [],
+        max_queries=1,
+    )
+
+    assert len(calls) == 1
+    assert len(context["query_details"]) == 1
+
+
 def test_similar_headlines_for_different_assets_are_not_deduplicated():
     service = build_service(lambda *_args, **_kwargs: FakeResponse({"articles": []}))
     articles = [

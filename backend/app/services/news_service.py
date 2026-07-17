@@ -88,8 +88,13 @@ class NewsService:
         self,
         report_type: str,
         assets: list[dict[str, Any]],
+        max_queries: int | None = None,
     ) -> dict[str, Any]:
         query_details = self._build_query_details(report_type, assets)
+        if max_queries is not None:
+            if not 0 <= max_queries <= MAX_NEWS_QUERIES:
+                raise ValueError(f"max_queries must be between 0 and {MAX_NEWS_QUERIES}")
+            query_details = query_details[:max_queries]
         collected_at = self._now()
         articles: list[dict[str, Any]] = []
         excluded_articles: list[dict[str, Any]] = []

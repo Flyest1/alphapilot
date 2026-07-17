@@ -286,7 +286,14 @@ class AdvisoryPipeline:
             return
         assets = [{"ticker": ticker, "name": ticker, "market": "US"} for ticker in tickers[:3]]
         try:
-            context = self.news_service.fetch_report_context("global", assets)
+            try:
+                context = self.news_service.fetch_report_context(
+                    "global",
+                    assets,
+                    max_queries=1,
+                )
+            except TypeError:
+                context = self.news_service.fetch_report_context("global", assets)
         except Exception as exc:
             log_external_failure("gdelt", exc, {"operation": "advisory_news_context"})
             context = {

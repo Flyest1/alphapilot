@@ -88,9 +88,23 @@ def create_app(repository: Repository | None = None) -> FastAPI:
         else None
     )
     filing_provider = (
-        SecEdgarProvider(user_agent=env.sec_edgar_user_agent) if env.sec_edgar_user_agent else None
+        SecEdgarProvider(
+            user_agent=env.sec_edgar_user_agent,
+            timeout_seconds=8,
+            max_retries=2,
+        )
+        if env.sec_edgar_user_agent
+        else None
     )
-    macro_provider = FredMacroProvider(api_key=env.fred_api_key) if env.fred_api_key else None
+    macro_provider = (
+        FredMacroProvider(
+            api_key=env.fred_api_key,
+            timeout_seconds=8,
+            max_attempts=2,
+        )
+        if env.fred_api_key
+        else None
+    )
     advisory_pipeline = AdvisoryPipeline(
         app.state.repository,
         app.state.market_data_service,

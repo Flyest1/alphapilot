@@ -22,6 +22,19 @@ class FakeClient:
         self.chat = type("Chat", (), {"completions": FakeCompletions(content)})()
 
 
+class SequenceCompletions:
+    def __init__(self, contents):
+        self.contents = list(contents)
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        content = self.contents.pop(0)
+        message = type("Message", (), {"content": content})()
+        choice = type("Choice", (), {"message": message})()
+        return type("Response", (), {"choices": [choice]})()
+
+
 def narrative_payload(summary="근거 기반 관찰 결과입니다."):
     return json.dumps(
         {
@@ -102,3 +115,27 @@ def test_openai_advisory_provider_rejects_unsupported_numbers():
             "sector_outlook",
             {"evidence": [{"evidence_id": "market:1"}]},
         )
+
+
+def test_openai_advisory_provider_retries_once_after_grounding_failure():
+    completions = SequenceCompletions(
+        [
+            narrative_payload("수익률은 12.5%입니다."),
+            narrative_payload("근거 기반 관찰 결과입니다."),
+        ]
+    )
+    client = type(
+        "Client",
+        (),
+        {"chat": type("Chat", (), {"completions": completions})()},
+    )()
+    provider = OpenAIAdvisoryProvider(None, "gpt-test", client=client)
+
+    result = provider.generate_narrative(
+        "sector_outlook",
+        {"evidence": [{"evidence_id": "market:1"}]},
+    )
+
+    assert result.summary == "근거 기반 관찰 결과입니다."
+    assert len(completions.calls) == 2
+    assert "근거 검증에 실패" in completions.calls[1]["messages"][-1]["content"]
