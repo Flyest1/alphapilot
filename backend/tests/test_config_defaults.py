@@ -88,3 +88,15 @@ def test_toss_invest_infrastructure_env_keys_are_documented():
     ):
         assert f"{name}=" in env_text
         assert name in agents_text
+
+
+def test_advisory_provider_infrastructure_env_keys_are_documented():
+    root = Path(__file__).resolve().parents[2]
+    env_text = (root / "backend" / ".env.example").read_text()
+    oracle_env_text = (root / "deploy" / "oracle" / "backend.env.example").read_text()
+    agents_text = (root / "AGENTS.md").read_text()
+
+    for name in ("FRED_API_KEY", "SEC_EDGAR_USER_AGENT"):
+        assert f"{name}=" in env_text
+        assert f"{name}=" in oracle_env_text
+        assert name in agents_text

@@ -5,6 +5,7 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { api, clearApiAccessToken, getApiAccessToken } from "./api/client.js";
 import AccessGate from "./components/AccessGate.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
+import Advisory from "./pages/Advisory.jsx";
 import Assets from "./pages/Assets.jsx";
 import Comparison from "./pages/Comparison.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
@@ -16,6 +17,7 @@ import Status from "./pages/Status.jsx";
 
 const tabs = [
   { id: "dashboard", label: "대시보드" },
+  { id: "advisory", label: "AI 자문" },
   { id: "assets", label: "자산" },
   { id: "reports", label: "리포트" },
   { id: "comparison", label: "비교" },
@@ -37,6 +39,7 @@ export default function App() {
   const [unreadCount, setUnreadCount] = useState(0);
   const Page = {
     dashboard: Dashboard,
+    advisory: Advisory,
     assets: Assets,
     comparison: Comparison,
     performance: Performance,

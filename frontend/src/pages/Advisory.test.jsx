@@ -1,0 +1,122 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const api = vi.hoisted(() => ({
+  createAdvisoryJob: vi.fn(),
+  getAdvisoryAnalysis: vi.fn(),
+  getAdvisoryJob: vi.fn(),
+  getAdvisoryStatus: vi.fn(),
+  listAdvisoryAnalyses: vi.fn(),
+}));
+
+vi.mock("../api/advisory.js", () => api);
+
+import Advisory from "./Advisory.jsx";
+
+describe("Advisory page", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.listAdvisoryAnalyses.mockResolvedValue([]);
+    api.getAdvisoryStatus.mockResolvedValue({
+      storage_status: "available",
+      ai_narrative_status: "configured",
+      migration_file: "backend/app/db/migrations/017_create_advisory_analyses.sql",
+    });
+    api.createAdvisoryJob.mockResolvedValue({
+      job_id: "job-1",
+      status: "queued",
+      analysis_type: "undervalued_us_stocks",
+    });
+    api.getAdvisoryJob.mockResolvedValue({
+      job_id: "job-1",
+      status: "completed",
+      analysis_id: "analysis-1",
+      analysis_type: "undervalued_us_stocks",
+    });
+    api.getAdvisoryAnalysis.mockResolvedValue({
+      analysis_id: "analysis-1",
+      analysis_type: "undervalued_us_stocks",
+      result: {
+        rows: [{ ticker: "AAPL", action: "WATCH" }],
+        data_quality: { status: "partial", providers: ["yfinance"] },
+        disclaimer: "투자 의사결정 지원 정보입니다.",
+      },
+    });
+  });
+
+  it("submits a manual request, polls the job, and renders the saved result", async () => {
+    render(<Advisory />);
+
+    await waitFor(() => expect(api.listAdvisoryAnalyses).toHaveBeenCalled());
+    fireEvent.change(screen.getByPlaceholderText("예: AAPL, MSFT, NVDA"), {
+      target: { value: "aapl" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "AI 자문 요청" }));
+
+    await waitFor(() =>
+      expect(api.createAdvisoryJob).toHaveBeenCalledWith({
+        analysis_type: "undervalued_us_stocks",
+        tickers: ["AAPL"],
+        max_results: 5,
+      }),
+    );
+    await waitFor(() => expect(api.getAdvisoryJob).toHaveBeenCalledWith("job-1"));
+    await waitFor(() => expect(api.getAdvisoryAnalysis).toHaveBeenCalledWith("analysis-1"));
+    expect(await screen.findByText("자문 결과")).toBeInTheDocument();
+    expect(screen.getByText("AAPL")).toBeInTheDocument();
+    expect(screen.getByText("관찰")).toBeInTheDocument();
+  });
+
+  it("shows the required migration and blocks a new request", async () => {
+    api.getAdvisoryStatus.mockResolvedValue({
+      storage_status: "migration_required",
+      ai_narrative_status: "configured",
+      migration_file: "backend/app/db/migrations/017_create_advisory_analyses.sql",
+    });
+    render(<Advisory />);
+
+    expect(
+      await screen.findByText(/운영 데이터베이스에 migration을 적용해야 합니다/),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "AI 자문 요청" }));
+
+    await waitFor(() => expect(api.createAdvisoryJob).not.toHaveBeenCalled());
+    expect(screen.getAllByText(/017_create_advisory_analyses\.sql/)).not.toHaveLength(0);
+  });
+
+  it("shows when OpenAI narrative generation is not configured", async () => {
+    api.getAdvisoryStatus.mockResolvedValue({
+      storage_status: "available",
+      ai_narrative_status: "not_configured",
+    });
+    render(<Advisory />);
+
+    expect(await screen.findByText(/OpenAI 자문 설명이 설정되지 않았습니다/)).toBeInTheDocument();
+  });
+
+  it.each([
+    ["stale_active_job", "이전 자문 작업이 응답 없이 만료되었습니다. 새로 요청해 주세요."],
+    ["internal_error", "자문 분석 중 서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."],
+    ["unsupported_analysis", "이 자문 유형은 현재 지원되지 않습니다. 다른 분석을 선택해 주세요."],
+  ])("maps failed job error code %s to Korean guidance", async (errorCode, message) => {
+    api.createAdvisoryJob.mockResolvedValue({
+      job_id: "job-1",
+      status: "queued",
+      analysis_type: "undervalued_us_stocks",
+    });
+    api.getAdvisoryJob.mockResolvedValue({
+      job_id: "job-1",
+      status: "failed",
+      error_code: errorCode,
+      analysis_type: "undervalued_us_stocks",
+    });
+    render(<Advisory />);
+
+    fireEvent.change(screen.getByPlaceholderText("예: AAPL, MSFT, NVDA"), {
+      target: { value: "aapl" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "AI 자문 요청" }));
+
+    expect(await screen.findByText(message)).toBeInTheDocument();
+  });
+});

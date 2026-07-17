@@ -102,6 +102,16 @@ def get_system_status(repository: Repository = Depends(get_repository)) -> dict[
                 generation.get("mode") == "technical_only" for generation in report_generations
             ),
         },
+        "data_providers": {
+            "sec_edgar": {
+                "configured": bool(env.sec_edgar_user_agent),
+                "mode": "read_only",
+            },
+            "fred": {
+                "configured": bool(env.fred_api_key),
+                "mode": "read_only",
+            },
+        },
         "assets": {
             "total_count": len(assets),
         },

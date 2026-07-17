@@ -91,6 +91,14 @@ export default function Status() {
                 <strong>{statusText(status.openai?.configured)}</strong>
               </div>
               <div>
+                <span>SEC EDGAR</span>
+                <strong>{statusText(status.data_providers?.sec_edgar?.configured)}</strong>
+              </div>
+              <div>
+                <span>FRED API</span>
+                <strong>{statusText(status.data_providers?.fred?.configured)}</strong>
+              </div>
+              <div>
                 <span>최근 국내 AI 모드</span>
                 <strong>{generationModeLabel(status.openai?.latest_domestic_generation)}</strong>
               </div>

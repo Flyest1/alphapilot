@@ -1439,6 +1439,267 @@ form button,
   }
 }
 
+.advisory-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.advisory-feature-card {
+  display: grid;
+  gap: 8px;
+  min-height: 172px;
+  padding: 16px;
+  border: 1px solid var(--market-line);
+  border-radius: 14px;
+  background: var(--market-paper);
+  color: var(--market-ink);
+  text-align: left;
+}
+
+.advisory-feature-card:hover,
+.advisory-feature-card.active {
+  border-color: var(--market-positive);
+  background: var(--market-positive-soft);
+}
+
+.advisory-feature-card strong {
+  font-size: 16px;
+}
+
+.advisory-feature-card small,
+.advisory-feature-tags {
+  color: var(--market-muted);
+  line-height: 1.45;
+}
+
+.advisory-feature-number {
+  color: var(--market-positive);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.advisory-feature-tags {
+  font-size: 12px;
+}
+
+.advisory-input-panel,
+.advisory-result-panel,
+.advisory-history {
+  margin-bottom: 20px;
+}
+
+.advisory-field {
+  display: grid;
+  max-width: 620px;
+  gap: 7px;
+}
+
+.advisory-field > span,
+.advisory-position-heading strong {
+  font-weight: 700;
+}
+
+.advisory-field small {
+  color: var(--market-muted);
+}
+
+.advisory-positions {
+  display: grid;
+  max-width: 620px;
+  gap: 10px;
+}
+
+.advisory-position-heading,
+.advisory-position-row,
+.advisory-submit-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.advisory-position-heading {
+  justify-content: space-between;
+}
+
+.advisory-position-heading span {
+  color: var(--market-muted);
+  font-size: 13px;
+}
+
+.advisory-position-row label:first-child {
+  flex: 1;
+}
+
+.advisory-position-row input {
+  width: 100%;
+}
+
+.advisory-position-row label:nth-child(2) {
+  width: 130px;
+}
+
+.advisory-submit-row {
+  justify-content: space-between;
+  margin-top: 18px;
+}
+
+.advisory-submit-row .field-hint {
+  margin: 0;
+}
+
+.advisory-result-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.advisory-result-meta span {
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgb(38 35 31 / 8%);
+  color: var(--market-muted);
+  font-size: 13px;
+}
+
+.advisory-result-meta strong {
+  color: var(--market-ink);
+}
+
+.advisory-result-section + .advisory-result-section {
+  margin-top: 24px;
+}
+
+.advisory-result-section h3,
+.advisory-result-subsection h4 {
+  margin-bottom: 10px;
+}
+
+.advisory-result-subsection + .advisory-result-subsection {
+  margin-top: 16px;
+}
+
+.advisory-key-values {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.advisory-key-values div {
+  padding: 10px;
+  border: 1px solid var(--market-line);
+  border-radius: 10px;
+}
+
+.advisory-key-values dt {
+  color: var(--market-muted);
+  font-size: 12px;
+}
+
+.advisory-key-values dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.advisory-list {
+  display: grid;
+  gap: 8px;
+  padding-left: 20px;
+}
+
+.advisory-evidence-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.advisory-evidence-list article {
+  padding: 14px;
+  border: 1px solid var(--market-line);
+  border-radius: 12px;
+  background: var(--market-paper);
+}
+
+.advisory-evidence-list article > strong {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.advisory-evidence-list a {
+  display: inline-flex;
+  margin-top: 10px;
+}
+
+.advisory-history-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.advisory-history-list button {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--market-line);
+  border-radius: 10px;
+  background: var(--market-paper);
+  color: var(--market-ink);
+  text-align: left;
+}
+
+.advisory-history-list button.active {
+  border-color: var(--market-positive);
+  background: var(--market-positive-soft);
+}
+
+.advisory-history-list span {
+  color: var(--market-muted);
+  font-size: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .advisory-feature-card,
+  .advisory-history-list button {
+    transition: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .advisory-feature-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .advisory-history-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .advisory-feature-grid,
+  .advisory-history-list,
+  .advisory-result-meta,
+  .advisory-key-values,
+  .advisory-evidence-list {
+    grid-template-columns: 1fr;
+  }
+
+  .advisory-position-row,
+  .advisory-submit-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .advisory-position-row label,
+  .advisory-position-row label:nth-child(2) {
+    width: 100%;
+  }
+}
+
 /* 공통 스켈레톤 로더 */
 .skeleton {
   display: grid;

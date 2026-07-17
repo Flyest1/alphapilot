@@ -60,3 +60,11 @@ def test_system_status_endpoint_reports_operational_counts():
     assert body["openai"]["latest_global_generation"]["mode"] == "technical_only"
     assert body["openai"]["latest_global_generation"]["fallback_reason"] == "provider_error"
     assert body["openai"]["recent_technical_only_count"] == 1
+    assert body["data_providers"]["sec_edgar"] == {
+        "configured": False,
+        "mode": "read_only",
+    }
+    assert body["data_providers"]["fred"] == {
+        "configured": False,
+        "mode": "read_only",
+    }

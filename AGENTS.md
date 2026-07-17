@@ -55,6 +55,8 @@ Phase 10 is documented in docs/phase10_multi_user_design.md but remains implemen
 Signal-quality improvement Phase 6 shadow-evaluation foundation is implemented in code; migration 016
 was applied manually to the operating Supabase project on 2026-07-17. No challenger model or promotion
 threshold is configured yet.
+The manually requested AI advisory feature set is tracked in `docs/ai_advisory_plan_2026_07.md`
+and is in progress.
 ```
 
 The detailed upgrade plan lives in `docs/development_plan_v2.md` and the code review baseline in `docs/code_review_2026_06.md`. When this file and the plan conflict, this file wins.
@@ -99,7 +101,8 @@ AlphaPilot must not:
 - imply risk-free returns
 - expose OpenAI keys, Supabase keys, scheduler secrets, or database credentials to the frontend
 - add unapproved external services
-- scrape websites with browsers or HTML scraping
+- scrape websites with browsers or HTML scraping, except the explicitly approved SEC EDGAR
+  official-data normalization described below
 
 Allowed recommendation language:
 
@@ -195,6 +198,9 @@ Only these external services are allowed:
 - pykrx                       (KR market data)
 - yfinance                    (US/ETF/FX market data)
 - GDELT DOC 2.0 API           (news/trend context)
+- SEC EDGAR public data       (free, read-only submissions/companyfacts JSON, structured filing
+                               XML, official Archives complete-submission text, and N-PORT data)
+- FRED API                    (free, read-only macroeconomic observations; backend API key required)
 - Telegram Bot API            (notification channel, Phase 9; user must provide bot token via backend env var)
 - Toss Invest Open API        (read-only account/holdings sync only; no order endpoints)
 ```
@@ -206,6 +212,27 @@ Toss Invest Open API exception (approved 2026-06):
 - Manual assets must remain supported so the user can delete duplicates after sync review.
 - Toss credentials must live only in backend environment variables or `.env`, never in frontend code, localStorage, Supabase, GitHub Pages, or committed files.
 - Do not implement or call order create, order modify, order cancel, broker execution, automatic trading, order preview, buying-power checks for execution, sellable-quantity checks for execution, or any route/button/stub that could become a trading workflow.
+
+SEC EDGAR and FRED exceptions (approved 2026-07):
+
+- SEC access is read-only and restricted to `data.sec.gov`, approved `www.sec.gov` ticker mapping
+  files, and official `www.sec.gov/Archives` filing artifacts.
+- Direct retrieval and parsing of SEC JSON/XML and complete-submission SGML/text, including markup
+  normalization inside that official submission artifact, is allowed. Browser automation, rendered
+  page crawling, issuer-site scraping, SEC index-page scraping, and third-party mirrors remain
+  forbidden.
+- SEC requests must declare `SEC_EDGAR_USER_AGENT`, stay at or below 5 requests per second
+  application-wide, cache immutable accession documents, use bounded retries/backoff, and fail
+  closed on missing or malformed data.
+- SEC N-PORT holdings and flow data must display its filing period and disclosure delay. It must not
+  be presented as current or daily ETF flow.
+- FRED access is read-only, restricted to allowlisted macro series over HTTPS JSON, and requires
+  `FRED_API_KEY` in backend environment variables.
+- FRED observations must preserve series id, units, observation date, retrieval time, and
+  revision/vintage metadata where available. FRED data is historical evidence, not a guaranteed
+  forecast.
+- User-facing FRED-backed results must state: "This product uses the FRED® API but is not endorsed
+  or certified by the Federal Reserve Bank of St. Louis."
 
 2026-06 decision: the user approved paid tiers and additional services in principle.
 Paid upgrades of already-allowed services (Render, Supabase, OpenAI usage) may proceed
@@ -285,6 +312,8 @@ TELEGRAM_CHAT_ID=your-telegram-chat-id
 TOSS_INVEST_CLIENT_ID=your-toss-invest-client-id
 TOSS_INVEST_CLIENT_SECRET=your-toss-invest-client-secret
 TOSS_INVEST_ACCOUNT_ID=your-toss-invest-account-id
+FRED_API_KEY=your-fred-api-key
+SEC_EDGAR_USER_AGENT=AlphaPilot contact@example.com
 ```
 
 ### Application Defaults
@@ -455,6 +484,36 @@ The signal-model evaluation endpoint is read-only and research-only. It must not
 automatic promotion, scheduling, or trading behavior. Scheduled reports are official future shadow
 samples; manual reports may store input lineage only. The evaluation window is fixed at 12 weeks.
 
+### AI Advisory
+
+User-token protected and manual-request only:
+
+```text
+GET  /api/advisory/status
+POST /api/advisory/jobs
+GET  /api/advisory/jobs/{job_id}
+GET  /api/advisory/analyses
+GET  /api/advisory/analyses/{analysis_id}
+```
+
+Supported analysis types:
+
+```text
+undervalued_us_stocks
+etf_rebalancing
+post_earnings_opportunities
+ai_beneficiaries
+high_dividend_etfs
+sec_filing_risk
+etf_overlap
+sector_outlook
+```
+
+AI advisory requests must be asynchronous, persisted, traceable to evidence, and manual only. Missing
+or stale source data must produce `data-limited`, `insufficient_data`, or an unavailable result rather
+than fabricated facts. `GET /api/advisory/status` must distinguish migration availability from OpenAI
+narrative configuration. Existing `ReportContent` remains unchanged.
+
 ### Settings
 
 ```text
@@ -555,6 +614,11 @@ Existing Supabase tables:
 - `signal_model_evaluation_runs`
 - `signal_model_evaluation_observations`
 - `signal_model_report_links`
+
+Migration 017 adds these advisory tables when manually applied:
+
+- `advisory_jobs`
+- `advisory_analyses`
 
 Existing additive settings columns:
 
@@ -991,6 +1055,25 @@ Requires before any implementation:
 
 Do not implement any part of this phase without approval.
 
+### AI Advisory (Manual Analysis)
+
+Status: implementation in progress (2026-07). Migration 017 is required for deployed persistence.
+
+Goal: provide the eight manual analysis workflows defined in `docs/ai_advisory_plan_2026_07.md`
+without automatic trading, order tickets, or unsupported factual claims.
+
+Implement:
+
+- persisted asynchronous advisory jobs and analysis history
+- deterministic calculations before OpenAI explanation
+- evidence ids, source dates, providers, freshness, missing fields, and limitations
+- the eight advisory analysis types listed in the public API contract
+- Korean AI advisory tab with manual inputs, polling, history, and result tables
+
+SEC EDGAR, FRED, delayed SEC N-PORT data, and clearly labeled yfinance ETF-flow proxies were approved
+in 2026-07. Exact current/daily ETF flows, analyst consensus, and unfiled transcripts still require
+separate provider-specific approval.
+
 ---
 
 ## Post-MVP Development Order
@@ -1010,6 +1093,7 @@ Follow this order unless the user explicitly changes priority:
 11. Phase 8: candidate universe table and refresh, rule backtest service, dividend/earnings calendar.
 12. Phase 9: in-app notification center.
 13. Decide and implement stronger security (Phase 7) if approved; Phase 10 only with explicit approval.
+14. Complete the eight manual AI advisory workflows and deploy migration 017.
 
 Each step must include:
 

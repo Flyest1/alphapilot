@@ -68,11 +68,12 @@ export const DEFAULT_TIMEOUT_MS = 30 * 1000;
 
 // 표준 에러 객체: message 외에 status(HTTP 코드)와 kind(분류)를 함께 제공한다.
 export class ApiError extends Error {
-  constructor(message, { status = 0, kind = "http" } = {}) {
+  constructor(message, { status = 0, kind = "http", code = null } = {}) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.kind = kind; // "http" | "network" | "timeout" | "auth"
+    this.code = code;
   }
 }
 
@@ -126,7 +127,13 @@ export async function apiRequest(path, options = {}) {
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({ detail: "요청에 실패했습니다." }));
-    throw new ApiError(body.detail || "요청에 실패했습니다.", { status: response.status });
+    const detail = body.detail;
+    const message = typeof detail === "object" ? detail?.message : detail;
+    const code = typeof detail === "object" ? detail?.code : null;
+    throw new ApiError(message || "요청에 실패했습니다.", {
+      status: response.status,
+      code: code || null,
+    });
   }
 
   const data = await response.json();

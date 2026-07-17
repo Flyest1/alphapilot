@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api import (
+    advisory,
     assets,
     backtests,
     candidate_universe,
@@ -22,9 +23,15 @@ from app.api import (
     system,
     toss,
 )
-from app.config import get_environment_settings
+from app.config import get_env_application_defaults, get_environment_settings
 from app.db.supabase_client import Repository, create_repository
+from app.services.advisory.job_service import AdvisoryDispatcher, AdvisoryJobStore
+from app.services.advisory.openai_provider import OpenAIAdvisoryProvider
+from app.services.advisory.pipeline import AdvisoryPipeline
+from app.services.advisory.providers.fred import FredMacroProvider
+from app.services.advisory.providers.sec_edgar import SecEdgarProvider
 from app.services.market_data_service import MarketDataService
+from app.services.news_service import NewsService
 from app.services.report_job_service import ReportJobStore
 from app.utils.rate_limit import DailyEndpointRateLimiter
 
@@ -68,7 +75,34 @@ def create_app(repository: Repository | None = None) -> FastAPI:
     app.state.repository = repository or create_repository(env)
     app.state.rate_limiter = DailyEndpointRateLimiter(max_per_day=10)
     app.state.market_data_service = MarketDataService(repository=app.state.repository)
+    app.state.news_service = NewsService()
     app.state.report_jobs = ReportJobStore(app.state.repository)
+    app.state.advisory_jobs = AdvisoryJobStore(app.state.repository)
+    app_defaults = get_env_application_defaults()
+    narrative_provider = (
+        OpenAIAdvisoryProvider(
+            env.openai_api_key,
+            str(app_defaults.get("ai_model") or "gpt-5.4-mini"),
+        )
+        if env.openai_api_key
+        else None
+    )
+    filing_provider = (
+        SecEdgarProvider(user_agent=env.sec_edgar_user_agent) if env.sec_edgar_user_agent else None
+    )
+    macro_provider = FredMacroProvider(api_key=env.fred_api_key) if env.fred_api_key else None
+    advisory_pipeline = AdvisoryPipeline(
+        app.state.repository,
+        app.state.market_data_service,
+        filing_provider=filing_provider,
+        macro_provider=macro_provider,
+        news_service=app.state.news_service,
+        narrative_provider=narrative_provider,
+    )
+    app.state.advisory_sec_edgar_configured = filing_provider is not None
+    app.state.advisory_fred_configured = macro_provider is not None
+    app.state.advisory_ai_narrative_configured = narrative_provider is not None
+    app.state.advisory_dispatcher = AdvisoryDispatcher(advisory_pipeline.handlers())
 
     origins = _frontend_origins(env.frontend_origin)
     app.add_middleware(
@@ -128,6 +162,7 @@ def create_app(repository: Repository | None = None) -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(assets.router)
+    app.include_router(advisory.router)
     app.include_router(backtests.router)
     app.include_router(candidate_universe.router)
     app.include_router(candidates.router)

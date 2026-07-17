@@ -26,7 +26,19 @@ Broker Sync: Toss Invest Open API (조회 전용)
 5. `설정` 화면에서 보유 외 추가 매수 후보군을 직접 추가하거나 비활성화합니다.
 6. `상태` 화면에서 백엔드, Supabase, OpenAI 설정과 최근 리포트 상태를 확인합니다.
 7. `리포트` 화면에서 국내/글로벌 리포트를 수동 생성하거나, GitHub Actions 정기 실행 결과를 확인합니다.
-8. `성과 추적`은 리포트 생성 이후 1일, 5일, 20일 가격 데이터가 쌓이면 표시됩니다.
+8. `AI 자문` 화면에서 8가지 수동 분석을 요청하고 작업 상태와 저장된 결과를 확인합니다.
+9. `성과 추적`은 리포트 생성 이후 1일, 5일, 20일 가격 데이터가 쌓이면 표시됩니다.
+
+AI 자문은 저평가 미국 주식, ETF 리밸런싱, 실적 발표 후 기회, AI 수혜 근거,
+고배당 ETF 위험, SEC 공시 위험, ETF 중복, 6개월 섹터 전망을 제공합니다. 계산 가능한 값은
+백엔드에서 계산하고 OpenAI는 저장된 근거 안에서만 설명합니다. 데이터가 없거나 오래된 경우
+값을 추정하지 않고 `data-limited` 또는 `평가 불가`로 표시합니다. ETF 목표 비중과 관심 가격대는
+검토용 정보이며 주문 수량·주문 미리보기·자동매매로 연결되지 않습니다.
+
+`AI 자문` 화면은 저장소 마이그레이션과 OpenAI 설명 기능의 설정 상태를 별도로 표시합니다.
+OpenAI 키가 없어도 결정론적 계산 결과는 제공하지만 AI 설명은 비활성 상태로 표시됩니다. ETF
+비중을 모두 비우면 입력 ETF를 동일 비중으로 계산하고, 리밸런싱에서 ETF 자체를 입력하지 않으면
+저장 자산의 평가금액 비중을 사용합니다.
 
 Toss Invest로 동기화된 자산은 `Toss 연동` 배지와 동기화 시간이 표시됩니다. 기존에 같은 종목을 수동으로 입력해 둔 경우 동기화 결과에 중복 후보가 표시되며, 확인 후 수동 자산을 직접 삭제해 중복 계산을 피할 수 있습니다.
 
@@ -100,6 +112,8 @@ TELEGRAM_CHAT_ID=
 TOSS_INVEST_CLIENT_ID=
 TOSS_INVEST_CLIENT_SECRET=
 TOSS_INVEST_ACCOUNT_ID=
+FRED_API_KEY=
+SEC_EDGAR_USER_AGENT=AlphaPilot <actual-contact-email>
 
 DOMESTIC_REPORT_TIME=08:30
 GLOBAL_REPORT_TIME=22:30
@@ -291,6 +305,27 @@ challenger나 평가 실행은 만들지 않습니다. 따라서 적용 직후 �
 연결만 저장합니다. 마이그레이션이 아직 적용되지 않아도 기존 리포트 생성은 계속되며 그림자
 평가 API는 `migration_required` 상태를 반환합니다.
 
+AI 자문 작업 상태와 결과 이력을 저장하려면 아래 파일도 실행합니다.
+
+```text
+backend/app/db/migrations/017_create_advisory_analyses.sql
+```
+
+017은 `advisory_jobs`, `advisory_analyses` 테이블과 활성 중복 요청 방지 인덱스를 additive 방식으로
+추가합니다. 적용 전에도 기존 리포트·자산 기능은 유지되지만, Supabase를 사용하는 운영 환경에서
+AI 자문 요청을 저장하려면 반드시 적용해야 합니다. 적용 전 `GET /api/advisory/status`는
+`migration_required`를 반환하고 자문 화면에 실행할 SQL 파일을 안내합니다.
+
+AI 자문의 SEC 공시 분석은 무료 공식 EDGAR 데이터를 읽기 전용으로 사용합니다.
+`SEC_EDGAR_USER_AGENT`에는 애플리케이션 이름과 실제 연락 가능한 이메일을 입력해야 하며,
+공식 JSON/XML·complete-submission 문서·N-PORT 자료만 조회합니다. N-PORT 결과는 공시 지연이
+있는 자료이며 현재 또는 일일 ETF 수급으로 표시하지 않습니다.
+
+금리와 인플레이션 등 거시 입력은 `FRED_API_KEY`가 설정된 경우 무료 FRED API에서 조회합니다.
+FRED 자료는 관측값이며 미래 전망이나 수익을 보장하지 않습니다.
+
+> This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.
+
 Supabase service role key는 RLS를 우회합니다. 반드시 백엔드 서버 환경변수에만 보관하고, 프론트엔드나 에러 메시지에 노출하지 마세요.
 
 ## Oracle Cloud Always Free 백엔드 배포
@@ -335,6 +370,8 @@ TELEGRAM_CHAT_ID
 TOSS_INVEST_CLIENT_ID
 TOSS_INVEST_CLIENT_SECRET
 TOSS_INVEST_ACCOUNT_ID
+FRED_API_KEY
+SEC_EDGAR_USER_AGENT
 ```
 
 설치 후 환경변수를 다시 수정했다면 백엔드를 재시작합니다.
@@ -688,3 +725,35 @@ npm run build
   `components/dashboard/`, `components/reports/` 하위 컴포넌트로 분리되어 있습니다.
 - 프론트엔드 도구: ESLint + Prettier + Vitest(+ React Testing Library), Tailwind CSS,
   GSAP, Recharts를 사용합니다.
+
+## SEC EDGAR·FRED 운영 설정 (2026-07)
+
+SEC EDGAR와 FRED는 사용자 승인된 읽기 전용 데이터 소스이며, AI 자문 기능에 코드 연결 작업을 진행하고 있습니다. SEC 공시 분석과 FRED 기반 거시 입력은 설정과 원천 데이터가 모두 준비된 경우에만 사용합니다. 데이터가 없거나 오래되었거나 형식이 올바르지 않으면 값을 추정하지 않고 `data-limited`, `insufficient_data` 또는 사용할 수 없는 결과로 표시합니다.
+
+Oracle VM에서 실제 운영 값을 설정하는 절차는 다음과 같습니다. 아래 예시의 자리표시자에는 실제 값을 **서버에서만** 입력합니다. API 키와 실제 연락 이메일은 채팅, Git 저장소, 커밋, 이슈, 프론트엔드 번들, GitHub Pages, Supabase 또는 로그에 노출하지 마세요.
+
+```bash
+sudo nano /etc/alphapilot/backend.env
+```
+
+```env
+# 실제 FRED API 키를 서버에서만 입력합니다. 저장소에는 넣지 않습니다.
+FRED_API_KEY=<actual-fred-api-key>
+
+# SEC 요청 식별용: 실제 연락 가능한 이메일을 서버에서만 입력합니다.
+SEC_EDGAR_USER_AGENT=AlphaPilot <actual-contact-email>
+```
+
+파일을 저장한 뒤 권한과 서비스 상태를 확인하고 백엔드를 재시작합니다.
+
+```bash
+sudo chmod 600 /etc/alphapilot/backend.env
+sudo systemctl restart alphapilot-backend
+sudo systemctl status alphapilot-backend --no-pager
+curl http://127.0.0.1:8000/health
+```
+
+- SEC EDGAR는 공식 `data.sec.gov`, 승인된 `www.sec.gov` 티커 매핑, 공식 Archives 공시 자료만 읽기 전용으로 사용합니다. 요청은 `SEC_EDGAR_USER_AGENT`를 선언하고 애플리케이션 전체에서 초당 5회 이하로 제한합니다.
+- FRED 관측값은 과거 증거이며 미래 전망이나 투자 수익을 보장하지 않습니다. FRED 기반 화면에는 다음 고지를 표시합니다: “This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.”
+- SEC N-PORT 보유·흐름 자료에는 공시 기준 기간과 공시 지연을 함께 표시합니다. 현재 또는 일별 ETF 자금 흐름으로 제시하지 않습니다.
+- yfinance 가격·거래량 및 ETF 메타데이터는 제공 범위와 갱신 시점에 제한이 있는 프록시입니다. 이를 실시간 ETF 자금 흐름, 완전한 ETF 구성 내역 또는 확정적 시장 신호로 해석하지 않습니다.

@@ -88,6 +88,22 @@ class Repository(Protocol):
         self, status: str | None = None, limit: int | None = None
     ) -> list[dict[str, Any]]: ...
 
+    def create_advisory_job(self, data: dict[str, Any]) -> dict[str, Any]: ...
+
+    def update_advisory_job(self, job_id: str, data: dict[str, Any]) -> dict[str, Any] | None: ...
+
+    def get_advisory_job(self, job_id: str) -> dict[str, Any] | None: ...
+
+    def list_advisory_jobs(self, limit: int | None = None) -> list[dict[str, Any]]: ...
+
+    def create_advisory_analysis(self, data: dict[str, Any]) -> dict[str, Any]: ...
+
+    def get_advisory_analysis(self, analysis_id: str) -> dict[str, Any] | None: ...
+
+    def list_advisory_analyses(
+        self, analysis_type: str | None = None, limit: int | None = None
+    ) -> list[dict[str, Any]]: ...
+
     def create_portfolio_snapshot(self, data: dict[str, Any]) -> dict[str, Any]: ...
 
     def list_portfolio_snapshots(self, limit: int | None = None) -> list[dict[str, Any]]: ...
@@ -299,6 +315,8 @@ class InMemoryRepository:
         self.strategies: dict[str, dict[str, Any]] = {}
         self.performance_logs: dict[str, dict[str, Any]] = {}
         self.report_jobs: dict[str, dict[str, Any]] = {}
+        self.advisory_jobs: dict[str, dict[str, Any]] = {}
+        self.advisory_analyses: dict[str, dict[str, Any]] = {}
         self.portfolio_snapshots: dict[str, dict[str, Any]] = {}
         self.recommendation_cycles: dict[str, dict[str, Any]] = {}
         self.market_data_cache: dict[str, dict[str, Any]] = {}
@@ -526,6 +544,57 @@ class InMemoryRepository:
         rows = _copy_rows(self.report_jobs.values())
         if status is not None:
             rows = [row for row in rows if row.get("status") == status]
+        rows = sorted(rows, key=lambda row: row.get("created_at") or "", reverse=True)
+        return rows[:limit] if limit is not None else rows
+
+    def create_advisory_job(self, data: dict[str, Any]) -> dict[str, Any]:
+        row = deepcopy(data)
+        row["job_id"] = row.get("job_id") or str(uuid4())
+        now = _now_iso()
+        row["created_at"] = row.get("created_at") or now
+        row["updated_at"] = row.get("updated_at") or now
+        row["step_timings"] = row.get("step_timings") or {}
+        self.advisory_jobs[row["job_id"]] = row
+        return deepcopy(row)
+
+    def update_advisory_job(self, job_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
+        if job_id not in self.advisory_jobs:
+            return None
+        self.advisory_jobs[job_id].update(
+            {key: value for key, value in data.items() if value is not None}
+        )
+        self.advisory_jobs[job_id]["updated_at"] = _now_iso()
+        return deepcopy(self.advisory_jobs[job_id])
+
+    def get_advisory_job(self, job_id: str) -> dict[str, Any] | None:
+        row = self.advisory_jobs.get(job_id)
+        return deepcopy(row) if row else None
+
+    def list_advisory_jobs(self, limit: int | None = None) -> list[dict[str, Any]]:
+        rows = sorted(
+            _copy_rows(self.advisory_jobs.values()),
+            key=lambda row: row.get("created_at") or "",
+            reverse=True,
+        )
+        return rows[:limit] if limit is not None else rows
+
+    def create_advisory_analysis(self, data: dict[str, Any]) -> dict[str, Any]:
+        row = deepcopy(data)
+        row["analysis_id"] = row.get("analysis_id") or str(uuid4())
+        row["created_at"] = row.get("created_at") or _now_iso()
+        self.advisory_analyses[row["analysis_id"]] = row
+        return deepcopy(row)
+
+    def get_advisory_analysis(self, analysis_id: str) -> dict[str, Any] | None:
+        row = self.advisory_analyses.get(analysis_id)
+        return deepcopy(row) if row else None
+
+    def list_advisory_analyses(
+        self, analysis_type: str | None = None, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        rows = _copy_rows(self.advisory_analyses.values())
+        if analysis_type is not None:
+            rows = [row for row in rows if row.get("analysis_type") == analysis_type]
         rows = sorted(rows, key=lambda row: row.get("created_at") or "", reverse=True)
         return rows[:limit] if limit is not None else rows
 
@@ -1131,6 +1200,59 @@ class SupabaseRepository:
         if limit is not None:
             builder = builder.limit(limit)
         return self._run(builder, {"operation": "list_report_jobs", "status": status})
+
+    def create_advisory_job(self, data: dict[str, Any]) -> dict[str, Any]:
+        builder = self.client.table("advisory_jobs").insert(data)
+        rows = self._run(builder, {"operation": "create_advisory_job"})
+        return rows[0]
+
+    def update_advisory_job(self, job_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
+        clean_data = {key: value for key, value in data.items() if value is not None}
+        builder = self.client.table("advisory_jobs").update(clean_data).eq("job_id", job_id)
+        rows = self._run(builder, {"operation": "update_advisory_job", "job_id": job_id})
+        return rows[0] if rows else None
+
+    def get_advisory_job(self, job_id: str) -> dict[str, Any] | None:
+        builder = self.client.table("advisory_jobs").select("*").eq("job_id", job_id).limit(1)
+        rows = self._run(builder, {"operation": "get_advisory_job", "job_id": job_id})
+        return rows[0] if rows else None
+
+    def list_advisory_jobs(self, limit: int | None = None) -> list[dict[str, Any]]:
+        builder = self.client.table("advisory_jobs").select("*").order("created_at", desc=True)
+        if limit is not None:
+            builder = builder.limit(limit)
+        return self._run(builder, {"operation": "list_advisory_jobs"})
+
+    def create_advisory_analysis(self, data: dict[str, Any]) -> dict[str, Any]:
+        builder = self.client.table("advisory_analyses").insert(data)
+        rows = self._run(builder, {"operation": "create_advisory_analysis"})
+        return rows[0]
+
+    def get_advisory_analysis(self, analysis_id: str) -> dict[str, Any] | None:
+        builder = (
+            self.client.table("advisory_analyses")
+            .select("*")
+            .eq("analysis_id", analysis_id)
+            .limit(1)
+        )
+        rows = self._run(
+            builder,
+            {"operation": "get_advisory_analysis", "analysis_id": analysis_id},
+        )
+        return rows[0] if rows else None
+
+    def list_advisory_analyses(
+        self, analysis_type: str | None = None, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        builder = self.client.table("advisory_analyses").select("*").order("created_at", desc=True)
+        if analysis_type is not None:
+            builder = builder.eq("analysis_type", analysis_type)
+        if limit is not None:
+            builder = builder.limit(limit)
+        return self._run(
+            builder,
+            {"operation": "list_advisory_analyses", "analysis_type": analysis_type},
+        )
 
     def create_portfolio_snapshot(self, data: dict[str, Any]) -> dict[str, Any]:
         builder = self.client.table("portfolio_snapshots").insert(data)

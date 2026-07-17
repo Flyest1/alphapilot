@@ -59,6 +59,27 @@ describe("apiRequest", () => {
     await expect(apiRequest("/api/assets")).rejects.toMatchObject({
       message: "rate limit exceeded",
       status: 429,
+      code: null,
+    });
+  });
+
+  it("preserves structured HTTP error codes and messages", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse(
+            { detail: { code: "migration_required", message: "migration 017 is required" } },
+            { ok: false, status: 503 },
+          ),
+        ),
+    );
+
+    await expect(apiRequest("/api/advisory/status")).rejects.toMatchObject({
+      message: "migration 017 is required",
+      status: 503,
+      code: "migration_required",
     });
   });
 
