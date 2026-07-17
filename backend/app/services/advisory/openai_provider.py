@@ -51,6 +51,7 @@ class OpenAIAdvisoryProvider:
             from openai import OpenAI
 
             self.client = OpenAI(api_key=self.api_key)
+        response_schema = self._response_schema(context)
         messages = [
             {
                 "role": "system",
@@ -86,7 +87,7 @@ class OpenAIAdvisoryProvider:
                         "type": "json_schema",
                         "json_schema": {
                             "name": "AdvisoryNarrative",
-                            "schema": AdvisoryNarrative.model_json_schema(),
+                            "schema": response_schema,
                         },
                     },
                     messages=messages,
@@ -124,6 +125,24 @@ class OpenAIAdvisoryProvider:
                 {"operation": "generate_advisory_narrative", "analysis_type": analysis_type},
             )
             raise
+
+    @staticmethod
+    def _response_schema(context: dict[str, Any]) -> dict[str, Any]:
+        schema = AdvisoryNarrative.model_json_schema()
+        evidence_ids = sorted(
+            {
+                str(item.get("evidence_id"))
+                for item in context.get("evidence", [])
+                if isinstance(item, dict) and item.get("evidence_id")
+            }
+        )
+        if not evidence_ids:
+            return schema
+        evidence_item_schema = {"type": "string", "enum": evidence_ids}
+        schema["properties"]["summary_evidence_ids"]["items"] = evidence_item_schema
+        point_schema = schema["$defs"]["AdvisoryNarrativePoint"]
+        point_schema["properties"]["evidence_ids"]["items"] = evidence_item_schema
+        return schema
 
     @staticmethod
     def _validate_language(narrative: AdvisoryNarrative) -> None:
