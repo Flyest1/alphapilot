@@ -1491,6 +1491,13 @@ form button,
   margin-bottom: 20px;
 }
 
+.advisory-retry-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .advisory-field {
   display: grid;
   max-width: 620px;
@@ -1575,6 +1582,151 @@ form button,
   margin-top: 24px;
 }
 
+.advisory-result-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 24px 0 12px;
+  padding: 14px;
+  border-left: 4px solid var(--market-positive);
+  background: var(--market-positive-soft);
+}
+
+.advisory-result-title h3 {
+  margin: 0;
+}
+
+.advisory-status-badge {
+  display: inline-flex;
+  width: fit-content;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgb(38 35 31 / 8%);
+  color: var(--market-ink);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.advisory-status-badge.caution {
+  background: var(--market-negative-soft);
+  color: var(--market-negative);
+}
+
+.advisory-mobile-cards {
+  display: none;
+}
+
+.advisory-filing-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.advisory-filing-list article {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--market-line);
+  border-radius: 12px;
+  background: var(--market-paper);
+}
+
+.advisory-filing-list article > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.advisory-filing-list dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.advisory-filing-list dt,
+.advisory-mobile-cards p span {
+  color: var(--market-muted);
+  font-size: 12px;
+}
+
+.advisory-filing-list dd {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.advisory-nport-notice {
+  border: 1px solid var(--market-line);
+  background: var(--market-paper);
+  color: var(--market-ink);
+}
+
+.advisory-narrative {
+  padding: 16px;
+  border: 1px solid var(--market-line);
+  border-radius: 12px;
+  background: var(--market-paper);
+}
+
+.advisory-narrative-summary {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.advisory-narrative-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.advisory-narrative-grid h4 {
+  margin-bottom: 8px;
+}
+
+.advisory-narrative-points {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.advisory-narrative-points li {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid var(--market-line);
+  border-radius: 10px;
+}
+
+.advisory-narrative-points p {
+  margin: 0;
+}
+
+.advisory-narrative-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--market-muted);
+  font-size: 12px;
+}
+
+.advisory-narrative-evidence code {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgb(38 35 31 / 8%);
+  color: var(--market-ink);
+}
+
+.advisory-fallback-values {
+  grid-template-columns: 1fr;
+}
+
 .advisory-result-section h3,
 .advisory-result-subsection h4 {
   margin-bottom: 10px;
@@ -1628,6 +1780,28 @@ form button,
 .advisory-evidence-list article > strong {
   display: block;
   margin-bottom: 10px;
+}
+
+.advisory-evidence-meta {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.advisory-evidence-meta div {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.advisory-evidence-meta dt {
+  color: var(--market-muted);
+  font-size: 12px;
+}
+
+.advisory-evidence-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .advisory-evidence-list a {
@@ -1689,7 +1863,8 @@ form button,
   }
 
   .advisory-position-row,
-  .advisory-submit-row {
+  .advisory-submit-row,
+  .advisory-retry-notice {
     align-items: stretch;
     flex-direction: column;
   }
@@ -1697,6 +1872,38 @@ form button,
   .advisory-position-row label,
   .advisory-position-row label:nth-child(2) {
     width: 100%;
+  }
+
+  .advisory-desktop-table {
+    display: none;
+  }
+
+  .advisory-mobile-cards {
+    display: grid;
+    gap: 10px;
+  }
+
+  .advisory-mobile-cards article {
+    display: grid;
+    gap: 7px;
+    padding: 12px;
+    border: 1px solid var(--market-line);
+    border-radius: 10px;
+    background: var(--market-paper);
+  }
+
+  .advisory-mobile-cards p {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0;
+  }
+
+  .advisory-filing-list,
+  .advisory-filing-list dl,
+  .advisory-narrative-grid {
+    grid-template-columns: 1fr;
   }
 }
 

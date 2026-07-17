@@ -225,4 +225,31 @@ curl http://127.0.0.1:8000/health
 - AAPL SEC 검증은 최신 10-K, 10-Q, 8-K 공식 Archives 문서, 필수 양식 충족, `available` 평가와 근거 ID 추적을 확인했다.
 - 모든 결과는 공급자, 조회 시각, 기준일, 근거 ID와 제한사항을 저장하며 OpenAI 설명에는 고정 면책 문구를 적용한다.
 
-Bundle A 이후의 후속 범위는 기능별 상세 결과표 고도화, 영속 accession 캐시, 작업 heartbeat·재시작 복구, 더 넓은 실제 종목·ETF 유니버스 검증이다. 현재 무료 데이터 공급자의 범위를 넘어서는 실시간 ETF 수급, 분석가 컨센서스, 미공시 실적 발표문은 제공하지 않는다.
+현재 무료 데이터 공급자의 범위를 넘어서는 실시간 ETF 수급, 분석가 컨센서스, 미공시 실적 발표문은 제공하지 않는다.
+
+## 11. Bundle B 운영 안정성 (2026-07-17)
+
+구현 및 로컬 검증 완료, 운영 배포 검증 대기 상태다.
+
+- complete-submission 원문만 `backend/.cache/sec-edgar`에 accession별로 영속 저장한다.
+- CIK, accession, 공식 Archives URL, SHA-256, 바이트 길이를 읽을 때마다 검증하고 16MB를 초과하거나 손상된 캐시는 사용하지 않는다.
+- payload와 metadata는 원자적으로 쓰며, 동일 accession의 프로세스 내 중복 다운로드를 직렬화한다.
+- 최대 256개 완전한 캐시 쌍을 유지하고 오래된 쌍과 중단된 임시·고아 파일을 정리한다.
+- 실행 중인 자문 작업은 15초 간격으로 기존 `updated_at`을 갱신하며 terminal 상태를 되돌리지 않는다.
+- Oracle 단일 Uvicorn 프로세스 시작 시 `queued`·`running` 작업을 스캔한다. 이미 분석이 저장된 작업은 완료 상태로 정합화하고, 나머지는 job별 잠금 아래 한 번 다시 실행한다.
+- 동일 request hash 생성 경쟁과 job별 중복 실행은 프로세스 내 잠금으로 직렬화하고, 운영 Supabase의 활성 요청 unique 충돌은 기존 활성 작업으로 수렴시킨다.
+- 새 DB migration, 외부 worker, queue, scheduler, 공개 API 변경은 추가하지 않는다.
+
+## 12. Bundle C 결과 활용성 (2026-07-17)
+
+구현 및 로컬 검증 완료, GitHub Pages 배포 검증 대기 상태다.
+
+- 8개 분석 유형마다 핵심 컬럼, 단위, 한국어 라벨, 기본 정렬, 상태·위험 배지와 모바일 축약 카드를 제공한다.
+- 구조화된 OpenAI 설명은 요약·핵심 발견·핵심 위험·검토 사항·한계와 evidence ID를 별도 표시한다.
+- 모든 evidence ID는 제목이나 링크 허용 여부와 관계없이 표시한다. 일반 원문 링크는 provider별 HTTPS 허용 호스트를 통과한 경우에만 활성화하고, SEC 공시는 공식 Archives 링크만 허용한다.
+- `partial`, `limited`, `data-limited`, `insufficient_data`, `unavailable` 경고와 N-PORT 공시 기간·지연 안내를 상세 결과보다 먼저 표시한다.
+- 완료 결과 조회 실패는 무한 polling으로 남지 않고 terminal 상태와 재시도 UI로 수렴한다.
+- `sessionStorage`에는 활성 job ID만 저장해 새로고침 후 polling을 복원하며 토큰·입력·결과는 저장하지 않는다.
+- 알려지지 않았거나 형식이 잘못된 확장 필드는 깊이·행·열 수를 제한한 범용 fallback으로 안전하게 표시한다.
+
+로컬 완료 기준은 백엔드 408개, 프론트엔드 102개 테스트와 backend/frontend lint·format·build 통과, Luna 독립 검증 P0/P1 0건이다. 운영 완료는 Oracle 재시작 복구, SEC cold/warm cache, 8개 요청·저장·결과 화면을 배포 후 확인한 시점으로 판단한다.

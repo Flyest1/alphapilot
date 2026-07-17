@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   createAdvisoryJob,
@@ -15,6 +15,12 @@ import {
   getAdvisoryFeature,
   validateAdvisoryPayload,
 } from "../components/advisory/advisoryFeatures.js";
+import {
+  clearActiveAdvisoryJobId,
+  isTerminalAdvisoryJob,
+  persistActiveAdvisoryJobId,
+  readActiveAdvisoryJobId,
+} from "../utils/advisoryJobs.js";
 
 const POLL_INTERVAL_MS = 5000;
 const MIGRATION_FILE = "backend/app/db/migrations/017_create_advisory_analyses.sql";
@@ -68,7 +74,10 @@ function advisoryErrorMessage(error, fallback = "AI 자문 요청에 실패했�
 export default function Advisory() {
   const [selectedType, setSelectedType] = useState("undervalued_us_stocks");
   const [form, setForm] = useState(blankForm);
-  const [job, setJob] = useState(null);
+  const [job, setJob] = useState(() => {
+    const jobId = readActiveAdvisoryJobId();
+    return jobId ? { job_id: jobId, status: "queued" } : null;
+  });
   const [selectedAnalysis, setSelectedAnalysis] = useState(null);
   const [history, setHistory] = useState([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
@@ -76,13 +85,33 @@ export default function Advisory() {
   const [advisoryStatus, setAdvisoryStatus] = useState(null);
   const [advisoryStatusError, setAdvisoryStatusError] = useState("");
   const [isCreatingJob, setIsCreatingJob] = useState(false);
+  const [analysisLoadRequest, setAnalysisLoadRequest] = useState(null);
+  const [isLoadingCompletedAnalysis, setIsLoadingCompletedAnalysis] = useState(false);
   const submissionLockRef = useRef(false);
+  const latestPollRef = useRef(0);
+  const terminalJobIdsRef = useRef(new Set());
+  const analysisLoadSequenceRef = useRef(0);
 
   const feature = getAdvisoryFeature(selectedType);
   const activeJobId = jobIdentifier(job);
   const hasActiveJob = Boolean(activeJobId && !isComplete(job?.status) && !isFailed(job?.status));
   const isSubmitting = isCreatingJob || hasActiveJob;
   const isAdvisoryStorageAvailable = advisoryStatus?.storage_status === "available";
+
+  const requestCompletedAnalysis = useCallback((jobId, analysisId) => {
+    if (!jobId || !analysisId) return;
+    const requestId = ++analysisLoadSequenceRef.current;
+    setAnalysisLoadRequest({ jobId, analysisId, requestId });
+  }, []);
+
+  useEffect(() => {
+    if (!activeJobId) return;
+    if (isTerminalAdvisoryJob(job?.status)) {
+      clearActiveAdvisoryJobId(activeJobId);
+      return;
+    }
+    persistActiveAdvisoryJobId(activeJobId);
+  }, [activeJobId, job?.status]);
 
   useEffect(() => {
     let cancelled = false;
@@ -128,36 +157,95 @@ export default function Advisory() {
   useEffect(() => {
     if (!activeJobId || !hasActiveJob) return undefined;
     let cancelled = false;
+    let intervalId;
     async function pollJob() {
+      const pollId = ++latestPollRef.current;
       try {
         const nextJob = await getAdvisoryJob(activeJobId);
-        if (cancelled) return;
-        if (isComplete(nextJob.status)) {
-          const nextAnalysisId = analysisIdentifier(nextJob);
-          const analysis =
-            nextJob.analysis ||
-            nextJob.result ||
-            (nextAnalysisId && (await getAdvisoryAnalysis(nextAnalysisId)));
-          if (cancelled) return;
-          setJob(nextJob);
-          if (analysis) setSelectedAnalysis(analysis);
-          const updatedHistory = await listAdvisoryAnalyses();
-          if (!cancelled) setHistory(analysisItems(updatedHistory));
-        } else {
-          setJob(nextJob);
+        if (
+          cancelled ||
+          pollId !== latestPollRef.current ||
+          terminalJobIdsRef.current.has(activeJobId)
+        ) {
+          return;
         }
-        if (isFailed(nextJob.status)) setError(advisoryErrorMessage(nextJob));
+        if (isComplete(nextJob.status) || isFailed(nextJob.status)) {
+          terminalJobIdsRef.current.add(activeJobId);
+          clearActiveAdvisoryJobId(activeJobId);
+          if (intervalId) window.clearInterval(intervalId);
+          setJob(nextJob);
+          if (isFailed(nextJob.status)) {
+            setError(advisoryErrorMessage(nextJob));
+            return;
+          }
+          const nextAnalysisId = analysisIdentifier(nextJob);
+          const inlineAnalysis = nextJob.analysis || nextJob.result;
+          if (inlineAnalysis) {
+            setSelectedAnalysis(inlineAnalysis);
+          } else if (nextAnalysisId) {
+            requestCompletedAnalysis(activeJobId, nextAnalysisId);
+          } else {
+            setError(
+              "AI 자문 작업은 완료됐지만 결과 식별자를 확인할 수 없습니다. 같은 요청을 다시 실행해 주세요.",
+            );
+          }
+          try {
+            const updatedHistory = await listAdvisoryAnalyses();
+            if (!cancelled && pollId === latestPollRef.current) {
+              setHistory(analysisItems(updatedHistory));
+            }
+          } catch {
+            // The terminal job state remains authoritative even if history refresh fails.
+          }
+          return;
+        }
+        setJob(nextJob);
       } catch (requestError) {
-        if (!cancelled) setError(advisoryErrorMessage(requestError));
+        if (!cancelled && pollId === latestPollRef.current)
+          setError(advisoryErrorMessage(requestError));
       }
     }
     pollJob();
-    const intervalId = window.setInterval(pollJob, POLL_INTERVAL_MS);
+    intervalId = window.setInterval(pollJob, POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [activeJobId, hasActiveJob]);
+  }, [activeJobId, hasActiveJob, requestCompletedAnalysis]);
+
+  useEffect(() => {
+    if (!analysisLoadRequest) return undefined;
+    let cancelled = false;
+    const { jobId, analysisId, requestId } = analysisLoadRequest;
+    setIsLoadingCompletedAnalysis(true);
+    getAdvisoryAnalysis(analysisId)
+      .then((analysis) => {
+        if (
+          cancelled ||
+          requestId !== analysisLoadSequenceRef.current ||
+          !terminalJobIdsRef.current.has(jobId)
+        ) {
+          return;
+        }
+        setSelectedAnalysis(analysis);
+        setAnalysisLoadRequest(null);
+        setError("");
+      })
+      .catch(() => {
+        if (cancelled || requestId !== analysisLoadSequenceRef.current) return;
+        setError(
+          "AI 자문 작업은 완료됐지만 결과를 불러오지 못했습니다. 아래 버튼으로 다시 시도하거나 같은 요청을 다시 실행해 주세요.",
+        );
+      })
+      .finally(() => {
+        if (!cancelled && requestId === analysisLoadSequenceRef.current) {
+          setIsLoadingCompletedAnalysis(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [analysisLoadRequest]);
 
   function selectFeature(analysisType) {
     setSelectedType(analysisType);
@@ -186,10 +274,13 @@ export default function Advisory() {
     }
     setError("");
     setSelectedAnalysis(null);
+    analysisLoadSequenceRef.current += 1;
+    setAnalysisLoadRequest(null);
     submissionLockRef.current = true;
     setIsCreatingJob(true);
     try {
       const createdJob = await createAdvisoryJob(payload);
+      terminalJobIdsRef.current.delete(jobIdentifier(createdJob));
       setJob(createdJob);
     } catch (requestError) {
       setError(advisoryErrorMessage(requestError));
@@ -253,8 +344,20 @@ export default function Advisory() {
         </div>
       )}
       {error && (
-        <div className="notice">
+        <div className="notice advisory-retry-notice" role="alert">
           <span className="alert">{error}</span>
+          {analysisLoadRequest && (
+            <button
+              className="secondary-action compact-action"
+              disabled={isLoadingCompletedAnalysis}
+              type="button"
+              onClick={() =>
+                requestCompletedAnalysis(analysisLoadRequest.jobId, analysisLoadRequest.analysisId)
+              }
+            >
+              {isLoadingCompletedAnalysis ? "완료 결과 불러오는 중" : "완료 결과 다시 불러오기"}
+            </button>
+          )}
         </div>
       )}
       <AdvisoryFeatureCards selectedType={selectedType} onSelect={selectFeature} />

@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ACTIVE_ADVISORY_JOB_STORAGE_KEY } from "../utils/advisoryJobs.js";
 
 const api = vi.hoisted(() => ({
   createAdvisoryJob: vi.fn(),
@@ -16,6 +17,7 @@ import Advisory from "./Advisory.jsx";
 describe("Advisory page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.sessionStorage.clear();
     api.listAdvisoryAnalyses.mockResolvedValue([]);
     api.getAdvisoryStatus.mockResolvedValue({
       storage_status: "available",
@@ -64,8 +66,8 @@ describe("Advisory page", () => {
     await waitFor(() => expect(api.getAdvisoryJob).toHaveBeenCalledWith("job-1"));
     await waitFor(() => expect(api.getAdvisoryAnalysis).toHaveBeenCalledWith("analysis-1"));
     expect(await screen.findByText("자문 결과")).toBeInTheDocument();
-    expect(screen.getByText("AAPL")).toBeInTheDocument();
-    expect(screen.getByText("관찰")).toBeInTheDocument();
+    expect(screen.getAllByText("AAPL")).not.toHaveLength(0);
+    expect(screen.getAllByText("관찰")).not.toHaveLength(0);
   });
 
   it("shows the required migration and blocks a new request", async () => {
@@ -132,6 +134,74 @@ describe("Advisory page", () => {
     render(<Advisory />);
 
     expect(await screen.findByText(/OpenAI 자문 설명이 설정되지 않았습니다/)).toBeInTheDocument();
+  });
+
+  it("restores an active job after refresh and clears only its terminal job id", async () => {
+    window.sessionStorage.setItem(ACTIVE_ADVISORY_JOB_STORAGE_KEY, "restored-job");
+    api.getAdvisoryJob.mockResolvedValue({
+      job_id: "restored-job",
+      status: "completed",
+      analysis_id: "restored-analysis",
+      analysis_type: "undervalued_us_stocks",
+    });
+    api.getAdvisoryAnalysis.mockResolvedValue({
+      analysis_id: "restored-analysis",
+      analysis_type: "undervalued_us_stocks",
+      result: {
+        analysis_type: "undervalued_us_stocks",
+        rows: [{ ticker: "AAPL", investment_score: 82, action: "WATCH" }],
+        top_candidates: [],
+        data_quality: { status: "available" },
+        evidence: [],
+        disclaimer: "투자 의사결정 참고 정보입니다.",
+      },
+    });
+
+    render(<Advisory />);
+
+    await waitFor(() => expect(api.getAdvisoryJob).toHaveBeenCalledWith("restored-job"));
+    await waitFor(() => expect(api.getAdvisoryAnalysis).toHaveBeenCalledWith("restored-analysis"));
+    expect(window.sessionStorage.getItem(ACTIVE_ADVISORY_JOB_STORAGE_KEY)).toBeNull();
+    expect((await screen.findAllByText("AAPL")).length).toBeGreaterThan(0);
+  });
+
+  it("stops polling at completed status and offers retry when analysis loading fails", async () => {
+    api.getAdvisoryAnalysis
+      .mockRejectedValueOnce(new Error("analysis unavailable"))
+      .mockResolvedValueOnce({
+        analysis_id: "analysis-1",
+        analysis_type: "undervalued_us_stocks",
+        result: {
+          analysis_type: "undervalued_us_stocks",
+          rows: [{ ticker: "AAPL", investment_score: 82, action: "WATCH" }],
+          top_candidates: [],
+          data_quality: { status: "available" },
+          evidence: [],
+          disclaimer: "투자 의사결정 참고 정보입니다.",
+        },
+      });
+
+    render(<Advisory />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "AI 자문 요청" })).toBeEnabled());
+    fireEvent.change(screen.getByPlaceholderText("예: AAPL, MSFT, NVDA"), {
+      target: { value: "aapl" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "AI 자문 요청" }));
+
+    expect(
+      await screen.findByText(/작업은 완료됐지만 결과를 불러오지 못했습니다/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/AI 자문을 분석 중입니다/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "AI 자문 요청" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "완료 결과 다시 불러오기" })).toBeEnabled();
+    expect(window.sessionStorage.getItem(ACTIVE_ADVISORY_JOB_STORAGE_KEY)).toBeNull();
+    expect(api.getAdvisoryJob).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "완료 결과 다시 불러오기" }));
+
+    expect((await screen.findAllByText("AAPL")).length).toBeGreaterThan(0);
+    expect(api.getAdvisoryAnalysis).toHaveBeenCalledTimes(2);
   });
 
   it.each([

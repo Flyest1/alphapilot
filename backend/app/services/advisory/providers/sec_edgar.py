@@ -4,13 +4,17 @@ import gzip
 import hashlib
 import json
 import math
+import os
 import re
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from html import unescape
 from io import BytesIO
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
@@ -25,7 +29,9 @@ SEC_FUND_TICKERS_URL = "https://www.sec.gov/files/company_tickers_mf.json"
 SEC_RETRYABLE_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
 SEC_MAX_REQUESTS_PER_SECOND = 5
 SEC_MAX_SUBMISSION_BYTES = 16 * 1024 * 1024
+SEC_DEFAULT_MAX_PERSISTENT_ENTRIES = 256
 SEC_NPORT_PUBLIC_DELAY_DAYS = 60
+SEC_DEFAULT_SUBMISSION_CACHE_DIR = Path(__file__).resolve().parents[4] / ".cache" / "sec-edgar"
 
 _TAG_PATTERN = re.compile(r"<[^>]+>")
 _SCRIPT_STYLE_PATTERN = re.compile(
@@ -48,6 +54,8 @@ _FLOW_FIELDS = frozenset(
 _SGML_DOCUMENT_PATTERN = re.compile(r"<DOCUMENT>(.*?)</DOCUMENT>", re.I | re.S)
 _SGML_FIELD_PATTERN = re.compile(r"<(TYPE|SEQUENCE|FILENAME|DESCRIPTION)>\s*([^\r\n<]+)", re.I)
 _SGML_TEXT_PATTERN = re.compile(r"<TEXT>(.*?)</TEXT>", re.I | re.S)
+_CACHE_ENTRY_PATTERN = re.compile(r"(?P<accession>\d{10}-\d{2}-\d{6})\.(?P<suffix>txt|json)")
+_CACHE_TEMP_PATTERN = re.compile(r"\.\d{10}-\d{2}-\d{6}\.(?:txt|json)\..+")
 
 
 class SecEdgarError(RuntimeError):
@@ -87,6 +95,9 @@ class SecEdgarProvider:
     """
 
     _process_rate_limiter = _ProcessRateLimiter()
+    _submission_locks: dict[str, tuple[threading.Lock, int]] = {}
+    _submission_locks_guard = threading.Lock()
+    _submission_cache_guard = threading.Lock()
 
     def __init__(
         self,
@@ -98,8 +109,10 @@ class SecEdgarProvider:
         backoff_seconds: float = 0.5,
         max_backoff_seconds: float = 4.0,
         max_cache_entries: int = 256,
+        max_persistent_entries: int = SEC_DEFAULT_MAX_PERSISTENT_ENTRIES,
         max_submission_bytes: int = SEC_MAX_SUBMISSION_BYTES,
         max_submission_text_chars: int = 750_000,
+        submission_cache_dir: str | Path | None = None,
         rate_limiter: Any | None = None,
         sleep: Callable[[float], None] = time.sleep,
         now_provider: Callable[[], datetime] | None = None,
@@ -109,9 +122,13 @@ class SecEdgarProvider:
             raise ValueError("SEC EDGAR requests require a declared User-Agent")
         if timeout_seconds <= 0 or cache_ttl_seconds < 0:
             raise ValueError("SEC EDGAR timeout and cache TTL must be non-negative")
-        if max_retries < 1 or max_cache_entries < 1:
+        if max_retries < 1 or max_cache_entries < 1 or max_persistent_entries < 1:
             raise ValueError("SEC EDGAR retry and cache limits must be positive")
-        if max_submission_bytes < 1 or max_submission_text_chars < 1:
+        if (
+            max_submission_bytes < 1
+            or max_submission_bytes > SEC_MAX_SUBMISSION_BYTES
+            or max_submission_text_chars < 1
+        ):
             raise ValueError("SEC EDGAR submission limits must be positive")
 
         self.user_agent = normalized_user_agent
@@ -122,8 +139,14 @@ class SecEdgarProvider:
         self.backoff_seconds = backoff_seconds
         self.max_backoff_seconds = max_backoff_seconds
         self.max_cache_entries = max_cache_entries
+        self.max_persistent_entries = max_persistent_entries
         self.max_submission_bytes = max_submission_bytes
         self.max_submission_text_chars = max_submission_text_chars
+        self.submission_cache_dir = Path(
+            submission_cache_dir
+            if submission_cache_dir is not None
+            else SEC_DEFAULT_SUBMISSION_CACHE_DIR
+        )
         self.rate_limiter = rate_limiter or self._process_rate_limiter
         self.sleep = sleep
         self.now_provider = now_provider or (lambda: datetime.now(timezone.utc))
@@ -551,7 +574,234 @@ class SecEdgarProvider:
         )
 
     def _get_complete_submission_bytes(self, cik: str, accession: str) -> bytes:
-        return self._get_bytes(self._complete_submission_url(cik, accession))
+        normalized_cik = self._normalize_cik(cik)
+        normalized_accession = self._normalize_accession(accession)
+        if not normalized_cik or not normalized_accession:
+            raise SecEdgarError("SEC EDGAR accession identity is invalid")
+        url = self._complete_submission_url(normalized_cik, normalized_accession)
+        with self._submission_fetch_lock(url):
+            cached = self._read_submission_cache(normalized_cik, normalized_accession, url)
+            if cached is not None:
+                return cached
+            payload = self._get_bytes(url)
+            if len(payload) > SEC_MAX_SUBMISSION_BYTES:
+                raise SecEdgarError("SEC EDGAR submission exceeded the size limit")
+            self._write_submission_cache(normalized_cik, normalized_accession, url, payload)
+            return payload
+
+    @contextmanager
+    def _submission_fetch_lock(self, url: str) -> Iterable[None]:
+        """Serialize same-accession cache misses across this single process."""
+        with self._submission_locks_guard:
+            lock, references = self._submission_locks.get(url, (threading.Lock(), 0))
+            self._submission_locks[url] = (lock, references + 1)
+        lock.acquire()
+        try:
+            yield
+        finally:
+            lock.release()
+            with self._submission_locks_guard:
+                current_lock, references = self._submission_locks[url]
+                if current_lock is lock and references == 1:
+                    self._submission_locks.pop(url, None)
+                elif current_lock is lock:
+                    self._submission_locks[url] = (lock, references - 1)
+
+    def _submission_cache_paths(self, cik: str, accession: str) -> tuple[Path, Path]:
+        directory = self.submission_cache_dir / cik
+        return directory / f"{accession}.txt", directory / f"{accession}.json"
+
+    def _read_submission_cache(self, cik: str, accession: str, url: str) -> bytes | None:
+        payload_path, metadata_path = self._submission_cache_paths(cik, accession)
+        with self._submission_cache_guard:
+            return self._read_submission_cache_unlocked(
+                payload_path,
+                metadata_path,
+                cik,
+                accession,
+                url,
+            )
+
+    def _read_submission_cache_unlocked(
+        self,
+        payload_path: Path,
+        metadata_path: Path,
+        cik: str,
+        accession: str,
+        url: str,
+    ) -> bytes | None:
+        metadata = self._read_submission_cache_metadata(
+            metadata_path,
+            cik,
+            accession,
+            url,
+        )
+        if metadata is None:
+            return None
+        try:
+            payload = payload_path.read_bytes()
+        except OSError:
+            return None
+        if (
+            len(payload) != metadata["size_bytes"]
+            or len(payload) > SEC_MAX_SUBMISSION_BYTES
+            or hashlib.sha256(payload).hexdigest() != metadata["sha256"]
+        ):
+            return None
+        try:
+            metadata_path.touch()
+        except OSError:
+            pass
+        return payload
+
+    def _write_submission_cache(self, cik: str, accession: str, url: str, payload: bytes) -> None:
+        if len(payload) > SEC_MAX_SUBMISSION_BYTES:
+            raise SecEdgarError("SEC EDGAR submission exceeded the size limit")
+        payload_path, metadata_path = self._submission_cache_paths(cik, accession)
+        metadata = {
+            "cik": cik,
+            "accession": accession,
+            "url": url,
+            "size_bytes": len(payload),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+        }
+        with self._submission_cache_guard:
+            payload_written = False
+            try:
+                payload_path.parent.mkdir(parents=True, exist_ok=True)
+                self._prepare_submission_cache_write(payload_path, metadata_path)
+                self._atomic_write_bytes(payload_path, payload)
+                payload_written = True
+                self._atomic_write_bytes(
+                    metadata_path,
+                    json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode("utf-8"),
+                )
+            except OSError:
+                if payload_written:
+                    self._best_effort_unlink(payload_path, metadata_path)
+                # A local cache failure must not make official SEC evidence unusable.
+                return
+
+    def _prepare_submission_cache_write(
+        self,
+        target_payload_path: Path,
+        target_metadata_path: Path,
+    ) -> None:
+        complete_pairs: list[tuple[int, Path, Path]] = []
+        if not self.submission_cache_dir.exists():
+            return
+        for cik_directory in self.submission_cache_dir.iterdir():
+            if (
+                cik_directory.is_symlink()
+                or not cik_directory.is_dir()
+                or not re.fullmatch(r"\d{10}", cik_directory.name)
+            ):
+                continue
+            entry_files: dict[str, dict[str, Path]] = {}
+            for path in cik_directory.iterdir():
+                if path.is_symlink() or not path.is_file():
+                    continue
+                if _CACHE_TEMP_PATTERN.fullmatch(path.name):
+                    path.unlink()
+                    continue
+                match = _CACHE_ENTRY_PATTERN.fullmatch(path.name)
+                if match:
+                    entry_files.setdefault(match["accession"], {})[match["suffix"]] = path
+            for accession, paths in entry_files.items():
+                payload_path = paths.get("txt")
+                metadata_path = paths.get("json")
+                if payload_path is None or metadata_path is None:
+                    self._unlink_existing(payload_path, metadata_path)
+                    continue
+                cik = cik_directory.name
+                url = self._complete_submission_url(cik, accession)
+                metadata = self._read_submission_cache_metadata(
+                    metadata_path,
+                    cik,
+                    accession,
+                    url,
+                )
+                if metadata is None or payload_path.stat().st_size != metadata["size_bytes"]:
+                    self._unlink_existing(payload_path, metadata_path)
+                    continue
+                if payload_path == target_payload_path and metadata_path == target_metadata_path:
+                    continue
+                complete_pairs.append(
+                    (metadata_path.stat().st_mtime_ns, payload_path, metadata_path)
+                )
+
+        eviction_count = max(
+            0,
+            len(complete_pairs) + 1 - self.max_persistent_entries,
+        )
+        for _modified_at, payload_path, metadata_path in sorted(complete_pairs)[:eviction_count]:
+            payload_path.unlink()
+            metadata_path.unlink()
+
+    @staticmethod
+    def _read_submission_cache_metadata(
+        metadata_path: Path,
+        cik: str,
+        accession: str,
+        url: str,
+    ) -> dict[str, Any] | None:
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            return None
+        if not isinstance(metadata, dict) or set(metadata) != {
+            "accession",
+            "cik",
+            "sha256",
+            "size_bytes",
+            "url",
+        }:
+            return None
+        if (
+            metadata["cik"] != cik
+            or metadata["accession"] != accession
+            or metadata["url"] != url
+            or not isinstance(metadata["size_bytes"], int)
+            or metadata["size_bytes"] < 0
+            or metadata["size_bytes"] > SEC_MAX_SUBMISSION_BYTES
+            or not isinstance(metadata["sha256"], str)
+            or not re.fullmatch(r"[0-9a-f]{64}", metadata["sha256"])
+        ):
+            return None
+        return metadata
+
+    @staticmethod
+    def _unlink_existing(*paths: Path | None) -> None:
+        for path in paths:
+            if path is not None:
+                path.unlink()
+
+    @staticmethod
+    def _best_effort_unlink(*paths: Path) -> None:
+        for path in paths:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    @staticmethod
+    def _atomic_write_bytes(path: Path, payload: bytes) -> None:
+        temporary_path: Path | None = None
+        try:
+            with NamedTemporaryFile(
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                delete=False,
+            ) as handle:
+                temporary_path = Path(handle.name)
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_path, path)
+        except Exception:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
+            raise
 
     @staticmethod
     def _validate_url(url: str) -> None:

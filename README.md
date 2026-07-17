@@ -759,4 +759,13 @@ curl http://127.0.0.1:8000/health
 - FRED 관측값은 과거 증거이며 미래 전망이나 투자 수익을 보장하지 않습니다. FRED 기반 화면에는 다음 고지를 표시합니다: “This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.”
 - SEC N-PORT 보유·흐름 자료에는 공시 기준 기간과 공시 지연을 함께 표시합니다. 현재 또는 일별 ETF 자금 흐름으로 제시하지 않습니다.
 - yfinance 가격·거래량 및 ETF 메타데이터는 제공 범위와 갱신 시점에 제한이 있는 프록시입니다. 이를 실시간 ETF 자금 흐름, 완전한 ETF 구성 내역 또는 확정적 시장 신호로 해석하지 않습니다.
-- 현재 ETF 구성 분석은 공급자가 제공하는 상위 10개 보유종목 범위이며, SEC accession 문서 캐시는 프로세스 메모리 기반입니다. 영속 불변 캐시, 작업 heartbeat·재시작 복구, 기능별 상세 결과표 고도화는 후속 작업입니다.
+- 현재 ETF 구성 분석은 공급자가 제공하는 상위 10개 보유종목 범위입니다.
+
+AI 자문 Bundle B·C는 다음 안정화와 화면 개선을 포함합니다.
+
+- SEC complete-submission 원문은 `backend/.cache/sec-edgar`에 accession별로 영속 캐시합니다. CIK·accession·공식 URL·SHA-256·바이트 길이를 검증하고 원자적으로 저장하며, 손상된 파일은 사용하지 않습니다.
+- 캐시는 최대 256개 accession을 유지하고 최근 사용 시각을 기준으로 오래된 완전한 파일 쌍을 제거합니다. 문서 하나의 상한은 16MB이므로 이론상 최대 약 4GB를 사용할 수 있습니다.
+- 실행 중인 자문 작업은 약 15초마다 `updated_at` heartbeat를 기록합니다. Oracle의 단일 Uvicorn 프로세스가 재시작되면 저장된 `queued`·`running` 작업을 다시 확인하고, 이미 분석이 저장된 작업은 완료 상태로 정합화하며 나머지는 한 번 재실행합니다.
+- 동일 요청과 동일 작업의 프로세스 내 동시 실행을 직렬화합니다. 운영 배포는 현재 systemd의 단일 Uvicorn 프로세스 구성을 전제로 하며 외부 worker나 queue를 추가하지 않습니다.
+- 8개 자문 유형은 각각 전용 한국어 표·모바일 카드·단위·상태 배지·SEC 공시 링크·AI 설명과 근거 ID를 표시합니다. `partial`, `limited`, `data-limited`, `insufficient_data` 상태와 N-PORT 공시 지연 안내를 결과보다 먼저 표시합니다.
+- 브라우저 새로고침 복원을 위해 `sessionStorage`에는 활성 자문 job ID만 저장합니다. API 토큰, 요청 입력, 분석 결과는 추가 저장하지 않습니다.

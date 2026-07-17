@@ -1059,7 +1059,10 @@ Do not implement any part of this phase without approval.
 ### AI Advisory (Manual Analysis)
 
 Status: baseline implemented and deployed (2026-07). Migration 017 was applied to the operating
-Supabase project, and Bundle A operational verification completed on 2026-07-17.
+Supabase project, and Bundle A operational verification completed on 2026-07-17. Follow-up Bundle B
+(persistent SEC accession cache and advisory job recovery) and Bundle C (eight dedicated result views
+and active-job browser recovery) are implemented and locally validated; operating deployment
+verification is pending.
 
 Goal: provide the eight manual analysis workflows defined in `docs/ai_advisory_plan_2026_07.md`
 without automatic trading, order tickets, or unsupported factual claims.
@@ -1071,6 +1074,9 @@ Implement:
 - evidence ids, source dates, providers, freshness, missing fields, and limitations
 - the eight advisory analysis types listed in the public API contract
 - Korean AI advisory tab with manual inputs, polling, history, and result tables
+- bounded local-disk SEC accession cache with SHA-256 integrity checks and atomic writes
+- periodic advisory job heartbeat and single-process startup recovery without an external worker
+- dedicated Korean result views for all eight analysis types with evidence-safe links
 
 SEC EDGAR, FRED, delayed SEC N-PORT data, and clearly labeled yfinance ETF-flow proxies were approved
 in 2026-07. Exact current/daily ETF flows, analyst consensus, and unfiled transcripts still require

@@ -1,10 +1,15 @@
 import json
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from urllib.error import HTTPError
 
 import pytest
 
+from app.services.advisory.providers import sec_edgar
 from app.services.advisory.providers.sec_edgar import (
+    SEC_DEFAULT_MAX_PERSISTENT_ENTRIES,
     SEC_MAX_SUBMISSION_BYTES,
     SecEdgarError,
     SecEdgarProvider,
@@ -45,6 +50,11 @@ class NoopLimiter:
 
     def acquire(self):
         self.calls += 1
+
+
+@pytest.fixture(autouse=True)
+def isolate_default_submission_cache(tmp_path, monkeypatch):
+    monkeypatch.setattr(sec_edgar, "SEC_DEFAULT_SUBMISSION_CACHE_DIR", tmp_path / "sec-edgar")
 
 
 def recent_filings(cik="0000320193"):
@@ -219,6 +229,164 @@ def test_sec_provider_keeps_large_complete_submissions_bounded():
 
     assert client.max_submission_bytes == SEC_MAX_SUBMISSION_BYTES
     assert client.max_submission_bytes == 16 * 1024 * 1024
+    assert client.max_persistent_entries == SEC_DEFAULT_MAX_PERSISTENT_ENTRIES
+    assert client.max_persistent_entries == 256
+
+
+def test_complete_submission_disk_cache_persists_and_rejects_tampering(tmp_path):
+    accession = "0000320193-26-000001"
+    url = submission_url(accession)
+    cache_dir = tmp_path / "sec-edgar"
+    first = provider(
+        {url: ["<TEXT>original filing text</TEXT>"]},
+        submission_cache_dir=cache_dir,
+    )
+
+    assert first.get_complete_submission_text("0000320193", accession) == "original filing text"
+
+    reused = provider({}, submission_cache_dir=cache_dir)
+    assert reused.get_complete_submission_text("0000320193", accession) == "original filing text"
+    assert reused.opener.requests == []
+
+    payload_path = next(cache_dir.rglob("*.txt"))
+    payload_path.write_bytes(b"tampered")
+    refreshed = provider(
+        {url: ["<TEXT>refetched filing text</TEXT>"]},
+        submission_cache_dir=cache_dir,
+    )
+
+    refreshed_text = refreshed.get_complete_submission_text("0000320193", accession)
+    assert refreshed_text == "refetched filing text"
+    assert len(refreshed.opener.requests) == 1
+
+
+def test_complete_submission_cache_fails_closed_on_metadata_identity_mismatch(tmp_path):
+    accession = "0000320193-26-000001"
+    url = submission_url(accession)
+    cache_dir = tmp_path / "sec-edgar"
+    client = provider(
+        {url: ["<TEXT>verified filing text</TEXT>"]},
+        submission_cache_dir=cache_dir,
+    )
+    assert client.get_complete_submission_text("0000320193", accession) == "verified filing text"
+
+    metadata_path = next(cache_dir.rglob("*.json"))
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["url"] = "https://www.sec.gov/Archives/edgar/data/1/invalid.txt"
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    unavailable = provider(
+        {url: [HTTPError(url, 404, "not found", {}, None)]},
+        submission_cache_dir=cache_dir,
+    )
+
+    assert unavailable.get_complete_submission_text("0000320193", accession) is None
+
+
+def test_same_accession_concurrent_cache_misses_fetch_once(tmp_path):
+    accession = "0000320193-26-000001"
+
+    class SlowOpener:
+        def __init__(self):
+            self.calls = 0
+            self.lock = threading.Lock()
+
+        def __call__(self, _request, timeout):
+            assert timeout == 15.0
+            with self.lock:
+                self.calls += 1
+            time.sleep(0.05)
+            return FakeResponse("<TEXT>single official fetch</TEXT>")
+
+    opener = SlowOpener()
+    client = SecEdgarProvider(
+        user_agent="AlphaPilot test contact@example.com",
+        opener=opener,
+        rate_limiter=NoopLimiter(),
+        submission_cache_dir=tmp_path / "sec-edgar",
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(
+            executor.map(
+                lambda _value: client.get_complete_submission_text("0000320193", accession),
+                range(2),
+            )
+        )
+
+    assert results == ["single official fetch", "single official fetch"]
+    assert opener.calls == 1
+
+
+def test_persistent_cache_evicts_oldest_complete_pair_at_entry_limit(tmp_path):
+    accessions = [
+        "0000320193-26-000001",
+        "0000320193-26-000002",
+        "0000320193-26-000003",
+    ]
+    cache_dir = tmp_path / "sec-edgar"
+    client = provider(
+        {
+            submission_url(accession): [f"<TEXT>filing {index}</TEXT>"]
+            for index, accession in enumerate(accessions, start=1)
+        },
+        submission_cache_dir=cache_dir,
+        max_persistent_entries=2,
+    )
+
+    assert client.get_complete_submission_text("0000320193", accessions[0]) == "filing 1"
+    time.sleep(0.01)
+    assert client.get_complete_submission_text("0000320193", accessions[1]) == "filing 2"
+    time.sleep(0.01)
+    assert client.get_complete_submission_text("0000320193", accessions[2]) == "filing 3"
+
+    payload_entries = {path.stem for path in cache_dir.rglob("*.txt")}
+    metadata_entries = {path.stem for path in cache_dir.rglob("*.json")}
+    assert payload_entries == set(accessions[1:])
+    assert metadata_entries == set(accessions[1:])
+
+
+def test_persistent_cache_cleans_partial_pairs_and_abandoned_temp_files(tmp_path):
+    cache_dir = tmp_path / "sec-edgar"
+    cik_directory = cache_dir / "0000320193"
+    cik_directory.mkdir(parents=True)
+    orphan_payload = cik_directory / "0000320193-26-000010.txt"
+    orphan_metadata = cik_directory / "0000320193-26-000011.json"
+    abandoned_temp = cik_directory / ".0000320193-26-000012.txt.crashed"
+    malformed_payload = cik_directory / "0000320193-26-000013.txt"
+    malformed_metadata = cik_directory / "0000320193-26-000013.json"
+    orphan_payload.write_bytes(b"orphan")
+    orphan_metadata.write_text("{}", encoding="utf-8")
+    abandoned_temp.write_bytes(b"partial")
+    malformed_payload.write_bytes(b"malformed pair")
+    malformed_metadata.write_text("{}", encoding="utf-8")
+    accession = "0000320193-26-000001"
+    client = provider(
+        {submission_url(accession): ["<TEXT>complete filing</TEXT>"]},
+        submission_cache_dir=cache_dir,
+        max_persistent_entries=2,
+    )
+
+    assert client.get_complete_submission_text("0000320193", accession) == "complete filing"
+
+    remaining_files = {path.name for path in cik_directory.iterdir()}
+    assert remaining_files == {f"{accession}.txt", f"{accession}.json"}
+
+
+def test_cache_cleanup_failure_does_not_fail_official_sec_fetch(tmp_path, monkeypatch):
+    accession = "0000320193-26-000001"
+    cache_dir = tmp_path / "sec-edgar"
+    client = provider(
+        {submission_url(accession): ["<TEXT>official filing</TEXT>"]},
+        submission_cache_dir=cache_dir,
+    )
+
+    def fail_cleanup(*_args):
+        raise OSError("cache cleanup unavailable")
+
+    monkeypatch.setattr(client, "_prepare_submission_cache_write", fail_cleanup)
+
+    assert client.get_complete_submission_text("0000320193", accession) == "official filing"
+    assert list(cache_dir.rglob("*.*")) == []
 
 
 def test_sgml_parser_keeps_document_boundaries_and_selects_earnings_exhibit():

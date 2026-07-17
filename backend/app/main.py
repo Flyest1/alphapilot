@@ -1,6 +1,8 @@
+import asyncio
 import logging
 import secrets
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,7 +27,7 @@ from app.api import (
 )
 from app.config import get_env_application_defaults, get_environment_settings
 from app.db.supabase_client import Repository, create_repository
-from app.services.advisory.job_service import AdvisoryDispatcher, AdvisoryJobStore
+from app.services.advisory.job_service import AdvisoryDispatcher, AdvisoryJobStore, run_advisory_job
 from app.services.advisory.openai_provider import OpenAIAdvisoryProvider
 from app.services.advisory.pipeline import AdvisoryPipeline
 from app.services.advisory.providers.fred import FredMacroProvider
@@ -68,10 +70,31 @@ def _frontend_origins(frontend_origin: str | None) -> list[str]:
     return [origin.strip().rstrip("/") for origin in frontend_origin.split(",") if origin.strip()]
 
 
+@asynccontextmanager
+async def _advisory_job_lifespan(app: FastAPI):
+    try:
+        job_ids = app.state.advisory_jobs.recover_unfinished_jobs()
+    except Exception:
+        logging.getLogger("alphapilot").exception("advisory job recovery scan failed")
+    else:
+        for job_id in job_ids:
+            task = asyncio.create_task(
+                asyncio.to_thread(
+                    run_advisory_job,
+                    app.state.advisory_jobs,
+                    app.state.advisory_dispatcher,
+                    job_id,
+                )
+            )
+            app.state.advisory_recovery_tasks.add(task)
+            task.add_done_callback(app.state.advisory_recovery_tasks.discard)
+    yield
+
+
 def create_app(repository: Repository | None = None) -> FastAPI:
     logging.basicConfig(level=logging.INFO)
     env = get_environment_settings()
-    app = FastAPI(title="AlphaPilot API", version="0.1.0")
+    app = FastAPI(title="AlphaPilot API", version="0.1.0", lifespan=_advisory_job_lifespan)
     app.state.repository = repository or create_repository(env)
     app.state.rate_limiter = DailyEndpointRateLimiter(max_per_day=10)
     app.state.market_data_service = MarketDataService(repository=app.state.repository)
@@ -117,6 +140,7 @@ def create_app(repository: Repository | None = None) -> FastAPI:
     app.state.advisory_fred_configured = macro_provider is not None
     app.state.advisory_ai_narrative_configured = narrative_provider is not None
     app.state.advisory_dispatcher = AdvisoryDispatcher(advisory_pipeline.handlers())
+    app.state.advisory_recovery_tasks = set()
 
     origins = _frontend_origins(env.frontend_origin)
     app.add_middleware(
