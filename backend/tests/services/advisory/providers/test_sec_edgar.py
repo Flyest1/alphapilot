@@ -4,7 +4,11 @@ from urllib.error import HTTPError
 
 import pytest
 
-from app.services.advisory.providers.sec_edgar import SecEdgarError, SecEdgarProvider
+from app.services.advisory.providers.sec_edgar import (
+    SEC_MAX_SUBMISSION_BYTES,
+    SecEdgarError,
+    SecEdgarProvider,
+)
 
 
 class FakeResponse:
@@ -208,6 +212,13 @@ def test_retry_is_bounded_and_disallowed_urls_fail_closed():
 def test_sec_provider_requires_declared_user_agent():
     with pytest.raises(ValueError):
         SecEdgarProvider(user_agent="")
+
+
+def test_sec_provider_keeps_large_complete_submissions_bounded():
+    client = SecEdgarProvider(user_agent="AlphaPilot test contact@example.com")
+
+    assert client.max_submission_bytes == SEC_MAX_SUBMISSION_BYTES
+    assert client.max_submission_bytes == 16 * 1024 * 1024
 
 
 def test_sgml_parser_keeps_document_boundaries_and_selects_earnings_exhibit():

@@ -24,6 +24,7 @@ SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 SEC_FUND_TICKERS_URL = "https://www.sec.gov/files/company_tickers_mf.json"
 SEC_RETRYABLE_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
 SEC_MAX_REQUESTS_PER_SECOND = 5
+SEC_MAX_SUBMISSION_BYTES = 16 * 1024 * 1024
 SEC_NPORT_PUBLIC_DELAY_DAYS = 60
 
 _TAG_PATTERN = re.compile(r"<[^>]+>")
@@ -97,7 +98,7 @@ class SecEdgarProvider:
         backoff_seconds: float = 0.5,
         max_backoff_seconds: float = 4.0,
         max_cache_entries: int = 256,
-        max_submission_bytes: int = 8 * 1024 * 1024,
+        max_submission_bytes: int = SEC_MAX_SUBMISSION_BYTES,
         max_submission_text_chars: int = 750_000,
         rate_limiter: Any | None = None,
         sleep: Callable[[float], None] = time.sleep,
