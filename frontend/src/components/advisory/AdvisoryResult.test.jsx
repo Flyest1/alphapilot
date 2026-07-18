@@ -300,7 +300,7 @@ describe("AdvisoryResult", () => {
   });
 
   it.each([
-    ["partial", "일부 데이터만 확인되어 결과를 전체 판단 근거로 사용하기 어렵습니다."],
+    ["partial", "일부 지표가 제한되어 제한사항을 함께 확인하세요."],
     ["limited", "사용 가능한 데이터 범위가 제한되어 일부 결과만 참고할 수 있습니다."],
   ])("shows a priority warning for %s data", (status, message) => {
     render(
@@ -318,6 +318,24 @@ describe("AdvisoryResult", () => {
     );
 
     expect(screen.getByRole("alert")).toHaveTextContent(message);
+  });
+
+  it("uses the root partial status instead of escalating a limited child row", () => {
+    render(
+      <AdvisoryResult
+        analysis={{
+          result: {
+            ...base,
+            data_quality: { status: "partial" },
+            rows: [{ ticker: "AAPL", analysis_status: "data-limited" }],
+          },
+        }}
+      />,
+    );
+
+    const alerts = screen.getAllByRole("alert");
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toHaveTextContent("일부 지표가 제한되어 제한사항을 함께 확인하세요.");
   });
 
   it("renders only allowlisted HTTPS evidence links", () => {

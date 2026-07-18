@@ -1440,14 +1440,19 @@ form button,
 }
 
 .advisory-feature-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 20px;
 }
 
+.advisory-feature-item {
+  display: contents;
+}
+
 .advisory-feature-card {
   display: grid;
+  flex: 1 1 calc(25% - 12px);
   gap: 8px;
   min-height: 172px;
   padding: 16px;
@@ -1491,6 +1496,16 @@ form button,
   margin-bottom: 20px;
 }
 
+.advisory-feature-inline-form {
+  flex: 0 0 100%;
+  min-width: 0;
+}
+
+.advisory-input-panel form {
+  display: grid;
+  gap: 16px;
+}
+
 .advisory-retry-notice {
   display: flex;
   align-items: center;
@@ -1500,8 +1515,13 @@ form button,
 
 .advisory-field {
   display: grid;
-  max-width: 620px;
+  max-width: none;
   gap: 7px;
+}
+
+.advisory-field input,
+.advisory-field textarea {
+  width: 100%;
 }
 
 .advisory-field > span,
@@ -1515,8 +1535,14 @@ form button,
 
 .advisory-positions {
   display: grid;
-  max-width: 620px;
+  max-width: none;
   gap: 10px;
+}
+
+.advisory-advanced-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 12px;
 }
 
 .advisory-position-heading,
@@ -1546,6 +1572,21 @@ form button,
 
 .advisory-position-row label:nth-child(2) {
   width: 130px;
+}
+
+.advisory-proxies {
+  display: grid;
+  gap: 10px;
+}
+
+.advisory-proxy-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.advisory-proxy-row input {
+  width: 100%;
 }
 
 .advisory-submit-row {
@@ -1844,8 +1885,8 @@ form button,
 }
 
 @media (max-width: 900px) {
-  .advisory-feature-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .advisory-feature-card {
+    flex-basis: calc(50% - 12px);
   }
 
   .advisory-history-list {
@@ -1870,8 +1911,17 @@ form button,
   }
 
   .advisory-position-row label,
-  .advisory-position-row label:nth-child(2) {
+  .advisory-position-row label:nth-child(2),
+  .advisory-proxy-row label {
     width: 100%;
+  }
+
+  .advisory-proxy-row {
+    grid-template-columns: 1fr;
+  }
+
+  .advisory-feature-card {
+    flex-basis: 100%;
   }
 
   .advisory-desktop-table {

@@ -1,19 +1,22 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 
 import { api, clearApiAccessToken, getApiAccessToken } from "./api/client.js";
 import AccessGate from "./components/AccessGate.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
-import Advisory from "./pages/Advisory.jsx";
-import Assets from "./pages/Assets.jsx";
-import Comparison from "./pages/Comparison.jsx";
-import Dashboard from "./pages/Dashboard.jsx";
-import Performance from "./pages/Performance.jsx";
-import Notifications from "./pages/Notifications.jsx";
-import Reports from "./pages/Reports.jsx";
-import Settings from "./pages/Settings.jsx";
-import Status from "./pages/Status.jsx";
+
+const pages = {
+  dashboard: lazy(() => import("./pages/Dashboard.jsx")),
+  advisory: lazy(() => import("./pages/Advisory.jsx")),
+  assets: lazy(() => import("./pages/Assets.jsx")),
+  comparison: lazy(() => import("./pages/Comparison.jsx")),
+  performance: lazy(() => import("./pages/Performance.jsx")),
+  notifications: lazy(() => import("./pages/Notifications.jsx")),
+  reports: lazy(() => import("./pages/Reports.jsx")),
+  status: lazy(() => import("./pages/Status.jsx")),
+  settings: lazy(() => import("./pages/Settings.jsx")),
+};
 
 const tabs = [
   { id: "dashboard", label: "대시보드" },
@@ -37,17 +40,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [isUnlocked, setIsUnlocked] = useState(Boolean(getApiAccessToken()));
   const [unreadCount, setUnreadCount] = useState(0);
-  const Page = {
-    dashboard: Dashboard,
-    advisory: Advisory,
-    assets: Assets,
-    comparison: Comparison,
-    performance: Performance,
-    notifications: Notifications,
-    reports: Reports,
-    status: Status,
-    settings: Settings,
-  }[activeTab];
+  const Page = pages[activeTab];
 
   useEffect(() => {
     if (!isUnlocked) return undefined;
@@ -166,7 +159,9 @@ export default function App() {
       </header>
       <main className="motion-content">
         <ErrorBoundary resetKey={activeTab}>
-          <Page onUnreadCountChange={setUnreadCount} />
+          <Suspense fallback={<p className="empty-state">화면을 불러오는 중입니다.</p>}>
+            <Page onUnreadCountChange={setUnreadCount} />
+          </Suspense>
         </ErrorBoundary>
       </main>
     </div>

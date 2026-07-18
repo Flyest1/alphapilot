@@ -70,6 +70,35 @@ describe("Advisory page", () => {
     expect(screen.getAllByText("관찰")).not.toHaveLength(0);
   });
 
+  it("opens the selected card's form inline and submits supplied advanced inputs", async () => {
+    render(<Advisory />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "AI 자문 요청" })).toBeEnabled());
+    const earningsCard = screen.getByRole("button", { name: /실적 발표 후 기회/ });
+    fireEvent.click(earningsCard);
+
+    const inlineForm = screen.getByRole("button", { name: "AI 자문 요청" }).closest("fieldset");
+    expect(inlineForm).toHaveClass("advisory-feature-inline-form");
+    expect(earningsCard.parentElement).toContainElement(inlineForm);
+
+    fireEvent.change(screen.getByPlaceholderText("예: AAPL, MSFT, NVDA"), {
+      target: { value: "msft" },
+    });
+    fireEvent.change(screen.getByLabelText("실적 발표 조회 기간 (일, 선택)"), {
+      target: { value: "30" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "AI 자문 요청" }));
+
+    await waitFor(() =>
+      expect(api.createAdvisoryJob).toHaveBeenCalledWith({
+        analysis_type: "post_earnings_opportunities",
+        tickers: ["MSFT"],
+        max_results: 5,
+        lookback_days: 30,
+      }),
+    );
+  });
+
   it("shows the required migration and blocks a new request", async () => {
     api.getAdvisoryStatus.mockResolvedValue({
       storage_status: "migration_required",

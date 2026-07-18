@@ -9,6 +9,7 @@ import pytest
 
 from app.services.advisory.providers import sec_edgar
 from app.services.advisory.providers.sec_edgar import (
+    SEC_DEFAULT_MAX_PERSISTENT_BYTES,
     SEC_DEFAULT_MAX_PERSISTENT_ENTRIES,
     SEC_MAX_SUBMISSION_BYTES,
     SecEdgarError,
@@ -152,6 +153,30 @@ def test_filing_methods_return_complete_submission_evidence_and_ai_disclosures()
     assert disclosures[0]["url"].startswith("https://www.sec.gov/Archives/")
 
 
+def test_recent_filings_respect_requested_lookback_window():
+    tickers_url = "https://www.sec.gov/files/company_tickers.json"
+    submissions_url = "https://data.sec.gov/submissions/CIK0000320193.json"
+    client = provider(
+        {
+            tickers_url: [json.dumps({"0": {"ticker": "EXM", "cik_str": 320193}})],
+            submissions_url: [json.dumps(recent_filings())],
+            submission_url("0000320193-26-000001"): ["<TEXT>recent 8-K</TEXT>"],
+            submission_url("0000320193-26-000002"): ["<TEXT>recent 10-Q</TEXT>"],
+        },
+        now_provider=lambda: datetime(2026, 7, 18, tzinfo=timezone.utc),
+    )
+
+    filings = client.list_recent_filings(
+        "EXM",
+        ("10-K", "10-Q", "8-K"),
+        lookback_days=90,
+    )
+
+    assert {filing["form"] for filing in filings} == {"10-Q", "8-K"}
+    requested_urls = [request.full_url for request, _timeout in client.opener.requests]
+    assert submission_url("0000320193-26-000003") not in requested_urls
+
+
 def test_nport_returns_only_delayed_xml_holdings_and_stated_flow_fields():
     fund_tickers_url = "https://www.sec.gov/files/company_tickers_mf.json"
     submissions_url = "https://data.sec.gov/submissions/CIK0000320193.json"
@@ -231,6 +256,8 @@ def test_sec_provider_keeps_large_complete_submissions_bounded():
     assert client.max_submission_bytes == 16 * 1024 * 1024
     assert client.max_persistent_entries == SEC_DEFAULT_MAX_PERSISTENT_ENTRIES
     assert client.max_persistent_entries == 256
+    assert client.max_persistent_bytes == SEC_DEFAULT_MAX_PERSISTENT_BYTES
+    assert client.max_persistent_bytes == 1024 * 1024 * 1024
 
 
 def test_complete_submission_disk_cache_persists_and_rejects_tampering(tmp_path):
@@ -343,6 +370,64 @@ def test_persistent_cache_evicts_oldest_complete_pair_at_entry_limit(tmp_path):
     metadata_entries = {path.stem for path in cache_dir.rglob("*.json")}
     assert payload_entries == set(accessions[1:])
     assert metadata_entries == set(accessions[1:])
+
+
+def test_persistent_cache_evicts_oldest_pair_at_byte_limit_and_reports_usage(tmp_path):
+    accessions = [
+        "0000320193-26-000001",
+        "0000320193-26-000002",
+    ]
+    cache_dir = tmp_path / "sec-edgar"
+    payloads = {
+        submission_url(accessions[0]): ["<TEXT>first filing payload</TEXT>"],
+        submission_url(accessions[1]): ["<TEXT>second filing payload</TEXT>"],
+    }
+    second_size = len(payloads[submission_url(accessions[1])][0].encode("utf-8"))
+    client = provider(
+        payloads,
+        submission_cache_dir=cache_dir,
+        max_persistent_bytes=second_size + 5,
+    )
+
+    assert client.get_complete_submission_text("0000320193", accessions[0])
+    time.sleep(0.01)
+    assert client.get_complete_submission_text("0000320193", accessions[1])
+
+    status = client.cache_status()
+    assert {path.stem for path in cache_dir.rglob("*.txt")} == {accessions[1]}
+    assert status["status"] == "available"
+    assert status["entry_count"] == 1
+    assert status["size_bytes"] == second_size
+    assert status["max_entries"] == SEC_DEFAULT_MAX_PERSISTENT_ENTRIES
+    assert status["max_size_bytes"] == second_size + 5
+    assert 0 < status["utilization_percent"] <= 100
+
+
+def test_existing_persistent_cache_is_trimmed_when_provider_starts(tmp_path):
+    accessions = [
+        "0000320193-26-000001",
+        "0000320193-26-000002",
+    ]
+    cache_dir = tmp_path / "sec-edgar"
+    writer = provider(
+        {
+            submission_url(accession): [f"<TEXT>filing {index}</TEXT>"]
+            for index, accession in enumerate(accessions, start=1)
+        },
+        submission_cache_dir=cache_dir,
+        max_persistent_entries=2,
+    )
+    assert writer.get_complete_submission_text("0000320193", accessions[0])
+    time.sleep(0.01)
+    assert writer.get_complete_submission_text("0000320193", accessions[1])
+
+    provider(
+        {},
+        submission_cache_dir=cache_dir,
+        max_persistent_entries=1,
+    )
+
+    assert {path.stem for path in cache_dir.rglob("*.txt")} == {accessions[1]}
 
 
 def test_persistent_cache_cleans_partial_pairs_and_abandoned_temp_files(tmp_path):

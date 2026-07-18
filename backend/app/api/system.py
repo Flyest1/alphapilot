@@ -2,7 +2,7 @@ from datetime import datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from app.api.dependencies import get_repository
 from app.config import get_environment_settings, is_supabase_configured
@@ -16,7 +16,10 @@ SCHEDULE_GRACE_HOURS = 6
 
 
 @router.get("/status")
-def get_system_status(repository: Repository = Depends(get_repository)) -> dict[str, Any]:
+def get_system_status(
+    request: Request,
+    repository: Repository = Depends(get_repository),
+) -> dict[str, Any]:
     env = get_environment_settings()
     openai_configured = bool(env.openai_api_key)
     supabase_configured = is_supabase_configured(env)
@@ -78,6 +81,35 @@ def get_system_status(repository: Repository = Depends(get_repository)) -> dict[
 
     active_candidates = [row for row in candidates if row.get("is_active", True)]
     report_generations = [_report_generation(row) for row in reports[:20]]
+    filing_provider = getattr(request.app.state, "advisory_filing_provider", None)
+    if filing_provider is None:
+        sec_cache = {
+            "status": "not_configured",
+            "entry_count": 0,
+            "size_bytes": 0,
+            "max_entries": 0,
+            "max_size_bytes": 0,
+            "utilization_percent": 0.0,
+        }
+    else:
+        try:
+            sec_cache = filing_provider.cache_status()
+        except Exception as exc:
+            log_external_failure("system_status", exc, {"operation": "sec_cache_status"})
+            sec_cache = {
+                "status": "unavailable",
+                "entry_count": 0,
+                "size_bytes": 0,
+                "max_entries": filing_provider.max_persistent_entries,
+                "max_size_bytes": filing_provider.max_persistent_bytes,
+                "utilization_percent": 0.0,
+            }
+    advisory_runner = getattr(request.app.state, "advisory_runner", None)
+    advisory_runner_status = (
+        advisory_runner.status()
+        if advisory_runner is not None
+        else {"active_count": 0, "queued_count": 0, "max_workers": 0}
+    )
 
     return {
         "backend": {
@@ -96,6 +128,11 @@ def get_system_status(repository: Repository = Depends(get_repository)) -> dict[
         },
         "openai": {
             "configured": openai_configured,
+            "model": getattr(
+                getattr(request.app.state, "application_settings", None),
+                "ai_model",
+                None,
+            ),
             "latest_domestic_generation": _report_generation(domestic_report),
             "latest_global_generation": _report_generation(global_report),
             "recent_technical_only_count": sum(
@@ -106,6 +143,7 @@ def get_system_status(repository: Repository = Depends(get_repository)) -> dict[
             "sec_edgar": {
                 "configured": bool(env.sec_edgar_user_agent),
                 "mode": "read_only",
+                "cache": sec_cache,
             },
             "fred": {
                 "configured": bool(env.fred_api_key),
@@ -137,6 +175,7 @@ def get_system_status(repository: Repository = Depends(get_repository)) -> dict[
             ),
             "latest": report_jobs[0] if report_jobs else None,
         },
+        "advisory_jobs": advisory_runner_status,
         "portfolio_snapshots": {
             "recent_count": len(snapshots),
             "latest_created_at": snapshots[0].get("created_at") if snapshots else None,

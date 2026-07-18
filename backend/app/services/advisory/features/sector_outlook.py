@@ -63,7 +63,18 @@ class SectorOutlookService:
             for name, ticker in proxies.items()
         ]
         evidence = [item["evidence"] for item in sectors]
-        evidence.extend(macro_context.get("evidence", []))
+        macro_evidence = macro_context.get("evidence", [])
+        evidence.extend(
+            macro_evidence
+            or [
+                {
+                    "evidence_id": "fred:unavailable",
+                    "provider": "fred",
+                    "status": "limited",
+                    "limitations": macro_context.get("limitations", []),
+                }
+            ]
+        )
         return {
             "analysis_type": "sector_outlook",
             "proxy_universe": dict(proxies),
@@ -101,6 +112,19 @@ class SectorOutlookService:
         holdings, holdings_status = self._representative_holdings(fund)
         fundamentals, fundamentals_status = self._fundamentals(fund)
         flow_context = self._flow_context(ticker, market_data)
+        status = (
+            "limited"
+            if score is None
+            else (
+                "available"
+                if (
+                    holdings_status == "available"
+                    and fundamentals_status == "available"
+                    and flow_context["status"] == "available"
+                )
+                else "partial"
+            )
+        )
         evidence = {
             "sector": name,
             "ticker": ticker,
@@ -113,7 +137,7 @@ class SectorOutlookService:
             "fundamentals_status": fundamentals_status,
             "etf_flow_status": flow_context["status"],
             "etf_flow_provider": flow_context["provider"],
-            "status": "available" if score is not None else "limited",
+            "status": status,
         }
         return {
             "sector": name,
@@ -135,7 +159,11 @@ class SectorOutlookService:
             "etf_flow_context": flow_context,
             "risk": self._risk(volatility, market_data.is_stale),
             "safety_note": "관찰 지표이며 투자 권유 또는 미래 수익 예측이 아닙니다.",
-            "data_quality": "fresh" if score is not None else "data-limited",
+            "data_quality": (
+                "fresh"
+                if status == "available"
+                else "partial" if status == "partial" else "data-limited"
+            ),
             "evidence": evidence,
         }
 
@@ -198,6 +226,7 @@ class SectorOutlookService:
                     "units": series.get("units"),
                     "series_id": series.get("series_id"),
                     "realtime_vintage": series.get("realtime_vintage"),
+                    "status": "available",
                 }
             )
         return {

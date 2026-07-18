@@ -76,15 +76,48 @@ export function parseTickers(value) {
   ];
 }
 
+function optionalNumber(value) {
+  const normalized = String(value ?? "").trim();
+  return normalized === "" ? undefined : Number(normalized);
+}
+
+function parseThemes(value) {
+  return [
+    ...new Set(
+      String(value || "")
+        .split(/[\n,]+/)
+        .map((theme) => theme.trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+function customProxies(rows) {
+  return Object.fromEntries(
+    (rows || [])
+      .map((row) => [
+        String(row.sector || "").trim(),
+        String(row.ticker || "")
+          .trim()
+          .toUpperCase(),
+      ])
+      .filter(([sector, ticker]) => sector && ticker),
+  );
+}
+
 export function buildAdvisoryPayload(feature, form) {
   const payload = { analysis_type: feature.id };
   if (feature.inputMode === "ticker") {
-    return {
+    const payloadWithTicker = {
       ...payload,
       ticker: String(form.ticker || "")
         .trim()
         .toUpperCase(),
     };
+    const lookbackDays = optionalNumber(form.lookback_days);
+    return lookbackDays === undefined
+      ? payloadWithTicker
+      : { ...payloadWithTicker, lookback_days: lookbackDays };
   }
   if (feature.inputMode === "positions") {
     return {
@@ -107,12 +140,41 @@ export function buildAdvisoryPayload(feature, form) {
     const maxResults = ["undervalued_us_stocks", "post_earnings_opportunities"].includes(feature.id)
       ? { max_results: 5 }
       : {};
-    return tickers.length ? { ...payload, tickers, ...maxResults } : { ...payload, ...maxResults };
+    const tickerPayload = tickers.length
+      ? { ...payload, tickers, ...maxResults }
+      : { ...payload, ...maxResults };
+    if (feature.id === "undervalued_us_stocks") {
+      const minMarketCap = optionalNumber(form.min_market_cap_usd);
+      return minMarketCap === undefined
+        ? tickerPayload
+        : { ...tickerPayload, min_market_cap_usd: minMarketCap };
+    }
+    if (feature.id === "post_earnings_opportunities") {
+      const lookbackDays = optionalNumber(form.lookback_days);
+      return lookbackDays === undefined
+        ? tickerPayload
+        : { ...tickerPayload, lookback_days: lookbackDays };
+    }
+    if (feature.id === "ai_beneficiaries") {
+      const themes = parseThemes(form.themes);
+      return themes.length ? { ...tickerPayload, themes } : tickerPayload;
+    }
+    if (feature.id === "high_dividend_etfs") {
+      const minDistributionYield = optionalNumber(form.min_distribution_yield_percent);
+      return minDistributionYield === undefined
+        ? tickerPayload
+        : { ...tickerPayload, min_distribution_yield_percent: minDistributionYield };
+    }
+    return tickerPayload;
+  }
+  if (feature.id === "sector_outlook") {
+    const proxies = customProxies(form.customProxies);
+    return Object.keys(proxies).length ? { ...payload, custom_proxies: proxies } : payload;
   }
   return payload;
 }
 
-export function validateAdvisoryPayload(feature, payload) {
+export function validateAdvisoryPayload(feature, payload, form = {}) {
   if (feature.inputMode === "ticker" && !payload.ticker) {
     return "SEC 공시 위험 분석에는 티커를 입력하세요.";
   }
@@ -126,6 +188,43 @@ export function validateAdvisoryPayload(feature, payload) {
       )
     ) {
       return "ETF 비중은 숫자로 입력하세요.";
+    }
+  }
+  if (feature.id === "undervalued_us_stocks") {
+    const value = payload.min_market_cap_usd;
+    if (value !== undefined && (!Number.isInteger(value) || value < 0)) {
+      return "최소 시가총액은 0 이상의 정수(USD)로 입력해 주세요.";
+    }
+  }
+  if (feature.id === "post_earnings_opportunities") {
+    const value = payload.lookback_days;
+    if (value !== undefined && (!Number.isInteger(value) || value < 1 || value > 90)) {
+      return "실적 발표 조회 기간은 1~90일 사이의 정수로 입력해 주세요.";
+    }
+  }
+  if (feature.id === "sec_filing_risk") {
+    const value = payload.lookback_days;
+    if (value !== undefined && (!Number.isInteger(value) || value < 1 || value > 365)) {
+      return "SEC 공시 조회 기간은 1~365일 사이의 정수로 입력해 주세요.";
+    }
+  }
+  if (feature.id === "ai_beneficiaries" && payload.themes?.length > 20) {
+    return "AI 테마는 최대 20개까지 입력할 수 있습니다.";
+  }
+  if (feature.id === "high_dividend_etfs") {
+    const value = payload.min_distribution_yield_percent;
+    if (value !== undefined && (!Number.isFinite(value) || value < 0 || value > 100)) {
+      return "최소 분배수익률은 0~100% 사이의 숫자로 입력해 주세요.";
+    }
+  }
+  if (feature.id === "sector_outlook") {
+    const hasIncompleteProxy = (form.customProxies || []).some((row) => {
+      const sector = String(row.sector || "").trim();
+      const ticker = String(row.ticker || "").trim();
+      return Boolean(sector) !== Boolean(ticker);
+    });
+    if (hasIncompleteProxy) {
+      return "사용자 지정 프록시는 섹터명과 ETF 티커를 모두 입력해 주세요.";
     }
   }
   return "";

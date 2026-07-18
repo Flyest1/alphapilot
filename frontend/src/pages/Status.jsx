@@ -7,6 +7,14 @@ function statusText(value) {
   return value ? "정상" : "확인 필요";
 }
 
+function formatBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 0) return "-";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+}
+
 export default function Status() {
   const STATUS_CACHE_MS = 5 * 60 * 1000;
   const cachedStatus = readApiCache("/api/system/status", { maxAgeMs: STATUS_CACHE_MS });
@@ -43,6 +51,8 @@ export default function Status() {
   }, []);
 
   const databaseOk = ["ok", "partial"].includes(status?.database?.status);
+  const secEdgarCache = status?.data_providers?.sec_edgar?.cache;
+  const advisoryRunner = status?.advisory_jobs?.runner || status?.advisory_jobs;
 
   return (
     <section className="page">
@@ -94,6 +104,23 @@ export default function Status() {
                 <span>SEC EDGAR</span>
                 <strong>{statusText(status.data_providers?.sec_edgar?.configured)}</strong>
               </div>
+              {secEdgarCache && (
+                <>
+                  <div>
+                    <span>SEC EDGAR 캐시 항목</span>
+                    <strong>
+                      {secEdgarCache.entry_count ?? 0}개 / 최대 {secEdgarCache.max_entries ?? "-"}개
+                    </strong>
+                  </div>
+                  <div>
+                    <span>SEC EDGAR 캐시 크기</span>
+                    <strong>
+                      {formatBytes(secEdgarCache.size_bytes)} / 최대{" "}
+                      {formatBytes(secEdgarCache.max_size_bytes)}
+                    </strong>
+                  </div>
+                </>
+              )}
               <div>
                 <span>FRED API</span>
                 <strong>{statusText(status.data_providers?.fred?.configured)}</strong>
@@ -134,6 +161,21 @@ export default function Status() {
                 <span>리포트 작업</span>
                 <strong>{status.report_jobs?.active_count ?? 0}개 진행 중</strong>
               </div>
+              {advisoryRunner && (
+                <>
+                  <div>
+                    <span>자문 작업 실행</span>
+                    <strong>
+                      활성 {advisoryRunner.active_count ?? advisoryRunner.active ?? 0}개 · 대기{" "}
+                      {advisoryRunner.queued_count ?? advisoryRunner.queued ?? 0}개
+                    </strong>
+                  </div>
+                  <div>
+                    <span>자문 작업 워커</span>
+                    <strong>최대 {advisoryRunner.max_workers ?? "-"}개</strong>
+                  </div>
+                </>
+              )}
               <div>
                 <span>포트폴리오 스냅샷</span>
                 <strong>{status.portfolio_snapshots?.recent_count ?? 0}</strong>

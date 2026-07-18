@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from json import dumps
+from queue import Queue
 from time import perf_counter
 import threading
 from typing import Any, Mapping, Protocol
@@ -22,6 +23,7 @@ ACTIVE_JOB_STATUSES = {"queued", "running"}
 ACTIVE_JOB_TIMEOUT = timedelta(minutes=20)
 ADVISORY_RELATIONS = ("advisory_jobs", "advisory_analyses")
 ADVISORY_HEARTBEAT_INTERVAL_SECONDS = 15.0
+ADVISORY_MAX_CONCURRENT_JOBS = 1
 UNIQUE_RACE_REQUERY_ATTEMPTS = 3
 _job_locks: dict[str, tuple[threading.RLock, int]] = {}
 _job_locks_guard = threading.Lock()
@@ -488,6 +490,83 @@ class _AdvisoryRequestHashLock:
                 _request_hash_locks.pop(self.request_hash, None)
             elif current_lock is self.lock:
                 _request_hash_locks[self.request_hash] = (self.lock, references - 1)
+
+
+class AdvisoryJobRunner:
+    """Bounded in-process advisory runner that keeps API request threads responsive."""
+
+    def __init__(
+        self,
+        store: AdvisoryJobStore,
+        dispatcher: AdvisoryAnalysisDispatcher,
+        max_workers: int = ADVISORY_MAX_CONCURRENT_JOBS,
+    ) -> None:
+        if max_workers < 1:
+            raise ValueError("advisory runner max_workers must be positive")
+        self.store = store
+        self.dispatcher = dispatcher
+        self.max_workers = max_workers
+        self._queue: Queue[str | None] = Queue()
+        self._lock = threading.Lock()
+        self._scheduled: set[str] = set()
+        self._active: set[str] = set()
+        self._shutdown = False
+        self._threads = [
+            threading.Thread(
+                target=self._worker,
+                name=f"advisory-runner-{index + 1}",
+                daemon=True,
+            )
+            for index in range(max_workers)
+        ]
+        for thread in self._threads:
+            thread.start()
+
+    def submit(self, job_id: str) -> bool:
+        with self._lock:
+            if self._shutdown or job_id in self._scheduled:
+                return False
+            self._scheduled.add(job_id)
+        self._queue.put(job_id)
+        return True
+
+    def status(self) -> dict[str, int]:
+        with self._lock:
+            active_count = len(self._active)
+            return {
+                "active_count": active_count,
+                "queued_count": max(0, len(self._scheduled) - active_count),
+                "max_workers": self.max_workers,
+            }
+
+    def shutdown(self) -> None:
+        with self._lock:
+            if self._shutdown:
+                return
+            self._shutdown = True
+        for _thread in self._threads:
+            self._queue.put(None)
+
+    def _worker(self) -> None:
+        while True:
+            job_id = self._queue.get()
+            if job_id is None:
+                self._queue.task_done()
+                return
+            with self._lock:
+                self._active.add(job_id)
+            try:
+                run_advisory_job(self.store, self.dispatcher, job_id)
+            except Exception:
+                try:
+                    self.store.mark_failed(job_id, "internal_error")
+                except Exception:
+                    pass
+            finally:
+                with self._lock:
+                    self._active.discard(job_id)
+                    self._scheduled.discard(job_id)
+                self._queue.task_done()
 
 
 def run_advisory_job(

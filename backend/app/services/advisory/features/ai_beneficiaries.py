@@ -35,10 +35,20 @@ class AIBeneficiariesAnalyzer:
         self.disclosure_provider = disclosure_provider
         self.now_provider = now_provider
 
-    def analyze(self, tickers: list[str]) -> dict[str, Any]:
+    def analyze(self, tickers: list[str], themes: list[str] | None = None) -> dict[str, Any]:
         generated_at = now_iso(self.now_provider)
+        requested_themes = [
+            str(theme).strip().casefold()
+            for theme in dict.fromkeys(themes or [])
+            if str(theme).strip()
+        ]
         rows = [
-            self._analyze_ticker(ticker.upper(), generated_at) for ticker in dict.fromkeys(tickers)
+            (
+                self._analyze_ticker(ticker.upper(), generated_at, requested_themes)
+                if requested_themes
+                else self._analyze_ticker(ticker.upper(), generated_at)
+            )
+            for ticker in dict.fromkeys(tickers)
         ]
         verified = sorted(
             [
@@ -66,18 +76,27 @@ class AIBeneficiariesAnalyzer:
             "verified_ai_beneficiaries": verified,
             "ai_theme_caution": caution,
             "rows": rows,
+            "requested_themes": requested_themes,
             "evidence": self._evidence(rows),
             "data_quality": data_quality(rows, limitations),
             "disclaimer": "AI 관련 표현만으로 실질적인 수혜를 단정하지 않습니다.",
         }
 
-    def _analyze_ticker(self, ticker: str, retrieved_at: str | None = None) -> dict[str, Any]:
+    def _analyze_ticker(
+        self,
+        ticker: str,
+        retrieved_at: str | None = None,
+        requested_themes: list[str] | None = None,
+    ) -> dict[str, Any]:
         snapshot = ticker_snapshot(self.yf_module, ticker)
         info = snapshot["info"]
         market_data = self.market_data_service.fetch_price_history("US", ticker, 220)
         disclosures = self._disclosures(ticker)
         disclosure_evidence = self._disclosure_evidence(disclosures)
         combined_text = " ".join(str(row.get("text") or "") for row in disclosures).casefold()
+        theme_matches = [
+            theme for theme in requested_themes or [] if theme and theme in combined_text
+        ]
         criteria = {
             name: any(keyword in combined_text for keyword in keywords)
             for name, keywords in CRITERIA.items()
@@ -87,7 +106,11 @@ class AIBeneficiariesAnalyzer:
             for row in disclosures
         )
         evidence_count = sum(criteria.values())
-        verified = evidence_count >= 4 and quantitative_count > 0
+        verified = (
+            evidence_count >= 4
+            and quantitative_count > 0
+            and (not requested_themes or bool(theme_matches))
+        )
         forward_pe = finite_float(info.get("forwardPE"))
         six_month_return = period_return(market_data, 132)
         analysis_available = (
@@ -114,6 +137,8 @@ class AIBeneficiariesAnalyzer:
             "name": info.get("longName") or ticker,
             "classification": "verified_ai_beneficiary" if verified else "ai_theme_caution",
             "criteria": criteria,
+            "requested_themes": requested_themes or [],
+            "matched_themes": theme_matches,
             "quantitative_evidence_count": quantitative_count,
             "disclosure_count": len(disclosures),
             "forward_pe": rounded(forward_pe),

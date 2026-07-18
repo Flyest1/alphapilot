@@ -442,21 +442,22 @@ export function visibleFields(rows, requestedFields) {
 }
 
 export function limitedStatuses(result) {
-  const statuses = new Set();
   const candidates = [
     result?.data_quality?.status,
     result?.evaluation_status,
     result?.analysis_status,
   ];
+  const rootStatuses = candidates.filter((status) => LIMITATION_STATUSES.has(status));
+  if (rootStatuses.length) return [...new Set(rootStatuses)];
+  if (candidates.some((status) => status === "available" || status === "fresh")) return [];
+
+  const statuses = new Set();
   Object.values(result || {}).forEach((value) => {
     safeRows(value).forEach((row) => {
       [row.analysis_status, row.data_quality_status, row.data_quality?.status].forEach((status) => {
         if (LIMITATION_STATUSES.has(status)) statuses.add(status);
       });
     });
-  });
-  candidates.forEach((status) => {
-    if (LIMITATION_STATUSES.has(status)) statuses.add(status);
   });
   return [...statuses];
 }

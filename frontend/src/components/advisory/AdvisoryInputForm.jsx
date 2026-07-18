@@ -27,6 +27,40 @@ export default function AdvisoryInputForm({ feature, form, isSubmitting, onChang
     });
   }
 
+  function updateProxy(index, field, value) {
+    onChange({
+      ...form,
+      customProxies: form.customProxies.map((proxy, proxyIndex) =>
+        proxyIndex === index ? { ...proxy, [field]: value } : proxy,
+      ),
+    });
+  }
+
+  function addProxy() {
+    onChange({ ...form, customProxies: [...form.customProxies, { sector: "", ticker: "" }] });
+  }
+
+  function removeProxy(index) {
+    onChange({
+      ...form,
+      customProxies: form.customProxies.filter((_, proxyIndex) => proxyIndex !== index),
+    });
+  }
+
+  const advancedField = (label, id, field, { hint, ...inputOptions } = {}) => (
+    <label className="advisory-field" htmlFor={id}>
+      <span>{label}</span>
+      <input
+        aria-label={label}
+        id={id}
+        value={form[field]}
+        onChange={(event) => onChange({ ...form, [field]: event.target.value })}
+        {...inputOptions}
+      />
+      {hint && <small>{hint}</small>}
+    </label>
+  );
+
   return (
     <section className="panel advisory-input-panel">
       <div className="section-heading">
@@ -112,8 +146,139 @@ export default function AdvisoryInputForm({ feature, form, isSubmitting, onChang
             </p>
           </div>
         )}
+        {feature.id === "undervalued_us_stocks" && (
+          <div className="advisory-advanced-fields">
+            {advancedField(
+              "최소 시가총액 (USD, 선택)",
+              "advisory-min-market-cap",
+              "min_market_cap_usd",
+              {
+                inputMode: "numeric",
+                min: "0",
+                placeholder: "예: 10000000000",
+                step: "1",
+                type: "number",
+                hint: "비워 두면 시가총액 필터를 적용하지 않습니다.",
+              },
+            )}
+          </div>
+        )}
+        {feature.id === "post_earnings_opportunities" && (
+          <div className="advisory-advanced-fields">
+            {advancedField(
+              "실적 발표 조회 기간 (일, 선택)",
+              "advisory-earnings-lookback",
+              "lookback_days",
+              {
+                inputMode: "numeric",
+                max: "90",
+                min: "1",
+                placeholder: "기본값 14",
+                step: "1",
+                type: "number",
+                hint: "비워 두면 백엔드 기본값 14일을 사용합니다.",
+              },
+            )}
+          </div>
+        )}
+        {feature.id === "ai_beneficiaries" && (
+          <label className="advisory-field" htmlFor="advisory-themes">
+            <span>AI 테마 (선택)</span>
+            <input
+              id="advisory-themes"
+              placeholder="예: inference, data center, power infrastructure"
+              value={form.themes}
+              onChange={(event) => onChange({ ...form, themes: event.target.value })}
+            />
+            <small>쉼표 또는 줄바꿈으로 최대 20개까지 입력할 수 있습니다.</small>
+          </label>
+        )}
+        {feature.id === "high_dividend_etfs" && (
+          <div className="advisory-advanced-fields">
+            {advancedField(
+              "최소 분배수익률 (%, 선택)",
+              "advisory-min-distribution-yield",
+              "min_distribution_yield_percent",
+              {
+                inputMode: "decimal",
+                max: "100",
+                min: "0",
+                placeholder: "예: 3.5",
+                step: "0.1",
+                type: "number",
+                hint: "비워 두면 최소 수익률 필터를 적용하지 않습니다.",
+              },
+            )}
+          </div>
+        )}
+        {feature.id === "sec_filing_risk" && (
+          <div className="advisory-advanced-fields">
+            {advancedField(
+              "SEC 공시 조회 기간 (일, 선택)",
+              "advisory-sec-lookback",
+              "lookback_days",
+              {
+                inputMode: "numeric",
+                max: "365",
+                min: "1",
+                placeholder: "기본값 365",
+                step: "1",
+                type: "number",
+                hint: "비워 두면 최근 365일 공시를 확인합니다.",
+              },
+            )}
+          </div>
+        )}
+        {feature.id === "sector_outlook" && (
+          <div className="advisory-proxies">
+            <div className="advisory-position-heading">
+              <strong>사용자 지정 섹터 프록시 (선택)</strong>
+              <span>섹터별 ETF 티커</span>
+            </div>
+            {form.customProxies.map((proxy, index) => (
+              <div className="advisory-proxy-row" key={`${index}-${proxy.sector}-${proxy.ticker}`}>
+                <label>
+                  <span className="sr-only">섹터명 {index + 1}</span>
+                  <input
+                    aria-label={`섹터명 ${index + 1}`}
+                    placeholder="예: 반도체"
+                    value={proxy.sector}
+                    onChange={(event) => updateProxy(index, "sector", event.target.value)}
+                  />
+                </label>
+                <label>
+                  <span className="sr-only">프록시 ETF 티커 {index + 1}</span>
+                  <input
+                    aria-label={`프록시 ETF 티커 ${index + 1}`}
+                    placeholder="예: SOXX"
+                    value={proxy.ticker}
+                    onChange={(event) => updateProxy(index, "ticker", event.target.value)}
+                  />
+                </label>
+                <button
+                  aria-label={`프록시 ${index + 1} 제거`}
+                  className="secondary-action compact-action"
+                  disabled={form.customProxies.length === 1}
+                  type="button"
+                  onClick={() => removeProxy(index)}
+                >
+                  제거
+                </button>
+              </div>
+            ))}
+            <button className="secondary-action compact-action" type="button" onClick={addProxy}>
+              프록시 추가
+            </button>
+            <p className="field-hint">
+              비워 두면 기본 섹터 프록시를 사용합니다. 입력값은 같은 섹터명의 기본 ETF를 대체하거나
+              새 섹터를 추가합니다.
+            </p>
+          </div>
+        )}
         {feature.inputMode === "none" && (
-          <p className="field-hint">추가 입력 없이 지정된 10개 섹터를 분석합니다.</p>
+          <p className="field-hint">
+            기본 10개 섹터를 분석하며 사용자 프록시로 일부를 바꿀 수 있습니다.
+          </p>
         )}
         <div className="advisory-submit-row">
           <p className="field-hint">

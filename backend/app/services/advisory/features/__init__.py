@@ -131,14 +131,16 @@ def dividends_from_ticker(ticker: Any) -> pd.Series:
 
 def quality_summary(evidence: list[dict[str, Any]]) -> dict[str, Any]:
     complete = sum(1 for item in evidence if item.get("status") == "available")
+    partial = sum(1 for item in evidence if item.get("status") == "partial")
     status = (
         "available"
         if complete == len(evidence) and evidence
-        else "partial" if complete else "limited"
+        else "partial" if complete or partial else "limited"
     )
     return {
         "status": status,
         "available_sources": complete,
+        "partial_sources": partial,
         "total_sources": len(evidence),
     }
 

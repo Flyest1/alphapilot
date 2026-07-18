@@ -96,7 +96,7 @@ def test_advisory_provider_infrastructure_env_keys_are_documented():
     oracle_env_text = (root / "deploy" / "oracle" / "backend.env.example").read_text()
     agents_text = (root / "AGENTS.md").read_text()
 
-    for name in ("FRED_API_KEY", "SEC_EDGAR_USER_AGENT"):
+    for name in ("FRED_API_KEY", "SEC_EDGAR_USER_AGENT", "SEC_EDGAR_CACHE_MAX_BYTES"):
         assert f"{name}=" in env_text
         assert f"{name}=" in oracle_env_text
         assert name in agents_text

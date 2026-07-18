@@ -124,15 +124,32 @@ def data_quality(rows: Iterable[Mapping[str, Any]], limitations: list[str]) -> d
             if value is None and not field.endswith("_optional")
         }
     )
+    explicit_statuses = [
+        str(row.get("analysis_status") or row.get("data_quality_status") or "").casefold()
+        for row in row_list
+        if row.get("analysis_status") or row.get("data_quality_status")
+    ]
+    available_statuses = {"available", "fresh", "ok", "complete"}
+    limited_statuses = {"data-limited", "data_limited", "insufficient_data", "unavailable"}
     status = "fresh"
     if not row_list:
         status = "unavailable"
-    elif missing or limitations:
+    elif explicit_statuses:
+        available_count = sum(value in available_statuses for value in explicit_statuses)
+        limited_count = sum(value in limited_statuses for value in explicit_statuses)
+        if limited_count and not available_count:
+            status = "data-limited"
+        elif limited_count:
+            status = "partial"
+    elif missing:
         status = "partial"
     return {
         "status": status,
         "missing_fields": missing,
         "limitations": limitations,
+        "available_rows": sum(value in available_statuses for value in explicit_statuses),
+        "limited_rows": sum(value in limited_statuses for value in explicit_statuses),
+        "total_rows": len(row_list),
     }
 
 

@@ -88,7 +88,17 @@ class EtfRebalancingService:
         )
         holdings, holdings_status = top_holdings_from_funds_data(funds_data)
         sectors, sectors_status = sector_weights_from_funds_data(funds_data)
-        status = "available" if not close.empty and not market_data.is_stale else "limited"
+        market_available = not close.empty and not market_data.is_stale
+        required_sources_available = (
+            not adjusted_close.empty
+            and holdings_status == "available"
+            and sectors_status == "available"
+        )
+        status = (
+            "available"
+            if market_available and required_sources_available
+            else "partial" if market_available else "limited"
+        )
         evidence = {
             "ticker": symbol,
             "provider": market_data.provider,
@@ -117,7 +127,11 @@ class EtfRebalancingService:
             "top_holdings": holdings,
             "sector_weights": sectors,
             "sensitivity": self._sensitivity(symbol),
-            "data_quality": "fresh" if status == "available" else "data-limited",
+            "data_quality": (
+                "fresh"
+                if status == "available"
+                else "partial" if status == "partial" else "data-limited"
+            ),
             "evidence": evidence,
         }
 
@@ -229,7 +243,7 @@ class EtfRebalancingService:
         etfs: list[dict[str, Any]],
         current_weight_metadata: dict[str, Any],
     ) -> list[dict[str, Any]]:
-        usable = [item for item in etfs if item["data_quality"] == "fresh"]
+        usable = [item for item in etfs if item["data_quality"] != "data-limited"]
         definitions = [
             (
                 "aggressive",

@@ -70,6 +70,7 @@ INFRASTRUCTURE_ENV_KEYS = (
     "TOSS_INVEST_ACCOUNT_ID",
     "FRED_API_KEY",
     "SEC_EDGAR_USER_AGENT",
+    "SEC_EDGAR_CACHE_MAX_BYTES",
 )
 
 
@@ -93,6 +94,7 @@ class EnvironmentSettings(BaseModel):
     toss_invest_account_id: str | None
     fred_api_key: str | None = None
     sec_edgar_user_agent: str | None = None
+    sec_edgar_cache_max_bytes: int | None = None
 
 
 def _clean(value: str | None) -> str | None:
@@ -130,6 +132,7 @@ def get_environment_settings() -> EnvironmentSettings:
         toss_invest_account_id=_clean(os.getenv("TOSS_INVEST_ACCOUNT_ID")),
         fred_api_key=_clean(os.getenv("FRED_API_KEY")),
         sec_edgar_user_agent=_clean(os.getenv("SEC_EDGAR_USER_AGENT")),
+        sec_edgar_cache_max_bytes=_clean(os.getenv("SEC_EDGAR_CACHE_MAX_BYTES")),
     )
 
 

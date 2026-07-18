@@ -193,7 +193,11 @@ SEC EDGAR와 FRED는 사용자 승인된 읽기 전용 데이터 소스다. AI �
 - `data.sec.gov`, 승인된 `www.sec.gov` 티커 매핑 파일, 공식 `www.sec.gov/Archives` 공시 산출물만 사용한다.
 - submissions/companyfacts JSON, 구조화된 filing XML, complete-submission SGML/text, N-PORT 자료를 읽기 전용으로 정규화한다. 누락·손상된 자료는 실패 처리하며 사실이나 수치를 보완해 만들지 않는다.
 - 모든 요청은 실제 연락 가능한 이메일을 포함한 `SEC_EDGAR_USER_AGENT`를 서버 환경 변수로 선언하고, 애플리케이션 전체 초당 5회 이하와 제한된 재시도·백오프를 준수한다.
-- complete-submission 응답은 최대 16MB, 정규화 텍스트는 최대 750,000자로 제한하며, 현재 accession 문서는 최대 256건·15분의 프로세스 메모리 캐시를 사용한다. 영속 불변 accession 캐시는 후속 안정화 작업이다.
+- 공시 위험 분석은 기본적으로 최근 365일의 10-K, 10-Q, 8-K를 조회하며 사용자가 1~365일 범위로 제한할 수 있다.
+- complete-submission 응답은 최대 16MB, 정규화 텍스트는 최대 750,000자로 제한한다.
+  accession 원문은 SHA-256과 메타데이터를 검증하는 영속 캐시에 저장하며 최대 256건과 기본
+  1GB 상한을 함께 적용한다. 상태 화면에는 캐시 항목 수와 디스크 사용량만 표시하고 문서
+  내용은 노출하지 않는다.
 - N-PORT 보유·흐름 결과는 공시 기준 기간과 공시 지연을 함께 노출한다. 현재 또는 일별 ETF 흐름으로 표현하지 않는다.
 
 ### FRED 및 yfinance 한계
@@ -234,10 +238,13 @@ curl http://127.0.0.1:8000/health
 - complete-submission 원문만 `backend/.cache/sec-edgar`에 accession별로 영속 저장한다.
 - CIK, accession, 공식 Archives URL, SHA-256, 바이트 길이를 읽을 때마다 검증하고 16MB를 초과하거나 손상된 캐시는 사용하지 않는다.
 - payload와 metadata는 원자적으로 쓰며, 동일 accession의 프로세스 내 중복 다운로드를 직렬화한다.
-- 최대 256개 완전한 캐시 쌍을 유지하고 오래된 쌍과 중단된 임시·고아 파일을 정리한다.
+- 최대 256개·기본 1GB의 완전한 캐시 쌍을 유지하고 오래된 쌍과 중단된 임시·고아 파일을
+  정리한다.
 - 실행 중인 자문 작업은 15초 간격으로 기존 `updated_at`을 갱신하며 terminal 상태를 되돌리지 않는다.
 - Oracle 단일 Uvicorn 프로세스 시작 시 `queued`·`running` 작업을 스캔한다. 이미 분석이 저장된 작업은 완료 상태로 정합화하고, 나머지는 job별 잠금 아래 한 번 다시 실행한다.
 - 동일 request hash 생성 경쟁과 job별 중복 실행은 프로세스 내 잠금으로 직렬화하고, 운영 Supabase의 활성 요청 unique 충돌은 기존 활성 작업으로 수렴시킨다.
+- 서로 다른 대형 자문 요청도 단일 프로세스 내부 runner에서 기본 1개씩 실행해 API 상태 조회용
+  공용 스레드가 외부 데이터 수집 작업으로 포화되지 않게 한다.
 - 새 DB migration, 외부 worker, queue, scheduler, 공개 API 변경은 추가하지 않는다.
 
 ## 12. Bundle C 결과 활용성 (2026-07-17)
@@ -250,6 +257,10 @@ curl http://127.0.0.1:8000/health
 - `partial`, `limited`, `data-limited`, `insufficient_data`, `unavailable` 경고와 N-PORT 공시 기간·지연 안내를 상세 결과보다 먼저 표시한다.
 - 완료 결과 조회 실패는 무한 polling으로 남지 않고 terminal 상태와 재시도 UI로 수렴한다.
 - `sessionStorage`에는 활성 job ID만 저장해 새로고침 후 polling을 복원하며 토큰·입력·결과는 저장하지 않는다.
+- 기능 카드 바로 다음에 인라인 요청 폼을 표시하고, 백엔드가 지원하는 최소 시가총액·조회 기간·
+  AI 테마·최소 분배수익률·섹터 프록시를 선택 입력으로 제공한다.
+- `partial`은 일부 지표 제한으로 안내하고, 필수 근거가 전부 부족한 `data-limited`와
+  `insufficient_data`만 전체 판단 근거 부족 경고로 표시한다.
 - 알려지지 않았거나 형식이 잘못된 확장 필드는 깊이·행·열 수를 제한한 범용 fallback으로 안전하게 표시한다.
 
 로컬 완료 기준은 백엔드 408개, 프론트엔드 102개 테스트와 backend/frontend lint·format·build 통과, Luna 독립 검증 P0/P1 0건이다.
@@ -260,3 +271,15 @@ curl http://127.0.0.1:8000/health
 - 대규모 자문 job에서 15초 heartbeat 전진을 확인한 뒤 Oracle 프로세스를 재시작했다. startup recovery는 동일 job을 완료 상태로 수렴시키고 `advisory_analyses`를 정확히 1건만 저장했다.
 - 재시작 후 AAPL SEC 분석은 영속 캐시의 기존 payload 85개를 변경하지 않고 추가 payload 없이 최신 10-K·10-Q·8-K와 `available` 평가를 반환했다.
 - GitHub CI, GitHub Pages, Oracle 배포 workflow가 성공했고 Pages 배포 자산에서 AI 설명, 완료 결과 재시도, N-PORT 지연 경고, active job session key를 확인했다.
+
+## 13. 2026-07-18 후속 개선
+
+- OpenAI 기본 모델을 공식 API ID `gpt-5.6-luna`로 변경하고 자문 생성도
+  `settings.ai_model` 우선순위를 따르도록 통일했다.
+- 일반 caveat나 선택 필드 누락만으로 저평가 분석 전체가 항상 `partial`이 되던 판정을 수정하고,
+  정상 FRED evidence에 명시적인 `available` 상태를 추가했다.
+- SEC 영속 캐시에 기본 1GB 바이트 상한과 상태 지표를 추가했다.
+- 전체 자문 동시 실행을 단일 프로세스 내부 runner로 제한하고 대기·실행 수를 상태 화면에
+  노출했다.
+- 기본 미국 주식 유니버스를 15개에서 30개로 확대하고 주간 yfinance 갱신 대상에 포함했다.
+- 기능 카드 인라인 입력, 고급 입력, 페이지 지연 로딩을 적용했다.

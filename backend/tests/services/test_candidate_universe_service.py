@@ -40,7 +40,14 @@ def test_refresh_upserts_market_cap_and_major_etf_rows():
     result = service.refresh()
 
     assert result["domestic_upserted"] == 3
+    assert result["global_us_equity_upserted"] == 30
     assert result["global_etf_upserted"] == 10
     domestic = repository.list_candidate_universe("domestic")
     assert [row["ticker"] for row in domestic] == ["005930", "000660", "035420"]
     assert domestic[0]["source"] == "pykrx_market_cap"
+    global_rows = repository.list_candidate_universe("global")
+    us_rows = [row for row in global_rows if row["market"] == "US"]
+    assert len(us_rows) == 30
+    assert us_rows[0]["ticker"] == "NVDA"
+    assert us_rows[-1]["ticker"] == "PYPL"
+    assert us_rows[0]["source"] == "yfinance_curated_us_equity"

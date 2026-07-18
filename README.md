@@ -114,11 +114,12 @@ TOSS_INVEST_CLIENT_SECRET=
 TOSS_INVEST_ACCOUNT_ID=
 FRED_API_KEY=
 SEC_EDGAR_USER_AGENT=AlphaPilot <actual-contact-email>
+SEC_EDGAR_CACHE_MAX_BYTES=1073741824
 
 DOMESTIC_REPORT_TIME=08:30
 GLOBAL_REPORT_TIME=22:30
 AI_PROVIDER=openai
-OPENAI_MODEL=gpt-5.4-mini
+OPENAI_MODEL=gpt-5.6-luna
 RISK_PROFILE=balanced
 CANDIDATE_HORIZON=medium
 FRONTEND_TIMEZONE=Asia/Seoul
@@ -315,6 +316,19 @@ backend/app/db/migrations/017_create_advisory_analyses.sql
 추가합니다. 적용 전에도 기존 리포트·자산 기능은 유지되지만, Supabase를 사용하는 운영 환경에서
 AI 자문 요청을 저장하려면 반드시 적용해야 합니다. 적용 전 `GET /api/advisory/status`는
 `migration_required`를 반환하고 자문 화면에 실행할 SQL 파일을 안내합니다.
+
+2026-07 AI 모델 기본값과 미국 후보 유니버스 확대를 기존 데이터베이스에 반영하려면 아래 파일을
+순서대로 실행합니다.
+
+```text
+backend/app/db/migrations/018_upgrade_default_openai_model.sql
+backend/app/db/migrations/019_expand_us_candidate_universe.sql
+```
+
+018은 기존 기본 모델 값이 `gpt-5.4-mini`인 설정만 `gpt-5.6-luna`로 변경하고 SQL 기본값도
+동기화합니다. 배포 시에도 기존 기본값만 동일하게 1회 승격하므로 즉시 수동 실행이
+어려운 경우 새 모델이 먼저 적용됩니다. 019는 기존 미국 주식 15개를 유지하면서 기술, 헬스케어, 에너지, 소비재 등
+15개 종목을 추가해 기본 미국 주식 유니버스를 30개로 확장합니다.
 
 AI 자문의 SEC 공시 분석은 무료 공식 EDGAR 데이터를 읽기 전용으로 사용합니다.
 `SEC_EDGAR_USER_AGENT`에는 애플리케이션 이름과 실제 연락 가능한 이메일을 입력해야 하며,
@@ -565,8 +579,9 @@ curl -X POST "$env:BACKEND_URL/api/reports/domestic/generate" `
 - **DB 후보 유니버스**: 리포트 후보 스크리너는 `candidate_universe` 테이블을 사용합니다.
   사용자가 직접 등록한 활성 후보가 있으면 기존처럼 해당 후보를 우선합니다.
 - **주간 후보 갱신**: `Refresh Candidate Universe` GitHub Actions가 매주 일요일 21:00 UTC에
-  `POST /api/candidate-universe/refresh`를 호출합니다. pykrx 시가총액 상위 종목과 주요
-  yfinance ETF 정보를 갱신하며, `BACKEND_URL`과 `SCHEDULER_SECRET`을 사용합니다.
+  `POST /api/candidate-universe/refresh`를 호출합니다. pykrx 시가총액 상위 종목, 승인된
+  yfinance 기반 미국 주식 30개와 주요 ETF 정보를 갱신하며, `BACKEND_URL`과
+  `SCHEDULER_SECRET`을 사용합니다.
 - **규칙 백테스트**: 성과 분석 화면에서 국내/글로벌 점수 규칙 시뮬레이션을 수동 실행할 수
   있습니다. 운영과 동일한 투자성향·호라이즌·ATR 목표/손절 규칙을 사용하고 수수료, 국내
   거래세, 환전 스프레드, 거래대금 기반 보수적 슬리피지를 추정 반영합니다. 비용 전후 누적성과,
@@ -693,7 +708,8 @@ python scripts/recalculate_recommendation_cycles.py --apply
 - Render 롤백 시 Render Free cold start 가능
 - GitHub Actions 예약 실행 지연 가능
 - 글로벌 리포트 cron은 미국 서머타임 자동 보정 없음
-- 추가 매수 후보군은 직접 등록한 후보군 또는 MVP용 기본 후보군을 사용하며, 외부 스크리닝 API를 사용하지 않음
+- 추가 매수 후보군은 직접 등록한 후보군 또는 미국 주식 30개를 포함한 기본 후보군을 사용하며,
+  별도 유료 스크리닝 API를 사용하지 않음
 - 성과 추적은 같은 티커와 같은 액션의 20일 평가가 끝나기 전에는 새 추적 로그를 다시 시작하지 않습니다. 액션이 바뀌거나 기존 20일 평가가 끝나면 새 추적이 시작될 수 있습니다.
 - migration 015 적용과 기존 사이클 재산출 전 추천 승률은 방향성 오류가 포함될 수 있어 의사결정 근거로 사용하지 않음
 
@@ -755,7 +771,7 @@ sudo systemctl status alphapilot-backend --no-pager
 curl http://127.0.0.1:8000/health
 ```
 
-- SEC EDGAR는 공식 `data.sec.gov`, 승인된 `www.sec.gov` 티커 매핑, 공식 Archives 공시 자료만 읽기 전용으로 사용합니다. 요청은 `SEC_EDGAR_USER_AGENT`를 선언하고 애플리케이션 전체에서 초당 5회 이하로 제한합니다. complete-submission 응답은 최대 16MB, 정규화 텍스트는 최대 750,000자로 제한합니다.
+- SEC EDGAR는 공식 `data.sec.gov`, 승인된 `www.sec.gov` 티커 매핑, 공식 Archives 공시 자료만 읽기 전용으로 사용합니다. 요청은 `SEC_EDGAR_USER_AGENT`를 선언하고 애플리케이션 전체에서 초당 5회 이하로 제한합니다. 공시 위험 분석의 기본 조회 기간은 최근 365일이며 사용자가 1~365일 범위로 줄일 수 있습니다. complete-submission 응답은 최대 16MB, 정규화 텍스트는 최대 750,000자로 제한합니다.
 - FRED 관측값은 과거 증거이며 미래 전망이나 투자 수익을 보장하지 않습니다. FRED 기반 화면에는 다음 고지를 표시합니다: “This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.”
 - SEC N-PORT 보유·흐름 자료에는 공시 기준 기간과 공시 지연을 함께 표시합니다. 현재 또는 일별 ETF 자금 흐름으로 제시하지 않습니다.
 - yfinance 가격·거래량 및 ETF 메타데이터는 제공 범위와 갱신 시점에 제한이 있는 프록시입니다. 이를 실시간 ETF 자금 흐름, 완전한 ETF 구성 내역 또는 확정적 시장 신호로 해석하지 않습니다.
@@ -764,10 +780,21 @@ curl http://127.0.0.1:8000/health
 AI 자문 Bundle B·C는 다음 안정화와 화면 개선을 포함합니다.
 
 - SEC complete-submission 원문은 `backend/.cache/sec-edgar`에 accession별로 영속 캐시합니다. CIK·accession·공식 URL·SHA-256·바이트 길이를 검증하고 원자적으로 저장하며, 손상된 파일은 사용하지 않습니다.
-- 캐시는 최대 256개 accession을 유지하고 최근 사용 시각을 기준으로 오래된 완전한 파일 쌍을 제거합니다. 문서 하나의 상한은 16MB이므로 이론상 최대 약 4GB를 사용할 수 있습니다.
+- 캐시는 최대 256개 accession과 기본 1GB 바이트 상한을 함께 적용하고 최근 사용 시각을 기준으로
+  오래된 완전한 파일 쌍을 제거합니다. 바이트 상한은 서버 전용
+  `SEC_EDGAR_CACHE_MAX_BYTES`로 조정할 수 있으며 상태 화면에서 사용량을 확인할 수 있습니다.
 - 실행 중인 자문 작업은 약 15초마다 `updated_at` heartbeat를 기록합니다. Oracle의 단일 Uvicorn 프로세스가 재시작되면 저장된 `queued`·`running` 작업을 다시 확인하고, 이미 분석이 저장된 작업은 완료 상태로 정합화하며 나머지는 한 번 재실행합니다.
-- 동일 요청과 동일 작업의 프로세스 내 동시 실행을 직렬화합니다. 운영 배포는 현재 systemd의 단일 Uvicorn 프로세스 구성을 전제로 하며 외부 worker나 queue를 추가하지 않습니다.
+- 동일 요청 중복을 방지하고 전체 AI 자문은 단일 프로세스 내부 runner에서 기본 1개씩 실행합니다.
+  대기·실행 수는 상태 화면에 표시하며 외부 worker나 queue 서비스는 추가하지 않습니다.
 - 8개 자문 유형은 각각 전용 한국어 표·모바일 카드·단위·상태 배지·SEC 공시 링크·AI 설명과 근거 ID를 표시합니다. `partial`, `limited`, `data-limited`, `insufficient_data` 상태와 N-PORT 공시 지연 안내를 결과보다 먼저 표시합니다.
 - 브라우저 새로고침 복원을 위해 `sessionStorage`에는 활성 자문 job ID만 저장합니다. API 토큰, 요청 입력, 분석 결과는 추가 저장하지 않습니다.
+- 기능 카드를 선택하면 해당 카드 바로 다음에 요청 폼이 열립니다. 최소 시가총액, 조회 기간,
+  AI 테마, 최소 분배수익률, 사용자 섹터 프록시를 선택적으로 지정할 수 있습니다.
+- 일반적인 방법론 주의사항만으로 결과 전체가 `partial`이 되지 않도록 종목별 필수 데이터 상태를
+  기준으로 판정합니다. `partial`은 일부 지표 제한 안내로 표시하고, 전체 필수 근거가 부족한
+  `data-limited`·`insufficient_data`는 강한 경고를 유지합니다.
+- 애플리케이션 기본 OpenAI 모델은 `gpt-5.6-luna`이며 `settings.ai_model`, `OPENAI_MODEL`,
+  Pydantic 기본값 순서로 해석합니다.
+- 프런트 페이지는 `React.lazy`로 분리해 최초 번들에 모든 화면을 한꺼번에 포함하지 않습니다.
 
 2026-07-17 Bundle B·C 운영 검증에서는 기본 미국 주식 15개와 ETF 10개를 사용해 8개 자문 유형이 모두 완료되고 OpenAI 설명과 추적 가능한 evidence가 저장되는 것을 확인했습니다. 실행 중인 대규모 자문 job의 `updated_at` heartbeat가 전진한 뒤 Oracle 백엔드를 재시작했으며, 동일 job이 분석 1건만 생성하고 완료 상태로 복구되었습니다. 재시작 후 AAPL SEC 분석은 기존 85개 accession payload를 변경하거나 추가 다운로드하지 않고 최신 10-K·10-Q·8-K를 다시 제공했습니다. GitHub CI, Pages, Oracle 배포와 실제 Pages 정적 번들의 전용 결과·재시도·N-PORT 경고·active job 복원 코드도 확인했습니다.

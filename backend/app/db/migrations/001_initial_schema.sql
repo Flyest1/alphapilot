@@ -58,7 +58,7 @@ create table if not exists settings (
   domestic_report_time text default '08:30',
   global_report_time text default '22:30',
   ai_provider text default 'openai',
-  ai_model text default 'gpt-5.4-mini',
+  ai_model text default 'gpt-5.6-luna',
   risk_profile text default 'balanced',
   candidate_horizon text default 'medium',
   frontend_timezone text default 'Asia/Seoul',

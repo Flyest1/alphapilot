@@ -13,7 +13,7 @@ import {
 } from "./advisoryResultUtils.js";
 
 const LIMITATION_MESSAGES = {
-  partial: "일부 데이터만 확인되어 결과를 전체 판단 근거로 사용하기 어렵습니다.",
+  partial: "일부 지표가 제한되어 제한사항을 함께 확인하세요.",
   limited: "사용 가능한 데이터 범위가 제한되어 일부 결과만 참고할 수 있습니다.",
   "data-limited": "필수 데이터가 제한되어 결과를 충분한 판단 근거로 사용할 수 없습니다.",
   insufficient_data: "근거가 부족하여 충분한 분석을 제공할 수 없습니다.",

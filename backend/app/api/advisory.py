@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.models.advisory import (
     AdvisoryAnalysisResponse,
@@ -9,7 +9,7 @@ from app.models.advisory import (
     AdvisoryStatusResponse,
     AnalysisType,
 )
-from app.services.advisory.job_service import is_advisory_migration_required, run_advisory_job
+from app.services.advisory.job_service import AdvisoryJobRunner, is_advisory_migration_required
 
 router = APIRouter(prefix="/api/advisory", tags=["advisory"])
 MIGRATION_FILE = "backend/app/db/migrations/017_create_advisory_analyses.sql"
@@ -48,7 +48,6 @@ def get_advisory_status(request: Request) -> dict:
 @router.post("/jobs", response_model=AdvisoryJobResponse, status_code=status.HTTP_202_ACCEPTED)
 def create_advisory_job(
     payload: AdvisoryJobRequest,
-    background_tasks: BackgroundTasks,
     request: Request,
 ) -> dict:
     if not request.app.state.rate_limiter.allow("/api/advisory/jobs"):
@@ -61,12 +60,14 @@ def create_advisory_job(
     except Exception as exc:
         _raise_advisory_storage_error(exc)
     if created:
-        background_tasks.add_task(
-            run_advisory_job,
-            request.app.state.advisory_jobs,
-            request.app.state.advisory_dispatcher,
-            job.job_id,
-        )
+        runner = getattr(request.app.state, "advisory_runner", None)
+        if runner is None:
+            runner = AdvisoryJobRunner(
+                request.app.state.advisory_jobs,
+                request.app.state.advisory_dispatcher,
+            )
+            request.app.state.advisory_runner = runner
+        runner.submit(job.job_id)
     return job.to_dict()
 
 

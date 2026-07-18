@@ -183,6 +183,16 @@ def test_etf_rebalancing_requests_history_beyond_three_year_return_boundary():
     assert result["etfs"][0]["metrics"]["return_3y_pct"] is not None
 
 
+def test_etf_rebalancing_marks_missing_required_fund_data_partial():
+    result = EtfRebalancingService(FakeMarketDataService(), MissingHoldingsYfinance()).analyze(
+        ["SCHD"]
+    )
+
+    assert result["etfs"][0]["data_quality"] == "partial"
+    assert result["data_quality"]["status"] == "partial"
+    assert result["data_quality"]["partial_sources"] == 1
+
+
 def test_high_dividend_etfs_returns_ranked_five_and_five_without_network_calls():
     tickers = [f"DIV{index}" for index in range(10)]
     service = HighDividendEtfService(FakeMarketDataService(), FakeYfinance())
@@ -275,6 +285,7 @@ def test_sector_outlook_covers_fixed_proxy_universe_and_three_portfolios():
         sum(item["target_weight_pct"] for item in row["target_weights"]) == 100
         for row in result["investor_portfolios"]
     )
+    assert result["data_quality"]["status"] == "partial"
 
 
 def test_sector_outlook_attaches_fred_context_and_delayed_nport_without_changing_score():
@@ -295,9 +306,23 @@ def test_sector_outlook_attaches_fred_context_and_delayed_nport_without_changing
     assert result["macro_context"]["series"][0]["series_id"] == "FEDFUNDS"
     assert result["fred_notice"].startswith("This product uses the FRED")
     assert result["evidence"][-1]["evidence_id"].startswith("fred:FEDFUNDS:")
+    assert result["evidence"][-1]["status"] == "available"
+    assert result["data_quality"]["status"] == "available"
     flow = result["sectors"][0]["etf_flow_context"]
     assert flow["provider"] == "sec_edgar_nport"
     assert "delayed" in flow["limitations"][0]
+
+
+def test_sector_outlook_marks_missing_fred_context_partial_even_with_nport():
+    result = SectorOutlookService(
+        FakeMarketDataService(),
+        FakeYfinance(),
+        fund_flow_provider=FakeNportProvider(),
+    ).analyze({"technology": "XLK"})
+
+    assert result["sectors"][0]["data_quality"] == "fresh"
+    assert result["evidence"][-1]["evidence_id"] == "fred:unavailable"
+    assert result["data_quality"]["status"] == "partial"
 
 
 def test_missing_market_data_is_not_replaced_with_fabricated_metrics():

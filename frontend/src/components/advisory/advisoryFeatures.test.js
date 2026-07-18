@@ -91,4 +91,77 @@ describe("advisory payloads", () => {
       analysis_type: "sector_outlook",
     });
   });
+
+  it("adds advanced request fields only when the user supplies them", () => {
+    expect(
+      buildAdvisoryPayload(getAdvisoryFeature("undervalued_us_stocks"), {
+        tickers: "aapl",
+        min_market_cap_usd: "10000000000",
+      }),
+    ).toEqual({
+      analysis_type: "undervalued_us_stocks",
+      tickers: ["AAPL"],
+      max_results: 5,
+      min_market_cap_usd: 10000000000,
+    });
+    expect(
+      buildAdvisoryPayload(getAdvisoryFeature("post_earnings_opportunities"), {
+        tickers: "msft",
+        lookback_days: "30",
+      }),
+    ).toMatchObject({ lookback_days: 30 });
+    expect(
+      buildAdvisoryPayload(getAdvisoryFeature("sec_filing_risk"), {
+        ticker: "aapl",
+        lookback_days: "120",
+      }),
+    ).toEqual({
+      analysis_type: "sec_filing_risk",
+      ticker: "AAPL",
+      lookback_days: 120,
+    });
+    expect(
+      buildAdvisoryPayload(getAdvisoryFeature("ai_beneficiaries"), {
+        tickers: "nvda",
+        themes: "반도체, 데이터센터\n전력 인프라",
+      }),
+    ).toMatchObject({ themes: ["반도체", "데이터센터", "전력 인프라"] });
+    expect(
+      buildAdvisoryPayload(getAdvisoryFeature("high_dividend_etfs"), {
+        tickers: "schd",
+        min_distribution_yield_percent: "3.5",
+      }),
+    ).toMatchObject({ min_distribution_yield_percent: 3.5 });
+    expect(
+      buildAdvisoryPayload(getAdvisoryFeature("sector_outlook"), {
+        customProxies: [
+          { sector: "반도체", ticker: "soxx" },
+          { sector: "", ticker: "" },
+        ],
+      }),
+    ).toEqual({ analysis_type: "sector_outlook", custom_proxies: { 반도체: "SOXX" } });
+  });
+
+  it("validates advanced request field boundaries", () => {
+    expect(
+      validateAdvisoryPayload(getAdvisoryFeature("post_earnings_opportunities"), {
+        analysis_type: "post_earnings_opportunities",
+        max_results: 5,
+        lookback_days: 91,
+      }),
+    ).toMatch(/1~90일/);
+    expect(
+      validateAdvisoryPayload(getAdvisoryFeature("high_dividend_etfs"), {
+        analysis_type: "high_dividend_etfs",
+        min_distribution_yield_percent: 101,
+      }),
+    ).toMatch(/0~100%/);
+    expect(
+      validateAdvisoryPayload(
+        getAdvisoryFeature("sector_outlook"),
+        { analysis_type: "sector_outlook" },
+        { customProxies: [{ sector: "반도체", ticker: "" }] },
+      ),
+    ).toMatch(/모두 입력/);
+  });
 });

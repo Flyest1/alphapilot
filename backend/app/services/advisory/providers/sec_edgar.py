@@ -30,6 +30,7 @@ SEC_RETRYABLE_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
 SEC_MAX_REQUESTS_PER_SECOND = 5
 SEC_MAX_SUBMISSION_BYTES = 16 * 1024 * 1024
 SEC_DEFAULT_MAX_PERSISTENT_ENTRIES = 256
+SEC_DEFAULT_MAX_PERSISTENT_BYTES = 1024 * 1024 * 1024
 SEC_NPORT_PUBLIC_DELAY_DAYS = 60
 SEC_DEFAULT_SUBMISSION_CACHE_DIR = Path(__file__).resolve().parents[4] / ".cache" / "sec-edgar"
 
@@ -110,6 +111,7 @@ class SecEdgarProvider:
         max_backoff_seconds: float = 4.0,
         max_cache_entries: int = 256,
         max_persistent_entries: int = SEC_DEFAULT_MAX_PERSISTENT_ENTRIES,
+        max_persistent_bytes: int = SEC_DEFAULT_MAX_PERSISTENT_BYTES,
         max_submission_bytes: int = SEC_MAX_SUBMISSION_BYTES,
         max_submission_text_chars: int = 750_000,
         submission_cache_dir: str | Path | None = None,
@@ -122,7 +124,12 @@ class SecEdgarProvider:
             raise ValueError("SEC EDGAR requests require a declared User-Agent")
         if timeout_seconds <= 0 or cache_ttl_seconds < 0:
             raise ValueError("SEC EDGAR timeout and cache TTL must be non-negative")
-        if max_retries < 1 or max_cache_entries < 1 or max_persistent_entries < 1:
+        if (
+            max_retries < 1
+            or max_cache_entries < 1
+            or max_persistent_entries < 1
+            or max_persistent_bytes < 1
+        ):
             raise ValueError("SEC EDGAR retry and cache limits must be positive")
         if (
             max_submission_bytes < 1
@@ -140,6 +147,7 @@ class SecEdgarProvider:
         self.max_backoff_seconds = max_backoff_seconds
         self.max_cache_entries = max_cache_entries
         self.max_persistent_entries = max_persistent_entries
+        self.max_persistent_bytes = max_persistent_bytes
         self.max_submission_bytes = max_submission_bytes
         self.max_submission_text_chars = max_submission_text_chars
         self.submission_cache_dir = Path(
@@ -152,6 +160,58 @@ class SecEdgarProvider:
         self.now_provider = now_provider or (lambda: datetime.now(timezone.utc))
         self._cache: dict[str, tuple[float, bytes]] = {}
         self._cache_lock = threading.Lock()
+        try:
+            with self._submission_cache_guard:
+                self._prepare_submission_cache_write(
+                    self.submission_cache_dir / ".startup-trim.txt",
+                    self.submission_cache_dir / ".startup-trim.json",
+                    0,
+                    reserved_entries=0,
+                )
+        except OSError:
+            pass
+
+    def cache_status(self) -> dict[str, Any]:
+        """Return bounded operational metadata without exposing cached filing contents."""
+        with self._submission_cache_guard:
+            entry_count = 0
+            size_bytes = 0
+            if self.submission_cache_dir.exists():
+                for cik_directory in self.submission_cache_dir.iterdir():
+                    if (
+                        cik_directory.is_symlink()
+                        or not cik_directory.is_dir()
+                        or not re.fullmatch(r"\d{10}", cik_directory.name)
+                    ):
+                        continue
+                    for payload_path in cik_directory.glob("*.txt"):
+                        if payload_path.is_symlink() or not payload_path.is_file():
+                            continue
+                        match = _CACHE_ENTRY_PATTERN.fullmatch(payload_path.name)
+                        if not match:
+                            continue
+                        metadata_path = payload_path.with_suffix(".json")
+                        if not metadata_path.is_file() or metadata_path.is_symlink():
+                            continue
+                        try:
+                            payload_size = payload_path.stat().st_size
+                        except OSError:
+                            continue
+                        entry_count += 1
+                        size_bytes += payload_size
+            utilization_percent = (
+                round(size_bytes / self.max_persistent_bytes * 100, 2)
+                if self.max_persistent_bytes
+                else 0.0
+            )
+            return {
+                "status": "available",
+                "entry_count": entry_count,
+                "size_bytes": size_bytes,
+                "max_entries": self.max_persistent_entries,
+                "max_size_bytes": self.max_persistent_bytes,
+                "utilization_percent": utilization_percent,
+            }
 
     def ticker_to_cik(self, ticker: str) -> str | None:
         """Return the zero-padded SEC CIK for a listed ticker, or ``None`` on failure."""
@@ -261,6 +321,7 @@ class SecEdgarProvider:
         ticker: str,
         forms: Iterable[str] = ("10-K", "10-Q", "8-K"),
         limit_per_form: int = 2,
+        lookback_days: int | None = None,
     ) -> list[dict[str, Any]]:
         """Return recent selected filings with complete-submission evidence text.
 
@@ -282,6 +343,11 @@ class SecEdgarProvider:
         selected = self._select_recent_filings(
             metadata, requested_forms, limit_per_form=limit_per_form
         )
+        if lookback_days is not None:
+            cutoff = self._today() - timedelta(days=max(1, lookback_days))
+            selected = [
+                row for row in selected if self._date_on_or_after(row.get("filed_at"), cutoff)
+            ]
         results = []
         for row in selected:
             documents = self.get_submission_documents(cik, str(row["accession_number"]))
@@ -657,6 +723,8 @@ class SecEdgarProvider:
     def _write_submission_cache(self, cik: str, accession: str, url: str, payload: bytes) -> None:
         if len(payload) > SEC_MAX_SUBMISSION_BYTES:
             raise SecEdgarError("SEC EDGAR submission exceeded the size limit")
+        if len(payload) > self.max_persistent_bytes:
+            return
         payload_path, metadata_path = self._submission_cache_paths(cik, accession)
         metadata = {
             "cik": cik,
@@ -669,7 +737,11 @@ class SecEdgarProvider:
             payload_written = False
             try:
                 payload_path.parent.mkdir(parents=True, exist_ok=True)
-                self._prepare_submission_cache_write(payload_path, metadata_path)
+                self._prepare_submission_cache_write(
+                    payload_path,
+                    metadata_path,
+                    len(payload),
+                )
                 self._atomic_write_bytes(payload_path, payload)
                 payload_written = True
                 self._atomic_write_bytes(
@@ -686,8 +758,10 @@ class SecEdgarProvider:
         self,
         target_payload_path: Path,
         target_metadata_path: Path,
+        incoming_size_bytes: int,
+        reserved_entries: int = 1,
     ) -> None:
-        complete_pairs: list[tuple[int, Path, Path]] = []
+        complete_pairs: list[tuple[int, Path, Path, int]] = []
         if not self.submission_cache_dir.exists():
             return
         for cik_directory in self.submission_cache_dir.iterdir():
@@ -727,14 +801,24 @@ class SecEdgarProvider:
                 if payload_path == target_payload_path and metadata_path == target_metadata_path:
                     continue
                 complete_pairs.append(
-                    (metadata_path.stat().st_mtime_ns, payload_path, metadata_path)
+                    (
+                        metadata_path.stat().st_mtime_ns,
+                        payload_path,
+                        metadata_path,
+                        int(metadata["size_bytes"]),
+                    )
                 )
 
-        eviction_count = max(
-            0,
-            len(complete_pairs) + 1 - self.max_persistent_entries,
-        )
-        for _modified_at, payload_path, metadata_path in sorted(complete_pairs)[:eviction_count]:
+        total_size_bytes = sum(item[3] for item in complete_pairs)
+        oldest_first = sorted(complete_pairs)
+        eviction_count = 0
+        while (
+            len(complete_pairs) + reserved_entries - eviction_count > self.max_persistent_entries
+            or total_size_bytes + incoming_size_bytes > self.max_persistent_bytes
+        ) and eviction_count < len(oldest_first):
+            total_size_bytes -= oldest_first[eviction_count][3]
+            eviction_count += 1
+        for _modified_at, payload_path, metadata_path, _size_bytes in oldest_first[:eviction_count]:
             payload_path.unlink()
             metadata_path.unlink()
 

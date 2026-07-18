@@ -195,6 +195,98 @@ def test_pipeline_fills_blank_requested_etf_weights_equally():
     ]
 
 
+def test_pipeline_passes_ai_themes_to_analyzer(monkeypatch):
+    captured = {}
+
+    class FakeAnalyzer:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def analyze(self, tickers, themes):
+            captured["tickers"] = tickers
+            captured["themes"] = themes
+            return {
+                "analysis_type": "ai_beneficiaries",
+                "rows": [],
+                "verified_ai_beneficiaries": [],
+                "ai_theme_caution": [],
+                "evidence": [],
+                "data_quality": {},
+                "disclaimer": "투자 의사결정 지원 정보입니다.",
+            }
+
+    monkeypatch.setattr(
+        "app.services.advisory.pipeline.AIBeneficiariesAnalyzer",
+        FakeAnalyzer,
+    )
+    repository = InMemoryRepository()
+    repository.upsert_candidate_universe(
+        {
+            "report_type": "global",
+            "market": "US",
+            "ticker": "NVDA",
+            "name": "NVIDIA",
+            "currency": "USD",
+            "source_rank": 1,
+        }
+    )
+    pipeline = AdvisoryPipeline(repository, FakeMarketData(), yf_module=FakeYFinance())
+    request = parse_advisory_job_request(
+        {"analysis_type": "ai_beneficiaries", "themes": ["inference", "software"]}
+    )
+
+    pipeline._ai_beneficiaries(None, request)
+
+    assert captured == {
+        "tickers": ["NVDA"],
+        "themes": ["inference", "software"],
+    }
+
+
+def test_pipeline_passes_sec_lookback_to_analyzer(monkeypatch):
+    captured = {}
+
+    class FakeAnalyzer:
+        def __init__(self, *_args):
+            pass
+
+        def analyze(self, ticker, lookback_days):
+            captured["ticker"] = ticker
+            captured["lookback_days"] = lookback_days
+            return {
+                "analysis_type": "sec_filing_risk",
+                "ticker": ticker,
+                "latest_filings": [],
+                "newly_emphasized_risks": [],
+                "risk_categories": [],
+                "management_caution_signals": [],
+                "key_sentences": [],
+                "risk_rating": "insufficient_data",
+                "evaluation_status": "unavailable",
+                "rating_reason": "근거 부족",
+                "evidence": [],
+                "data_quality": {},
+                "disclaimer": "투자 의사결정 지원 정보입니다.",
+            }
+
+    monkeypatch.setattr(
+        "app.services.advisory.pipeline.SECFilingRiskAnalyzer",
+        FakeAnalyzer,
+    )
+    pipeline = AdvisoryPipeline(InMemoryRepository(), FakeMarketData(), yf_module=FakeYFinance())
+    request = parse_advisory_job_request(
+        {
+            "analysis_type": "sec_filing_risk",
+            "ticker": "AAPL",
+            "lookback_days": 180,
+        }
+    )
+
+    pipeline._sec_filing_risk(None, request)
+
+    assert captured == {"ticker": "AAPL", "lookback_days": 180}
+
+
 def test_sector_market_input_coverage_marks_unavailable_macro_inputs():
     result = {
         "sectors": [{"data_quality": "fresh"}],

@@ -8,6 +8,7 @@ os.environ.setdefault("TOSS_INVEST_CLIENT_SECRET", "")
 os.environ.setdefault("TOSS_INVEST_ACCOUNT_ID", "")
 os.environ.setdefault("FRED_API_KEY", "")
 os.environ.setdefault("SEC_EDGAR_USER_AGENT", "")
+os.environ.setdefault("OPENAI_MODEL", "gpt-5.6-luna")
 
 import pytest
 
@@ -24,6 +25,7 @@ def test_environment(monkeypatch):
     monkeypatch.setenv("TOSS_INVEST_ACCOUNT_ID", "")
     monkeypatch.setenv("FRED_API_KEY", "")
     monkeypatch.setenv("SEC_EDGAR_USER_AGENT", "")
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-5.6-luna")
     clear_settings_cache()
     yield
     clear_settings_cache()

@@ -9,7 +9,7 @@ class Settings(BaseModel):
     domestic_report_time: str = "08:30"
     global_report_time: str = "22:30"
     ai_provider: str = "openai"
-    ai_model: str = "gpt-5.4-mini"
+    ai_model: str = "gpt-5.6-luna"
     risk_profile: Literal["conservative", "balanced", "aggressive"] = "balanced"
     candidate_horizon: Literal["short", "medium", "long"] = "medium"
     frontend_timezone: str = "Asia/Seoul"

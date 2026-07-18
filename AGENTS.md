@@ -315,6 +315,7 @@ TOSS_INVEST_CLIENT_SECRET=your-toss-invest-client-secret
 TOSS_INVEST_ACCOUNT_ID=your-toss-invest-account-id
 FRED_API_KEY=your-fred-api-key
 SEC_EDGAR_USER_AGENT=AlphaPilot contact@example.com
+SEC_EDGAR_CACHE_MAX_BYTES=1073741824
 ```
 
 ### Application Defaults
@@ -325,7 +326,7 @@ These may exist in `.env.example`, SQL defaults, and Pydantic settings models:
 DOMESTIC_REPORT_TIME=08:30
 GLOBAL_REPORT_TIME=22:30
 AI_PROVIDER=openai
-OPENAI_MODEL=gpt-5.4-mini
+OPENAI_MODEL=gpt-5.6-luna
 RISK_PROFILE=balanced
 CANDIDATE_HORIZON=medium
 FRONTEND_TIMEZONE=Asia/Seoul
@@ -761,7 +762,7 @@ Model selection:
 Current default:
 
 ```text
-gpt-5.4-mini
+gpt-5.6-luna
 ```
 
 Fallback:
@@ -1062,7 +1063,9 @@ Status: baseline implemented and deployed (2026-07). Migration 017 was applied t
 Supabase project, and Bundle A operational verification completed on 2026-07-17. Follow-up Bundle B
 (persistent SEC accession cache and advisory job recovery) and Bundle C (eight dedicated result views
 and active-job browser recovery) were implemented, deployed, and operationally verified on
-2026-07-17.
+2026-07-17. The 2026-07-18 follow-up adds a one-job in-process runner, a 1GB default persistent SEC
+cache byte cap with status metrics, inline advanced request forms, `gpt-5.6-luna` as the application
+default, lazy-loaded frontend pages, and a 30-stock curated US equity universe.
 
 Goal: provide the eight manual analysis workflows defined in `docs/ai_advisory_plan_2026_07.md`
 without automatic trading, order tickets, or unsupported factual claims.
@@ -1076,7 +1079,9 @@ Implement:
 - Korean AI advisory tab with manual inputs, polling, history, and result tables
 - bounded local-disk SEC accession cache with SHA-256 integrity checks and atomic writes
 - periodic advisory job heartbeat and single-process startup recovery without an external worker
+- one-job bounded in-process execution with queue-depth status, without an external queue service
 - dedicated Korean result views for all eight analysis types with evidence-safe links
+- inline advanced request inputs and severity-aware partial/data-limited notices
 
 SEC EDGAR, FRED, delayed SEC N-PORT data, and clearly labeled yfinance ETF-flow proxies were approved
 in 2026-07. Exact current/daily ETF flows, analyst consensus, and unfiled transcripts still require

@@ -1,6 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from threading import Barrier, Lock
+from threading import Barrier, Event, Lock
 from time import sleep
 
 import pytest
@@ -8,8 +8,10 @@ from pydantic import ValidationError
 
 from app.db.supabase_client import InMemoryRepository
 from app.models.advisory import parse_advisory_job_request, validate_advisory_result
+from app.services.advisory import job_service
 from app.services.advisory.job_service import (
     AdvisoryDispatcher,
+    AdvisoryJobRunner,
     AdvisoryJobStore,
     run_advisory_job,
 )
@@ -414,3 +416,92 @@ def test_in_process_job_lock_makes_duplicate_recovery_execution_idempotent():
     assert completed is not None
     assert completed.status == "completed"
     assert len(store.list_analyses()) == 1
+
+
+def test_advisory_runner_bounds_concurrency_and_reports_queue_depth():
+    store = AdvisoryJobStore(InMemoryRepository())
+    jobs = [
+        store.create_or_get_active(
+            parse_advisory_job_request({"analysis_type": "ai_beneficiaries", "themes": [theme]})
+        )[0]
+        for theme in ("chips", "software")
+    ]
+    first_started = Event()
+    release_first = Event()
+    calls = []
+
+    def handler(_job, request):
+        calls.append(request.themes[0])
+        if request.themes[0] == "chips":
+            first_started.set()
+            release_first.wait(timeout=1)
+        return ai_beneficiaries_result(request)
+
+    runner = AdvisoryJobRunner(
+        store,
+        AdvisoryDispatcher({"ai_beneficiaries": handler}),
+        max_workers=1,
+    )
+    try:
+        assert runner.submit(jobs[0].job_id) is True
+        assert runner.submit(jobs[0].job_id) is False
+        assert first_started.wait(timeout=1)
+        assert runner.submit(jobs[1].job_id) is True
+        assert runner.status() == {
+            "active_count": 1,
+            "queued_count": 1,
+            "max_workers": 1,
+        }
+        release_first.set()
+        for _ in range(100):
+            if all(store.get(job.job_id).status == "completed" for job in jobs):
+                break
+            sleep(0.01)
+    finally:
+        release_first.set()
+        runner.shutdown()
+
+    assert calls == ["chips", "software"]
+    assert runner.status()["active_count"] == 0
+    assert runner.status()["queued_count"] == 0
+
+
+def test_advisory_runner_continues_after_unhandled_job_failure(monkeypatch):
+    store = AdvisoryJobStore(InMemoryRepository())
+    jobs = [
+        store.create_or_get_active(
+            parse_advisory_job_request({"analysis_type": "ai_beneficiaries", "themes": [theme]})
+        )[0]
+        for theme in ("first", "second")
+    ]
+    original_run = job_service.run_advisory_job
+    calls = []
+
+    def flaky_run(current_store, dispatcher, job_id):
+        calls.append(job_id)
+        if job_id == jobs[0].job_id:
+            raise RuntimeError("unexpected runner failure")
+        original_run(current_store, dispatcher, job_id)
+
+    monkeypatch.setattr(job_service, "run_advisory_job", flaky_run)
+    runner = AdvisoryJobRunner(
+        store,
+        AdvisoryDispatcher(
+            {
+                "ai_beneficiaries": lambda _job, request: ai_beneficiaries_result(request),
+            }
+        ),
+    )
+    try:
+        assert runner.submit(jobs[0].job_id)
+        assert runner.submit(jobs[1].job_id)
+        for _ in range(100):
+            if all(store.get(job.job_id).status in {"completed", "failed"} for job in jobs):
+                break
+            sleep(0.01)
+    finally:
+        runner.shutdown()
+
+    assert calls == [jobs[0].job_id, jobs[1].job_id]
+    assert store.get(jobs[0].job_id).status == "failed"
+    assert store.get(jobs[1].job_id).status == "completed"

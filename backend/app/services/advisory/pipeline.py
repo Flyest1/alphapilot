@@ -12,7 +12,10 @@ from app.services.advisory.features.post_earnings_opportunities import (
     PostEarningsOpportunitiesAnalyzer,
 )
 from app.services.advisory.features.sec_filing_risk import SECFilingRiskAnalyzer
-from app.services.advisory.features.sector_outlook import SectorOutlookService
+from app.services.advisory.features.sector_outlook import (
+    SECTOR_BOND_PROXIES,
+    SectorOutlookService,
+)
 from app.services.advisory.features.undervalued_us_stocks import UndervaluedUSStocksAnalyzer
 from app.services.advisory.openai_provider import OpenAIAdvisoryProvider
 from app.services.portfolio_service import PortfolioService
@@ -93,7 +96,10 @@ class AdvisoryPipeline:
             self.market_data_service,
             self._yf_module(),
             disclosure_provider=self.filing_provider,
-        ).analyze(tickers)
+        ).analyze(
+            tickers,
+            themes=getattr(request, "themes", []),
+        )
         self._attach_news_context(result, tickers)
         return self._add_narrative(result)
 
@@ -113,7 +119,10 @@ class AdvisoryPipeline:
         if not ticker:
             tickers = getattr(request, "tickers", [])
             ticker = str(tickers[0] if tickers else "").upper()
-        result = SECFilingRiskAnalyzer(self.filing_provider).analyze(ticker)
+        result = SECFilingRiskAnalyzer(self.filing_provider).analyze(
+            ticker,
+            lookback_days=getattr(request, "lookback_days", 365),
+        )
         return self._add_narrative(result)
 
     def _etf_overlap(self, _job: Any, request: Any) -> dict[str, Any]:
@@ -129,7 +138,11 @@ class AdvisoryPipeline:
             macro_provider=self.macro_provider,
             fund_flow_provider=self.filing_provider,
         )
-        result = service.analyze(proxies=proxies) if proxies else service.analyze()
+        result = (
+            service.analyze(proxies={**SECTOR_BOND_PROXIES, **proxies})
+            if proxies
+            else service.analyze()
+        )
         self._attach_news_context(result, [])
         result["market_input_coverage"] = self._sector_market_input_coverage(result)
         return self._add_narrative(result)

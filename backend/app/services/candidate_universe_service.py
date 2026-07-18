@@ -7,6 +7,38 @@ from app.db.supabase_client import Repository
 from app.utils.logging import log_external_failure
 
 KR_MARKET_CAP_LIMIT = 30
+MAJOR_US_EQUITIES = (
+    "NVDA",
+    "MSFT",
+    "AAPL",
+    "AMZN",
+    "GOOGL",
+    "META",
+    "TSLA",
+    "AVGO",
+    "AMD",
+    "NFLX",
+    "COST",
+    "JPM",
+    "LLY",
+    "V",
+    "BRK.B",
+    "ORCL",
+    "CRM",
+    "ADBE",
+    "QCOM",
+    "TXN",
+    "UNH",
+    "JNJ",
+    "PFE",
+    "XOM",
+    "CVX",
+    "WMT",
+    "HD",
+    "NKE",
+    "DIS",
+    "PYPL",
+)
 MAJOR_ETFS = (
     "VOO",
     "SPY",
@@ -37,10 +69,12 @@ class CandidateUniverseService:
     def refresh(self) -> dict[str, Any]:
         refreshed_at = self.now_provider().isoformat()
         kr_rows = self._refresh_kr(refreshed_at)
+        us_rows = self._refresh_us_equities(refreshed_at)
         etf_rows = self._refresh_etfs(refreshed_at)
         return {
             "refreshed_at": refreshed_at,
             "domestic_upserted": len(kr_rows),
+            "global_us_equity_upserted": len(us_rows),
             "global_etf_upserted": len(etf_rows),
             "total_active": len(self.repository.list_candidate_universe()),
         }
@@ -85,9 +119,32 @@ class CandidateUniverseService:
         return rows
 
     def _refresh_etfs(self, refreshed_at: str) -> list[dict[str, Any]]:
+        return self._refresh_yfinance_universe(
+            MAJOR_ETFS,
+            market="ETF",
+            source="yfinance_major_etf",
+            refreshed_at=refreshed_at,
+        )
+
+    def _refresh_us_equities(self, refreshed_at: str) -> list[dict[str, Any]]:
+        return self._refresh_yfinance_universe(
+            MAJOR_US_EQUITIES,
+            market="US",
+            source="yfinance_curated_us_equity",
+            refreshed_at=refreshed_at,
+        )
+
+    def _refresh_yfinance_universe(
+        self,
+        tickers: tuple[str, ...],
+        *,
+        market: str,
+        source: str,
+        refreshed_at: str,
+    ) -> list[dict[str, Any]]:
         rows = []
         yf = self._yf_module()
-        for rank, ticker in enumerate(MAJOR_ETFS, start=1):
+        for rank, ticker in enumerate(tickers, start=1):
             try:
                 info = yf.Ticker(ticker).info or {}
                 name = info.get("longName") or info.get("shortName") or ticker
@@ -95,18 +152,22 @@ class CandidateUniverseService:
                 log_external_failure(
                     "yfinance",
                     exc,
-                    {"operation": "refresh_candidate_etf", "ticker": ticker},
+                    {
+                        "operation": "refresh_candidate_global_universe",
+                        "market": market,
+                        "ticker": ticker,
+                    },
                 )
                 name = ticker
             rows.append(
                 self.repository.upsert_candidate_universe(
                     {
                         "report_type": "global",
-                        "market": "ETF",
+                        "market": market,
                         "ticker": ticker,
                         "name": name,
                         "currency": "USD",
-                        "source": "yfinance_major_etf",
+                        "source": source,
                         "source_rank": rank,
                         "is_active": True,
                         "refreshed_at": refreshed_at,

@@ -37,7 +37,16 @@ const API_ERROR_MESSAGES = {
 };
 
 function blankForm() {
-  return { ticker: "", tickers: "", positions: [{ ticker: "", weight_pct: "" }] };
+  return {
+    ticker: "",
+    tickers: "",
+    positions: [{ ticker: "", weight_pct: "" }],
+    min_market_cap_usd: "",
+    lookback_days: "",
+    themes: "",
+    min_distribution_yield_percent: "",
+    customProxies: [{ sector: "", ticker: "" }],
+  };
 }
 
 function jobIdentifier(job) {
@@ -267,7 +276,7 @@ export default function Advisory() {
       return;
     }
     const payload = buildAdvisoryPayload(feature, form);
-    const validationError = validateAdvisoryPayload(feature, payload);
+    const validationError = validateAdvisoryPayload(feature, payload, form);
     if (validationError) {
       setError(validationError);
       return;
@@ -360,19 +369,21 @@ export default function Advisory() {
           )}
         </div>
       )}
-      <AdvisoryFeatureCards selectedType={selectedType} onSelect={selectFeature} />
-      <fieldset
-        disabled={!isAdvisoryStorageAvailable}
-        style={{ border: 0, margin: 0, minInlineSize: 0, padding: 0 }}
-      >
-        <AdvisoryInputForm
-          feature={feature}
-          form={form}
-          isSubmitting={isSubmitting}
-          onChange={setForm}
-          onSubmit={submit}
-        />
-      </fieldset>
+      <AdvisoryFeatureCards selectedType={selectedType} onSelect={selectFeature}>
+        <fieldset
+          className="advisory-feature-inline-form"
+          disabled={!isAdvisoryStorageAvailable}
+          style={{ border: 0, margin: 0, minInlineSize: 0, padding: 0 }}
+        >
+          <AdvisoryInputForm
+            feature={feature}
+            form={form}
+            isSubmitting={isSubmitting}
+            onChange={setForm}
+            onSubmit={submit}
+          />
+        </fieldset>
+      </AdvisoryFeatureCards>
       {isSubmitting && (
         <p className="notice">
           {job?.status === "queued" ? "AI 자문 요청이 대기 중입니다." : "AI 자문을 분석 중입니다."}{" "}

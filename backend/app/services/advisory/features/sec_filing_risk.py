@@ -33,8 +33,8 @@ class SECFilingRiskAnalyzer:
         self.filing_provider = filing_provider
         self.now_provider = now_provider
 
-    def analyze(self, ticker: str) -> dict[str, Any]:
-        filings = self._filings(ticker.upper())
+    def analyze(self, ticker: str, lookback_days: int = 365) -> dict[str, Any]:
+        filings = self._filings(ticker.upper(), lookback_days)
         latest_by_form = self._latest_by_form(filings)
         generated_at = now_iso(self.now_provider)
         missing_forms = sorted(REQUIRED_FORMS - set(latest_by_form))
@@ -80,6 +80,7 @@ class SECFilingRiskAnalyzer:
             "retrieved_at": generated_at,
             "source_as_of": source_as_of,
             "ticker": ticker.upper(),
+            "lookback_days": lookback_days,
             "latest_filings": [self._filing_summary(row) for row in latest_by_form.values()],
             "newly_emphasized_risks": newly_emphasized,
             "risk_categories": rows,
@@ -98,11 +99,18 @@ class SECFilingRiskAnalyzer:
             "disclaimer": "공시 위험 분석은 법률·회계 자문이 아니며 원문 확인이 필요합니다.",
         }
 
-    def _filings(self, ticker: str) -> list[dict[str, Any]]:
+    def _filings(self, ticker: str, lookback_days: int) -> list[dict[str, Any]]:
         if self.filing_provider is None:
             return []
         try:
-            rows = self.filing_provider.list_recent_filings(ticker, ("10-K", "10-Q", "8-K"))
+            try:
+                rows = self.filing_provider.list_recent_filings(
+                    ticker,
+                    ("10-K", "10-Q", "8-K"),
+                    lookback_days=lookback_days,
+                )
+            except TypeError:
+                rows = self.filing_provider.list_recent_filings(ticker, ("10-K", "10-Q", "8-K"))
         except Exception:
             return []
         return [dict(row) for row in rows or [] if isinstance(row, Mapping)]

@@ -181,6 +181,7 @@ def test_undervalued_analysis_scores_improving_fundamentals_without_fabricating_
     assert "look-ahead bias" in row["historical_valuation_comparison"]["limitations"][0]
     assert row["guidance"] == "회사 공식 가이던스 데이터 없음"
     assert result["top_candidates"][0]["ticker"] == "EXM"
+    assert result["data_quality"]["status"] == "fresh"
 
 
 def test_undervalued_analysis_does_not_score_or_rank_without_required_evidence():
@@ -273,6 +274,22 @@ def test_ai_beneficiary_requires_quantitative_disclosure_for_verified_classifica
     assert result["verified_ai_beneficiaries"][0]["ticker"] == "EXM"
 
 
+def test_ai_beneficiary_requested_theme_filters_verified_classification():
+    analyzer = AIBeneficiariesAnalyzer(
+        FakeMarketData(),
+        FakeYFinance(),
+        disclosure_provider=FakeFilingProvider(),
+    )
+
+    matching = analyzer.analyze(["EXM"], themes=["generative ai"])
+    non_matching = analyzer.analyze(["EXM"], themes=["inference"])
+
+    assert matching["rows"][0]["matched_themes"] == ["generative ai"]
+    assert matching["rows"][0]["classification"] == "verified_ai_beneficiary"
+    assert non_matching["rows"][0]["matched_themes"] == []
+    assert non_matching["rows"][0]["classification"] == "ai_theme_caution"
+
+
 def test_ai_beneficiary_without_disclosures_is_caution_not_fabricated():
     result = AIBeneficiariesAnalyzer(FakeMarketData(), FakeYFinance()).analyze(["EXM"])
 
@@ -282,7 +299,7 @@ def test_ai_beneficiary_without_disclosures_is_caution_not_fabricated():
     assert result["rows"][0]["action"] == "WATCH"
     assert result["rows"][0]["investment_appeal_10"] is None
     assert [row["ticker"] for row in result["ai_theme_caution"]] == ["EXM"]
-    assert result["data_quality"]["status"] == "partial"
+    assert result["data_quality"]["status"] == "data-limited"
 
 
 def test_ai_beneficiary_caution_prioritizes_available_scores_without_dropping_data_limited():

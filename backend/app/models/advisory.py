@@ -63,7 +63,7 @@ class HighDividendEtfsRequest(TickerScreenRequestBase):
 class SecFilingRiskRequest(AdvisoryRequestBase):
     analysis_type: Literal["sec_filing_risk"]
     ticker: str = Field(min_length=1, max_length=20)
-    lookback_days: int = Field(default=90, ge=1, le=365)
+    lookback_days: int = Field(default=365, ge=1, le=365)
 
 
 class EtfOverlapRequest(AdvisoryRequestBase):
@@ -73,7 +73,7 @@ class EtfOverlapRequest(AdvisoryRequestBase):
 
 class SectorOutlookRequest(AdvisoryRequestBase):
     analysis_type: Literal["sector_outlook"]
-    custom_proxies: dict[str, str] | None = None
+    custom_proxies: dict[str, str] | None = Field(default=None, max_length=20)
 
 
 AdvisoryJobRequest: TypeAlias = Annotated[
