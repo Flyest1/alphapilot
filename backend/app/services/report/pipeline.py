@@ -27,6 +27,7 @@ from app.services.portfolio_service import PortfolioService
 from app.services.portfolio_risk_service import PortfolioRiskService
 from app.services.recommendation_stats_service import ConfidenceCalibrator
 from app.services.report import candidate_screener
+from app.services.report.advisory_context import build_advisory_context
 from app.services.report.fact_enforcer import enforce_report_facts, forbidden_narrative_paths
 from app.services.report.persistence import ReportPersistence
 from app.services.report.prompt_builder import (
@@ -147,6 +148,8 @@ class ReportService:
                 report_type,
                 [row["asset"] for row in analysis_rows if not row["market_data"].is_stale],
             )
+        with self._timed_step("advisory_context"):
+            advisory_context = build_advisory_context(self.repository)
         generated_at = self._now(app_settings.frontend_timezone)
 
         with self._timed_step("ai_report"):
@@ -160,6 +163,7 @@ class ReportService:
                 stale_tickers=stale_tickers,
                 news_context=news_context,
                 asset_events=asset_events,
+                advisory_context=advisory_context,
                 generated_at=generated_at,
             )
         if content is None:
@@ -265,6 +269,7 @@ class ReportService:
             analysis_rows,
             portfolio_risk_analysis_rows,
             news_context,
+            advisory_context,
             asset_events,
             app_settings,
             content,
@@ -362,6 +367,7 @@ class ReportService:
         stale_tickers: list[str],
         news_context: dict[str, Any],
         asset_events: dict[str, Any],
+        advisory_context: dict[str, Any],
         generated_at: str,
     ) -> tuple[ReportContent | None, dict[str, Any]]:
         diagnostics = {
@@ -395,6 +401,7 @@ class ReportService:
             stale_tickers=stale_tickers,
             news_context=news_context,
             asset_events=asset_events,
+            advisory_context=advisory_context,
             generated_at=generated_at,
         )
 
@@ -726,6 +733,7 @@ class ReportService:
         analysis_rows: list[dict[str, Any]],
         portfolio_risk_analysis_rows: list[dict[str, Any]],
         news_context: dict[str, Any],
+        advisory_context: dict[str, Any],
         asset_events: dict[str, Any],
         app_settings: Any,
         content: ReportContent,
@@ -787,6 +795,7 @@ class ReportService:
             "tickers": tickers,
             "portfolio_risk": portfolio_risk_snapshot,
             "news_context": self._news_input_snapshot(news_context, content),
+            "advisory_context": advisory_context,
             "asset_events": asset_events,
             "settings": {
                 "risk_profile": app_settings.risk_profile,
@@ -993,7 +1002,7 @@ class ReportService:
         macro_factors = list(content.market_summary.macro_factors)
         key_risks = list(content.key_risks)
         if status in {"ok", "partial"} and articles:
-            note = f"최근 뉴스/동향 컨텍스트(GDELT) {len(articles)}건을 분석 입력으로 제공했습니다."
+            note = f"최근 뉴스/동향 헤드라인 {len(articles)}건을 분석 입력으로 참고했습니다."
             if note not in macro_factors:
                 macro_factors.append(note)
             if status == "partial":

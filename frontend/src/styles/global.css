@@ -1496,6 +1496,16 @@ form button,
   margin-bottom: 20px;
 }
 
+.advisory-page,
+.advisory-result-panel,
+.advisory-result-panel * {
+  min-width: 0;
+}
+
+.advisory-result-panel :is(p, li, dd, code, strong, span) {
+  overflow-wrap: anywhere;
+}
+
 .advisory-feature-inline-form {
   flex: 0 0 100%;
   min-width: 0;
@@ -1617,6 +1627,26 @@ form button,
 
 .advisory-result-meta strong {
   color: var(--market-ink);
+}
+
+.advisory-supporting-details {
+  margin-top: 24px;
+  border: 1px solid var(--market-line);
+  border-radius: 12px;
+  background: var(--market-paper);
+}
+
+.advisory-supporting-details summary {
+  cursor: pointer;
+  padding: 14px 16px;
+  color: var(--market-ink);
+  font-weight: 700;
+}
+
+.advisory-supporting-content {
+  display: grid;
+  gap: 24px;
+  padding: 0 16px 16px;
 }
 
 .advisory-result-section + .advisory-result-section {
@@ -1746,22 +1776,6 @@ form button,
 
 .advisory-narrative-points p {
   margin: 0;
-}
-
-.advisory-narrative-evidence {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  color: var(--market-muted);
-  font-size: 12px;
-}
-
-.advisory-narrative-evidence code {
-  padding: 2px 6px;
-  border-radius: 6px;
-  background: rgb(38 35 31 / 8%);
-  color: var(--market-ink);
 }
 
 .advisory-fallback-values {
@@ -1924,6 +1938,15 @@ form button,
     flex-basis: 100%;
   }
 
+  .advisory-result-panel {
+    padding: 14px;
+  }
+
+  .advisory-result-title {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .advisory-desktop-table {
     display: none;
   }
@@ -1943,17 +1966,41 @@ form button,
   }
 
   .advisory-mobile-cards p {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    align-items: start;
     gap: 12px;
     margin: 0;
+  }
+
+  .advisory-mobile-cards p > :last-child {
+    text-align: right;
+  }
+
+  .advisory-result-panel .advisory-table-wrap:not(.advisory-desktop-table) {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+  }
+
+  .advisory-result-panel .advisory-table-wrap:not(.advisory-desktop-table) table {
+    min-width: 100%;
+    table-layout: fixed;
+  }
+
+  .advisory-result-panel .advisory-table-wrap:not(.advisory-desktop-table) :is(th, td) {
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .advisory-filing-list,
   .advisory-filing-list dl,
   .advisory-narrative-grid {
     grid-template-columns: 1fr;
+  }
+
+  .advisory-evidence-meta div {
+    grid-template-columns: minmax(0, 82px) minmax(0, 1fr);
   }
 }
 

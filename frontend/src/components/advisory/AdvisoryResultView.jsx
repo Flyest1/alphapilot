@@ -1,6 +1,7 @@
 import {
   archivesUrl,
   evidenceUrl,
+  formatAdvisoryDate,
   formatAdvisoryValue,
   labelFor,
   limitedStatuses,
@@ -135,7 +136,7 @@ function SecFilings({ filings }) {
   );
 }
 
-function Evidence({ evidence }) {
+export function AdvisoryEvidence({ evidence }) {
   const rows = safeRows(evidence);
   if (!rows.length) return null;
   return (
@@ -160,7 +161,7 @@ function Evidence({ evidence }) {
                 </div>
                 <div>
                   <dt>기준일</dt>
-                  <dd>{item.source_as_of || item.as_of || "미상"}</dd>
+                  <dd>{formatAdvisoryValue("source_as_of", item.source_as_of || item.as_of)}</dd>
                 </div>
               </dl>
               {link ? (
@@ -304,9 +305,9 @@ export function AdvisoryPriorityNotices({ result }) {
       ))}
       {nport && (
         <p className="notice advisory-nport-notice" role="note">
-          N-PORT 보유·흐름 정보는 {nport.filingPeriod || "공시 기준일 미상"} 기준의 공시 지연
-          자료입니다{nport.delay != null ? ` (${nport.delay}일 지연)` : ""}. 현재 또는 일별 ETF
-          흐름으로 해석하지 마세요.
+          N-PORT 보유·흐름 정보는 {formatAdvisoryDate(nport.filingPeriod || "공시 기준일 미상")}{" "}
+          기준의 공시 지연 자료입니다{nport.delay != null ? ` (${nport.delay}일 지연)` : ""}. 현재
+          또는 일별 ETF 흐름으로 해석하지 마세요.
         </p>
       )}
     </>
@@ -322,6 +323,13 @@ export default function AdvisoryResultView({ result }) {
     "disclaimer",
     "ai_narrative",
     "ai_narrative_status",
+    "summary",
+    "beginner_explanation",
+    "rating_reason",
+    "risk_rating",
+    "missing_fields",
+    "limitations",
+    "provider",
     "generated_at",
     "retrieved_at",
     "source_as_of",
@@ -352,7 +360,6 @@ export default function AdvisoryResultView({ result }) {
       {config.sections.map(({ key, ...section }) => (
         <ResultTable key={key} {...section} rows={result[key]} />
       ))}
-      <Evidence evidence={result.evidence} />
       <FallbackDetails result={result} knownKeys={knownKeys} />
     </>
   );

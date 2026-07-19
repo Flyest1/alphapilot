@@ -92,7 +92,6 @@ function confidenceDetailText(detail) {
   } else {
     parts.push("과거 목표 도달 표본 없음");
   }
-  parts.push(detail.news_context_used ? "뉴스 컨텍스트 반영" : "뉴스 컨텍스트 미반영");
   return parts.join(" · ");
 }
 

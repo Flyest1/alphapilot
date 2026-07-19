@@ -248,3 +248,18 @@ export function displayText(value) {
 
   return text;
 }
+
+export function displayReportText(value) {
+  return displayText(value)
+    .replace(/\[[^\]]*https?:\/\/[^\]]*\]/gi, "")
+    .replace(
+      /\[(?=[^\]]*(?:evidence|source|provider|publisher|domain|(?:N|E)[A-Za-z0-9:_-]*|(?:www\.)?[a-z0-9-]+(?:\.[a-z]{2,})+))[^\]]*\]/gi,
+      "",
+    )
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/\b(?:www\.)?[a-z0-9-]+(?:\.[a-z]{2,})+(?:\/\S*)?\b/gi, "")
+    .replace(/\bGDELT(?:\s+DOC\s+2\.0)?\b/gi, "")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}

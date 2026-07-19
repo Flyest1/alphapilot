@@ -4,7 +4,7 @@ import { api, isApiCacheFresh, readApiCache } from "../api/client.js";
 import {
   actionLabel,
   dataLimitedCount,
-  displayText,
+  displayReportText,
   formatReportTime,
   pickReportWithStrategies,
   reportAiModeLabel,
@@ -224,19 +224,19 @@ export default function Dashboard() {
         <section className="panel">
           <h2>최신 리포트</h2>
           <p>
-            {displayText(content.market_summary?.summary || summary?.latest_report_summary) ||
+            {displayReportText(content.market_summary?.summary || summary?.latest_report_summary) ||
               "아직 리포트가 없습니다."}
           </p>
           <h3>기회 요인</h3>
           <ul>
             {(content.opportunities || []).slice(0, 4).map((item) => (
-              <li key={item}>{displayText(item)}</li>
+              <li key={item}>{displayReportText(item)}</li>
             ))}
           </ul>
           <h3>주요 위험</h3>
           <ul>
             {(content.key_risks || []).slice(0, 4).map((item) => (
-              <li key={item}>{displayText(item)}</li>
+              <li key={item}>{displayReportText(item)}</li>
             ))}
           </ul>
         </section>

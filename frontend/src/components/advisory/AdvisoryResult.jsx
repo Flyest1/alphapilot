@@ -1,4 +1,7 @@
-import AdvisoryResultView, { AdvisoryPriorityNotices } from "./AdvisoryResultView.jsx";
+import AdvisoryResultView, {
+  AdvisoryEvidence,
+  AdvisoryPriorityNotices,
+} from "./AdvisoryResultView.jsx";
 import { formatAdvisoryValue, isRecord, labelFor, statusLabel } from "./advisoryResultUtils.js";
 
 const AI_NARRATIVE_ALERTS = {
@@ -17,18 +20,6 @@ function Meta({ label, value, field }) {
     <span>
       <strong>{label}</strong>
       {value == null || value === "" ? "제공되지 않음" : formatAdvisoryValue(field, value)}
-    </span>
-  );
-}
-
-function EvidenceIds({ ids }) {
-  if (!Array.isArray(ids) || !ids.length) return null;
-  return (
-    <span className="advisory-narrative-evidence">
-      <span>근거 ID</span>
-      {ids.slice(0, 10).map((evidenceId, index) => (
-        <code key={`${String(evidenceId)}-${index}`}>{String(evidenceId)}</code>
-      ))}
     </span>
   );
 }
@@ -61,7 +52,6 @@ function NarrativePoints({ title, points }) {
                   {formatAdvisoryValue("point_type", normalizedPoint.point_type)}
                 </span>
               )}
-              <EvidenceIds ids={normalizedPoint.evidence_ids} />
             </li>
           );
         })}
@@ -84,7 +74,6 @@ function AdvisoryNarrative({ narrative }) {
       {narrative.summary != null && (
         <div className="advisory-narrative-summary">
           <p>{narrativeText(narrative.summary)}</p>
-          <EvidenceIds ids={narrative.summary_evidence_ids} />
         </div>
       )}
       <div className="advisory-narrative-grid">
@@ -143,43 +132,6 @@ export default function AdvisoryResult({ analysis }) {
           <span className="alert">AI 설명 상태: {AI_NARRATIVE_ALERTS[aiNarrativeState]}</span>
         </p>
       )}
-      <div className="advisory-result-meta">
-        <Meta
-          label="데이터 기준일"
-          field="source_as_of"
-          value={firstDefined(result.source_as_of, dataQuality.source_as_of, dataQuality.as_of)}
-        />
-        <Meta
-          label="생성 시각"
-          field="generated_at"
-          value={firstDefined(result.generated_at, analysis?.generated_at, analysis?.created_at)}
-        />
-        <Meta
-          label="조회 시각"
-          field="retrieved_at"
-          value={firstDefined(result.retrieved_at, dataQuality.retrieved_at)}
-        />
-        <Meta
-          label="제공처"
-          field="provider"
-          value={Array.isArray(providers) ? providers.join(", ") : providers}
-        />
-        <Meta
-          label="데이터 상태"
-          field="status"
-          value={statusLabel(dataQuality.status || result.evaluation_status)}
-        />
-        <Meta
-          label="누락 필드"
-          field="missing_fields"
-          value={Array.isArray(missingFields) ? missingFields.join(", ") : missingFields}
-        />
-        <Meta
-          label="제한 사항"
-          field="limitations"
-          value={Array.isArray(limitations) ? limitations.join(" · ") : limitations}
-        />
-      </div>
       {summary && (
         <section className="advisory-result-section">
           <h3>요약</h3>
@@ -194,6 +146,53 @@ export default function AdvisoryResult({ analysis }) {
           <p>{formatAdvisoryValue("disclaimer", result.disclaimer)}</p>
         </section>
       )}
+      <details className="advisory-supporting-details">
+        <summary>추가 메타데이터 및 근거</summary>
+        <div className="advisory-supporting-content">
+          <div className="advisory-result-meta">
+            <Meta
+              label="데이터 기준일"
+              field="source_as_of"
+              value={firstDefined(result.source_as_of, dataQuality.source_as_of, dataQuality.as_of)}
+            />
+            <Meta
+              label="생성 시각"
+              field="generated_at"
+              value={firstDefined(
+                result.generated_at,
+                analysis?.generated_at,
+                analysis?.created_at,
+              )}
+            />
+            <Meta
+              label="조회 시각"
+              field="retrieved_at"
+              value={firstDefined(result.retrieved_at, dataQuality.retrieved_at)}
+            />
+            <Meta
+              label="제공처"
+              field="provider"
+              value={Array.isArray(providers) ? providers.join(", ") : providers}
+            />
+            <Meta
+              label="데이터 상태"
+              field="status"
+              value={statusLabel(dataQuality.status || result.evaluation_status)}
+            />
+            <Meta
+              label="누락 필드"
+              field="missing_fields"
+              value={Array.isArray(missingFields) ? missingFields.join(", ") : missingFields}
+            />
+            <Meta
+              label="제한 사항"
+              field="limitations"
+              value={Array.isArray(limitations) ? limitations.join(" · ") : limitations}
+            />
+          </div>
+          <AdvisoryEvidence evidence={result.evidence} />
+        </div>
+      </details>
     </section>
   );
 }

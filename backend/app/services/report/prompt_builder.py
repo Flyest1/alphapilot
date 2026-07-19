@@ -6,7 +6,7 @@ from app.models.report import AssetStrategy
 from app.services.technical_analysis_service import TechnicalAnalysisResult
 
 DISCLAIMER = "이 리포트는 투자 의사결정 지원용이며 자동 매매를 실행하지 않습니다."
-PROMPT_VERSION = "2026-07-r3"
+PROMPT_VERSION = "2026-07-r4"
 
 
 def build_prompt(report_type: str) -> str:
@@ -39,12 +39,19 @@ def build_prompt(report_type: str) -> str:
         "For non-owned candidates, do not use HOLD; use BUY for active entry ideas and WATCH "
         "for waitlisted ideas. "
         "context.candidate_horizon is the target holding/profit-taking horizon for those "
-        "candidate ideas. context.news_context contains recent GDELT news/trend headlines. "
-        "Treat every news item as headline-only evidence. When a news item affects an allowed "
-        "text field, include [evidence_id · domain · seen_at · url] in that same sentence. "
-        "Do not imply "
-        "that article body text was read. If news_context has no articles, assign no news "
-        "contribution and state the evidence limitation when relevant. "
+        "candidate ideas. context.news_context contains recent headline-only news/trend inputs. "
+        "Use them only as limited internal context; do not imply that article body text was read. "
+        "Never expose evidence IDs, URLs, domains, publisher or site names, news providers, or "
+        "GDELT in user-facing text. If news_context has no articles, assign no news contribution "
+        "and state the evidence limitation when relevant. "
+        "context.advisory_context contains bounded summaries of recent completed manual advisory "
+        "analyses. Treat them as historical decision-support inputs, not fresh market facts or "
+        "trade instructions. Use an advisory only when it is directly relevant to the current "
+        "report type or a ticker in context.technical_strategies. Never let advisory context "
+        "override fresh prices, technical strategies, actions, confidence, targets, or stop-loss "
+        "values. Do not transfer US or ETF security-level conclusions to unrelated domestic "
+        "assets. Use advisory data-quality limitations, and never expose analysis IDs, request "
+        "data, evidence identifiers, URLs, or provider credentials. "
         "context.asset_events contains upcoming owned-asset earnings/dividend dates from "
         "yfinance. Surface relevant event risk/opportunity only in existing allowed fields. "
         "Use it only when relevant inside allowed fields such as macro_factors, key_risks, "
@@ -64,6 +71,7 @@ def build_context(
     stale_tickers: list[str],
     news_context: dict[str, Any],
     asset_events: dict[str, Any],
+    advisory_context: dict[str, Any],
     generated_at: str,
 ) -> dict[str, Any]:
     return {
@@ -82,6 +90,7 @@ def build_context(
         "stale_tickers": stale_tickers,
         "news_context": news_context,
         "asset_events": asset_events,
+        "advisory_context": advisory_context,
         "generated_at": generated_at,
         "asset_context": [
             {

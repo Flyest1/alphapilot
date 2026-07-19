@@ -104,6 +104,8 @@ export const FIELD_LABELS = {
 
 const PERCENT_FIELD = /(_pct|_percent|_percentage|_rate)$/;
 const USD_FIELD = /(_usd|market_cap|\bcash\b)$/;
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T/;
 const LIMITATION_STATUSES = new Set([
   "partial",
   "limited",
@@ -405,6 +407,26 @@ export function statusLabel(value) {
   return STATUS_LABELS[value] || String(value ?? "-");
 }
 
+export function formatAdvisoryDate(value) {
+  if (typeof value !== "string") return String(value ?? "-");
+  if (ISO_DATE_PATTERN.test(value)) {
+    const [year, month, day] = value.split("-").map(Number);
+    return `${year}년 ${month}월 ${day}일`;
+  }
+  if (!ISO_TIMESTAMP_PATTERN.test(value)) return value;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+}
+
 export function formatAdvisoryValue(key, value) {
   if (value == null || value === "") return "-";
   if (typeof value === "boolean") return value ? "예" : "아니오";
@@ -418,6 +440,12 @@ export function formatAdvisoryValue(key, value) {
     return Object.entries(value)
       .map(([itemKey, item]) => `${labelFor(itemKey)}: ${formatAdvisoryValue(itemKey, item)}`)
       .join(" · ");
+  if (
+    typeof value === "string" &&
+    (ISO_DATE_PATTERN.test(value) || ISO_TIMESTAMP_PATTERN.test(value))
+  ) {
+    return formatAdvisoryDate(value);
+  }
   return STATUS_LABELS[value] || String(value);
 }
 

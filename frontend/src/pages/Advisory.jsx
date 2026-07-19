@@ -15,6 +15,7 @@ import {
   getAdvisoryFeature,
   validateAdvisoryPayload,
 } from "../components/advisory/advisoryFeatures.js";
+import { formatAdvisoryDate } from "../components/advisory/advisoryResultUtils.js";
 import {
   clearActiveAdvisoryJobId,
   isTerminalAdvisoryJob,
@@ -413,7 +414,9 @@ export default function Advisory() {
               >
                 <strong>{getAdvisoryFeature(analysis.analysis_type).title}</strong>
                 <span>
-                  {analysis.created_at || analysis.generated_at || "기준시각 제공되지 않음"}
+                  {analysis.created_at || analysis.generated_at
+                    ? formatAdvisoryDate(analysis.created_at || analysis.generated_at)
+                    : "기준시각 제공되지 않음"}
                 </span>
               </button>
             ))}

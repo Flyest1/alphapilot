@@ -429,7 +429,7 @@ def test_report_passes_news_context_to_openai():
     )
 
 
-def test_report_marks_news_context_in_macro_factors():
+def test_report_marks_news_context_without_exposing_provider_name():
     repo = seeded_repo()
     ai = RetryAI()
     service = ReportService(
@@ -443,7 +443,8 @@ def test_report_marks_news_context_in_macro_factors():
     report = service.generate_report("domestic")
     content = ReportContent.model_validate(report["content"])
 
-    assert any("GDELT" in factor for factor in content.market_summary.macro_factors)
+    assert any("뉴스/동향 헤드라인" in factor for factor in content.market_summary.macro_factors)
+    assert all("GDELT" not in factor for factor in content.market_summary.macro_factors)
 
 
 def test_report_generation_refreshes_usd_krw_rate_setting():

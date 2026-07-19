@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import AdvisoryResult from "./AdvisoryResult.jsx";
+import { formatAdvisoryDate } from "./advisoryResultUtils.js";
 
 const base = {
   data_quality: { status: "available", provider: "yfinance", source_as_of: "2026-07-16" },
@@ -292,7 +293,7 @@ describe("AdvisoryResult", () => {
       />,
     );
 
-    expect(screen.getByRole("note")).toHaveTextContent("2026-04-30");
+    expect(screen.getByRole("note")).toHaveTextContent("2026년 4월 30일");
     expect(screen.getByRole("note")).toHaveTextContent("60일 지연");
     expect(screen.getByRole("note")).toHaveTextContent(
       "현재 또는 일별 ETF 흐름으로 해석하지 마세요.",
@@ -412,11 +413,11 @@ describe("AdvisoryResult", () => {
     const rejectedEvidence = screen.getByText("Wrong host").closest("article");
     expect(within(rejectedEvidence).getByText("BAD2")).toBeInTheDocument();
     expect(within(rejectedEvidence).getByText("sec_edgar")).toBeInTheDocument();
-    expect(within(rejectedEvidence).getByText("2026-07-15")).toBeInTheDocument();
+    expect(within(rejectedEvidence).getByText("2026년 7월 15일")).toBeInTheDocument();
     expect(within(rejectedEvidence).queryByRole("link")).not.toBeInTheDocument();
   });
 
-  it("renders the structured AI narrative and its evidence ids", () => {
+  it("renders the structured AI narrative without inline evidence ids", () => {
     render(
       <AdvisoryResult
         analysis={{
@@ -462,8 +463,63 @@ describe("AdvisoryResult", () => {
     expect(screen.getByText("기술 섹터의 상대 흐름을 확인했습니다.")).toBeInTheDocument();
     expect(screen.getByText("시장 입력의 공백을 함께 고려해야 합니다.")).toBeInTheDocument();
     expect(screen.getByText("후속 데이터 갱신 여부를 관찰합니다.")).toBeInTheDocument();
-    expect(screen.getAllByText("sector:XLK")).not.toHaveLength(0);
-    expect(screen.getAllByText("coverage:1")).not.toHaveLength(0);
+    expect(screen.queryByText("sector:XLK")).not.toBeInTheDocument();
+    expect(screen.queryByText("coverage:1")).not.toBeInTheDocument();
+  });
+
+  it("shows the summary and key findings before supporting metadata", () => {
+    render(
+      <AdvisoryResult
+        analysis={{
+          generated_at: "2026-07-16T15:30:00Z",
+          result: {
+            ...base,
+            analysis_type: "undervalued_us_stocks",
+            summary: "핵심 요약입니다.",
+            top_candidates: [{ ticker: "AAPL", investment_score: 82, action: "WATCH" }],
+            rows: [],
+            ai_narrative: {
+              summary: "핵심 판단 근거입니다.",
+              key_findings: [{ text: "가장 중요한 결과입니다." }],
+            },
+          },
+        }}
+      />,
+    );
+
+    const summary = screen.getByText("핵심 요약입니다.");
+    const keyFinding = screen.getByText("가장 중요한 결과입니다.");
+    const supportingDetails = screen.getByText("추가 메타데이터 및 근거").closest("details");
+
+    expect(supportingDetails).toBeInTheDocument();
+    expect(
+      summary.compareDocumentPosition(supportingDetails) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(
+      keyFinding.compareDocumentPosition(supportingDetails) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("formats ISO dates with Korean labels in the Asia/Seoul timezone", () => {
+    expect(formatAdvisoryDate("2026-07-16")).toBe("2026년 7월 16일");
+    expect(formatAdvisoryDate("2026-07-16T15:30:00Z")).toMatch(/2026년 7월 17일/);
+
+    render(
+      <AdvisoryResult
+        analysis={{
+          generated_at: "2026-07-16T15:30:00Z",
+          result: {
+            ...base,
+            analysis_type: "sector_outlook",
+            sectors: [],
+            investor_portfolios: [],
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getAllByText("2026년 7월 16일")).not.toHaveLength(0);
+    expect(screen.getByText(/2026년 7월 17일/)).toBeInTheDocument();
   });
 
   it("keeps data-limited warnings ahead of the structured AI narrative", () => {

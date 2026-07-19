@@ -165,6 +165,20 @@ describe("Advisory page", () => {
     expect(await screen.findByText(/OpenAI 자문 설명이 설정되지 않았습니다/)).toBeInTheDocument();
   });
 
+  it("formats advisory history timestamps in Korean Asia/Seoul time", async () => {
+    api.listAdvisoryAnalyses.mockResolvedValue([
+      {
+        analysis_id: "analysis-history-1",
+        analysis_type: "undervalued_us_stocks",
+        created_at: "2026-07-16T15:30:00Z",
+      },
+    ]);
+
+    render(<Advisory />);
+
+    expect(await screen.findByText(/2026년 7월 17일/)).toBeInTheDocument();
+  });
+
   it("restores an active job after refresh and clears only its terminal job id", async () => {
     window.sessionStorage.setItem(ACTIVE_ADVISORY_JOB_STORAGE_KEY, "restored-job");
     api.getAdvisoryJob.mockResolvedValue({
