@@ -6,7 +6,7 @@ from app.models.report import AssetStrategy
 from app.services.technical_analysis_service import TechnicalAnalysisResult
 
 DISCLAIMER = "이 리포트는 투자 의사결정 지원용이며 자동 매매를 실행하지 않습니다."
-PROMPT_VERSION = "2026-07-r4"
+PROMPT_VERSION = "2026-07-r5"
 
 
 def build_prompt(report_type: str) -> str:
@@ -41,9 +41,12 @@ def build_prompt(report_type: str) -> str:
         "context.candidate_horizon is the target holding/profit-taking horizon for those "
         "candidate ideas. context.news_context contains recent headline-only news/trend inputs. "
         "Use them only as limited internal context; do not imply that article body text was read. "
-        "Never expose evidence IDs, URLs, domains, publisher or site names, news providers, or "
-        "GDELT in user-facing text. If news_context has no articles, assign no news contribution "
-        "and state the evidence limitation when relevant. "
+        "Never write URLs, domains, publisher or site names, news providers, or GDELT in "
+        "user-facing text. When a sentence relies on a news headline, append that article's "
+        "marker in the exact form [[N1]] at the end of the sentence, using the evidence_id and "
+        "nothing else. The backend removes markers before display, so never write the domain, "
+        "URL, date, or publisher alongside one. If news_context has no articles, assign no news "
+        "contribution and state the evidence limitation when relevant. "
         "context.advisory_context contains bounded summaries of recent completed manual advisory "
         "analyses. Treat them as historical decision-support inputs, not fresh market facts or "
         "trade instructions. Use an advisory only when it is directly relevant to the current "

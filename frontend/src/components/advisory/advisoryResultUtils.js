@@ -106,6 +106,18 @@ const PERCENT_FIELD = /(_pct|_percent|_percentage|_rate)$/;
 const USD_FIELD = /(_usd|market_cap|\bcash\b)$/;
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T/;
+const ISO_OFFSET_PATTERN = /(?:Z|[+-]\d{2}:?\d{2})$/i;
+// Intl.DateTimeFormat 생성은 로케일 협상 비용이 커서 호출마다 만들면 안 된다.
+// 옵션이 고정이므로 모듈 로드 시 한 번만 만든다.
+const ADVISORY_DATE_TIME_FORMAT = new Intl.DateTimeFormat("ko-KR", {
+  timeZone: "Asia/Seoul",
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
 const LIMITATION_STATUSES = new Set([
   "partial",
   "limited",
@@ -414,17 +426,11 @@ export function formatAdvisoryDate(value) {
     return `${year}년 ${month}월 ${day}일`;
   }
   if (!ISO_TIMESTAMP_PATTERN.test(value)) return value;
-  const date = new Date(value);
+  // 오프셋이 없는 타임스탬프는 ES 규격상 브라우저 로컬로 해석되어 뷰어 기기마다
+  // 날짜가 달라지므로, 백엔드(_parse_timestamp)와 동일하게 UTC로 고정한다.
+  const date = new Date(ISO_OFFSET_PATTERN.test(value) ? value : `${value}Z`);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("ko-KR", {
-    timeZone: "Asia/Seoul",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).format(date);
+  return ADVISORY_DATE_TIME_FORMAT.format(date);
 }
 
 export function formatAdvisoryValue(key, value) {

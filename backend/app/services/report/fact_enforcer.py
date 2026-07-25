@@ -1,6 +1,7 @@
 """Normalize generated report content against backend-owned facts."""
 
 from collections.abc import Mapping
+import re
 from typing import Any, TypedDict
 
 from app.models.report import AssetStrategy, ReportContent
@@ -42,6 +43,22 @@ FORBIDDEN_NARRATIVE_TERMS = (
     "반드시 매수",
     "반드시 매도",
 )
+
+# The model tags a news-backed sentence with [[N1]] so attribution stays measurable;
+# the marker is removed here, before the report is stored or shown.
+_EVIDENCE_MARKER_PATTERN = re.compile(r"\s*\[\[[^\[\]]{1,64}\]\]")
+# A bracketed aside is only removed when it holds a URL or opens with an evidence id
+# (N1/E12), never merely because it contains a letter that appears in "evidence".
+_BRACKETED_SOURCE_PATTERN = re.compile(r"\[(?:[^\]]*https?://[^\]]*|\s*[NE]\d+\b[^\]]*)\]")
+_URL_PATTERN = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
+_NEWS_PROVIDER_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])GDELT(?:\s+DOC\s+2\.0)?(?![A-Za-z0-9])", re.IGNORECASE
+)
+_DANGLING_SOURCE_LABEL_PATTERN = re.compile(
+    r"(?:출처|source)\s*[:：]\s*(?=[,.;)\]]|$)", re.IGNORECASE
+)
+_SPACE_BEFORE_PUNCTUATION_PATTERN = re.compile(r"\s+([,.;:!?])")
+_EMPTY_PARENTHESES_PATTERN = re.compile(r"\(\s*\)|\[\s*\]|（\s*）")
 
 
 def enforce_report_facts(
@@ -147,6 +164,115 @@ def enforce_report_facts(
         ),
         corrections,
     )
+
+
+def redact_source_references(
+    content: ReportContent,
+    articles: list[dict[str, Any]] | None = None,
+) -> tuple[ReportContent, list[str]]:
+    """Strip evidence markers and news-source identifiers from user-facing narrative text.
+
+    The prompt forbids them, but a prompt rule has no failure signal. Running the
+    redaction here — before persistence — means the stored report, the API payload,
+    and every consumer (exports, notifications, any future client) see the same clean
+    text, instead of relying on one display component to opt in.
+    """
+    patterns = _source_patterns(articles or [])
+    redacted: list[str] = []
+
+    def clean(path: str, value: str) -> str:
+        result = _redact(value, patterns)
+        if result != value:
+            redacted.append(path)
+        return result
+
+    def clean_list(prefix: str, values: list[str]) -> list[str]:
+        cleaned = (clean(f"{prefix}[{index}]", value) for index, value in enumerate(values))
+        # A bullet that was nothing but a citation must disappear, not render blank.
+        return [value for value in cleaned if value]
+
+    market_summary = content.market_summary.model_copy(
+        update={
+            "summary": clean("market_summary.summary", content.market_summary.summary),
+            "macro_factors": clean_list(
+                "market_summary.macro_factors", list(content.market_summary.macro_factors)
+            ),
+        }
+    )
+    portfolio_summary = content.portfolio_summary.model_copy(
+        update={
+            "allocation_comment": clean(
+                "portfolio_summary.allocation_comment",
+                content.portfolio_summary.allocation_comment,
+            )
+        }
+    )
+    strategies = [
+        strategy.model_copy(
+            update={
+                "reasoning": clean(f"asset_strategies[{index}].reasoning", strategy.reasoning),
+                "risk": clean(f"asset_strategies[{index}].risk", strategy.risk),
+                "invalidation_condition": clean(
+                    f"asset_strategies[{index}].invalidation_condition",
+                    strategy.invalidation_condition,
+                ),
+            }
+        )
+        for index, strategy in enumerate(content.asset_strategies)
+    ]
+    return (
+        content.model_copy(
+            update={
+                "market_summary": market_summary,
+                "portfolio_summary": portfolio_summary,
+                "key_risks": clean_list("key_risks", list(content.key_risks)),
+                "opportunities": clean_list("opportunities", list(content.opportunities)),
+                "asset_strategies": strategies,
+            }
+        ),
+        redacted,
+    )
+
+
+def _source_patterns(articles: list[dict[str, Any]]) -> list[re.Pattern[str]]:
+    """Match the exact domains and publisher names the report was actually fed.
+
+    Deriving the terms from the fetched articles keeps this precise: a generic
+    "looks like a hostname" rule cannot tell reuters.com from the 005930.KS ticker
+    suffix that legitimately appears in Korean report prose.
+    """
+    terms: set[str] = set()
+    for article in articles:
+        domain = str(article.get("domain") or "").strip().lower()
+        if not domain:
+            continue
+        terms.add(domain)
+        labels = [label for label in domain.split(".") if label and label != "www"]
+        if len(labels) >= 2:
+            # "reuters.com" also blocks a bare "Reuters" mention.
+            terms.add(labels[-2])
+    # ASCII-only boundaries, because \b does not fire between "Reuters" and a
+    # following Hangul syllable: Python treats both sides as word characters.
+    return [
+        re.compile(rf"(?<![A-Za-z0-9]){re.escape(term)}(?![A-Za-z0-9])", re.IGNORECASE)
+        for term in sorted(terms, key=len, reverse=True)
+        if len(term) >= 3
+    ]
+
+
+def _redact(value: str, patterns: list[re.Pattern[str]]) -> str:
+    if not value:
+        return value
+    result = _EVIDENCE_MARKER_PATTERN.sub("", value)
+    result = _BRACKETED_SOURCE_PATTERN.sub("", result)
+    result = _URL_PATTERN.sub("", result)
+    result = _NEWS_PROVIDER_PATTERN.sub("", result)
+    for pattern in patterns:
+        result = pattern.sub("", result)
+    result = _DANGLING_SOURCE_LABEL_PATTERN.sub("", result)
+    result = _SPACE_BEFORE_PUNCTUATION_PATTERN.sub(r"\1", result)
+    result = _EMPTY_PARENTHESES_PATTERN.sub("", result)
+    return " ".join(result.split()).strip(" ·,")
 
 
 def forbidden_narrative_paths(content: ReportContent) -> list[str]:

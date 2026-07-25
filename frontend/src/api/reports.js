@@ -249,17 +249,37 @@ export function displayText(value) {
   return text;
 }
 
+// Reports generated from PROMPT_VERSION 2026-07-r5 onward are already redacted by the
+// backend (fact_enforcer.redact_source_references), so these rules only have to cover
+// text stored by earlier versions, which cited sources inline.
+const EVIDENCE_MARKER_PATTERN = /\s*\[\[[^[\]]{1,64}\]\]/g;
+// A bracketed aside is removed only when it holds a URL or opens with an evidence id
+// (N1/E12). Matching on a stray letter deletes "[ETF 비중 조정]" and "[Fed 금리 인상]".
+const BRACKETED_SOURCE_PATTERN = /\[(?:[^\]]*https?:\/\/[^\]]*|\s*[NE]\d+\b[^\]]*)\]/g;
+const URL_PATTERN = /(?:https?:\/\/|www\.)\S+/gi;
+// Explicit lowercase TLD list: a generic `word.word` rule deletes exchange suffixes
+// such as 005930.KS, 035720.KQ and TSM.TW from legitimate report text.
+const BARE_DOMAIN_PATTERN =
+  /\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|news|kr|jp|cn|uk|us|eu|info|biz)(?:\/\S*)?/g;
+const NEWS_PROVIDER_PATTERN =
+  /\b(?:GDELT(?:\s+DOC\s+2\.0)?|Reuters|Bloomberg|CNBC|Yonhap|Nikkei|연합뉴스)\b/gi;
+const DANGLING_SOURCE_LABEL_PATTERN = /(?:출처|source)\s*[:：]\s*(?=[,.;)\]]|$)/gi;
+const EMPTY_BRACKETS_PATTERN = /\(\s*\)|\[\s*\]|（\s*）/g;
+
 export function displayReportText(value) {
-  return displayText(value)
-    .replace(/\[[^\]]*https?:\/\/[^\]]*\]/gi, "")
-    .replace(
-      /\[(?=[^\]]*(?:evidence|source|provider|publisher|domain|(?:N|E)[A-Za-z0-9:_-]*|(?:www\.)?[a-z0-9-]+(?:\.[a-z]{2,})+))[^\]]*\]/gi,
-      "",
-    )
-    .replace(/https?:\/\/\S+/gi, "")
-    .replace(/\b(?:www\.)?[a-z0-9-]+(?:\.[a-z]{2,})+(?:\/\S*)?\b/gi, "")
-    .replace(/\bGDELT(?:\s+DOC\s+2\.0)?\b/gi, "")
-    .replace(/\s+([,.;:!?])/g, "$1")
-    .replace(/\s{2,}/g, " ")
-    .trim();
+  return (
+    displayText(value)
+      .replace(EVIDENCE_MARKER_PATTERN, "")
+      .replace(BRACKETED_SOURCE_PATTERN, "")
+      .replace(URL_PATTERN, "")
+      // Domains before publisher names: stripping "Reuters" first would leave ".com".
+      .replace(BARE_DOMAIN_PATTERN, "")
+      .replace(NEWS_PROVIDER_PATTERN, "")
+      .replace(DANGLING_SOURCE_LABEL_PATTERN, "")
+      .replace(EMPTY_BRACKETS_PATTERN, "")
+      .replace(/\s+([,.;:!?])/g, "$1")
+      .replace(/\s{2,}/g, " ")
+      .trim()
+      .replace(/^[·,]\s*|\s*[·,]$/g, "")
+  );
 }

@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from app.db.supabase_client import Repository
+from app.utils.datetime import parse_iso_datetime
 from app.utils.logging import log_external_failure
 
 ADVISORY_LOOKBACK_DAYS = 30
@@ -13,9 +14,10 @@ MAX_ADVISORY_ANALYSES = 8
 MAX_ADVISORY_CONTEXT_BYTES = 12_000
 MAX_ADVISORY_TICKERS = 5
 MAX_ADVISORY_ACTIONS = 5
-MAX_ADVISORY_PROVIDERS = 3
 MAX_ADVISORY_ITEMS = 3
 
+# Each advisory type maps to the result-payload key holding its per-row findings.
+# Keep this aligned with the result models in app/models/advisory.py.
 _FINDING_COLLECTIONS = {
     "undervalued_us_stocks": "top_candidates",
     "etf_rebalancing": "etfs",
@@ -24,13 +26,19 @@ _FINDING_COLLECTIONS = {
     "high_dividend_etfs": "etfs",
     "etf_overlap": "etfs",
     "sector_outlook": "sectors",
+    "sec_filing_risk": "risk_categories",
 }
-_ADVISORY_TYPES = (*_FINDING_COLLECTIONS, "sec_filing_risk")
+_ADVISORY_TYPES = frozenset(_FINDING_COLLECTIONS)
+# One ordered query is enough to find the newest row per type; fetching a bounded
+# page keeps report generation to a single round trip instead of one call per type.
+ADVISORY_FETCH_LIMIT = len(_FINDING_COLLECTIONS) * MAX_ADVISORY_ANALYSES
 _SAFE_ACTIONS = {"BUY", "HOLD", "REDUCE", "SELL", "WATCH"}
 _SAFE_ITEM_FIELDS = {
     "ticker",
     "sector",
     "action",
+    "category",
+    "status",
     "classification",
     "analysis_status",
     "data_quality_status",
@@ -44,9 +52,30 @@ _SAFE_ITEM_FIELDS = {
     "attractiveness_label",
     "risk_rating",
     "current_weight_pct",
-    "overlap_pct",
-    "company_weight_pct",
+    "portfolio_exposure_pct",
+    "top10_overlap_pct",
+    "minimum_confirmed_overlap_pct",
+    "minimum_confirmed_top10_overlap_pct",
 }
+
+
+def _dumps(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+# Constant overhead of the returned envelope, so the byte budget can be tracked
+# incrementally instead of re-serializing every accepted summary on each iteration.
+_ENVELOPE_BYTES = len(
+    _dumps(
+        {
+            "status": "available",
+            "lookback_days": ADVISORY_LOOKBACK_DAYS,
+            "analysis_count": MAX_ADVISORY_ANALYSES,
+            "truncated": True,
+            "analyses": [],
+        }
+    ).encode("utf-8")
+)
 
 
 def build_advisory_context(
@@ -55,15 +84,16 @@ def build_advisory_context(
     now_provider: Callable[[], datetime] | None = None,
 ) -> dict[str, Any]:
     """Return recent completed advisory summaries without raw requests or narratives."""
+    now = now_provider() if now_provider else datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    cutoff = now.astimezone(timezone.utc) - timedelta(days=ADVISORY_LOOKBACK_DAYS)
+
+    # Every step that touches repository output stays inside the guard: report
+    # generation must survive an unreadable or malformed advisory store.
     try:
-        rows = [
-            row
-            for analysis_type in _ADVISORY_TYPES
-            for row in repository.list_advisory_analyses(
-                analysis_type=analysis_type,
-                limit=1,
-            )
-        ]
+        fetched = repository.list_advisory_analyses(limit=ADVISORY_FETCH_LIMIT) or []
+        rows = _recent_rows(fetched, cutoff)
     except Exception as exc:
         log_external_failure(
             "advisory_analyses",
@@ -74,23 +104,20 @@ def build_advisory_context(
             "status": "unavailable",
             "lookback_days": ADVISORY_LOOKBACK_DAYS,
             "analysis_count": 0,
+            "truncated": False,
             "analyses": [],
         }
 
-    now = now_provider() if now_provider else datetime.now(timezone.utc)
-    if now.tzinfo is None:
-        now = now.replace(tzinfo=timezone.utc)
-    cutoff = now.astimezone(timezone.utc) - timedelta(days=ADVISORY_LOOKBACK_DAYS)
     analyses: list[dict[str, Any]] = []
     analysis_types: set[str] = set()
-    truncated = False
-    rows = sorted(rows, key=lambda row: row.get("created_at") or "", reverse=True)
+    # A full page means older rows were never fetched, so the newest run of a
+    # rarely-used type may be missing from this context.
+    truncated = len(fetched) >= ADVISORY_FETCH_LIMIT
+    size = _ENVELOPE_BYTES
     for row in rows:
-        if not isinstance(row, Mapping):
-            continue
-        created_at = _parse_timestamp(row.get("created_at"))
-        if created_at is None or created_at < cutoff:
-            continue
+        if len(analyses) >= MAX_ADVISORY_ANALYSES:
+            truncated = True
+            break
         try:
             summary = _summarize_analysis(row)
         except Exception as exc:
@@ -102,15 +129,14 @@ def build_advisory_context(
             continue
         if summary is None or summary["analysis_type"] in analysis_types:
             continue
-        candidate = analyses + [summary]
-        if _context_size(candidate) > MAX_ADVISORY_CONTEXT_BYTES:
+        # +1 covers the comma separating this summary from the previous one.
+        summary_bytes = len(_dumps(summary).encode("utf-8")) + 1
+        if size + summary_bytes > MAX_ADVISORY_CONTEXT_BYTES:
             truncated = True
             break
+        size += summary_bytes
         analyses.append(summary)
         analysis_types.add(summary["analysis_type"])
-        if len(analyses) >= MAX_ADVISORY_ANALYSES:
-            truncated = len(rows or []) > len(analyses)
-            break
     return {
         "status": "available",
         "lookback_days": ADVISORY_LOOKBACK_DAYS,
@@ -118,6 +144,24 @@ def build_advisory_context(
         "truncated": truncated,
         "analyses": analyses,
     }
+
+
+def _recent_rows(fetched: Any, cutoff: datetime) -> list[Mapping[str, Any]]:
+    """Return in-window advisory rows, newest first, skipping anything unusable."""
+    dated: list[tuple[datetime, Mapping[str, Any]]] = []
+    for row in fetched if isinstance(fetched, list) else []:
+        if not isinstance(row, Mapping):
+            continue
+        if row.get("analysis_type") not in _ADVISORY_TYPES:
+            continue
+        created_at = _parse_timestamp(row.get("created_at"))
+        if created_at is None or created_at < cutoff:
+            continue
+        dated.append((created_at, row))
+    # Sort on the parsed instant: ISO strings with differing offsets do not sort
+    # lexicographically in chronological order.
+    dated.sort(key=lambda item: item[0], reverse=True)
+    return [row for _, row in dated]
 
 
 def _summarize_analysis(row: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -138,17 +182,20 @@ def _summarize_analysis(row: Mapping[str, Any]) -> dict[str, Any] | None:
             "status": _safe_identifier(
                 data_quality.get("status") if isinstance(data_quality, Mapping) else None
             ),
-            "limitation_count": _bounded_length(
+            "limitations": _safe_notes(
                 data_quality.get("limitations") if isinstance(data_quality, Mapping) else None
             ),
-            "missing_field_count": _bounded_length(
+            "limitation_count": _length(
+                data_quality.get("limitations") if isinstance(data_quality, Mapping) else None
+            ),
+            "missing_field_count": _length(
                 data_quality.get("missing_fields") if isinstance(data_quality, Mapping) else None
             ),
         },
-        "evidence": {
-            "count": _bounded_length(evidence),
-            "providers": _evidence_providers(evidence),
-        },
+        # Provider names are deliberately omitted: they are vendor identifiers the
+        # report must never surface, and the advisory evidence list mixes in the
+        # news provider (see AdvisoryPipeline._attach_news_context).
+        "evidence": {"count": _length(evidence)},
         "findings": _findings(analysis_type, result),
     }
 
@@ -196,7 +243,7 @@ def _collect_actions(items: list[Any]) -> list[str]:
         action = _safe_identifier(item.get("action"))
         if action in _SAFE_ACTIONS and action not in actions:
             actions.append(action)
-        if len(actions) >= MAX_ADVISORY_ACTIONS:
+        if len(actions) >= len(_SAFE_ACTIONS):
             break
     return actions
 
@@ -218,23 +265,25 @@ def _summarize_items(items: list[Any]) -> list[dict[str, Any]]:
     return summaries
 
 
-def _evidence_providers(evidence: Any) -> list[str]:
-    if not isinstance(evidence, list):
+def _length(value: Any) -> int:
+    """Report the real length: these are counts, not payloads that need bounding."""
+    return len(value) if isinstance(value, list) else 0
+
+
+def _safe_notes(value: Any) -> list[str]:
+    """Keep the data-quality limitation text the prompt asks the model to weigh."""
+    if not isinstance(value, list):
         return []
-    providers = []
-    for item in evidence:
-        if not isinstance(item, Mapping):
+    notes = []
+    for item in value:
+        if not isinstance(item, str):
             continue
-        provider = _safe_identifier(item.get("provider"))
-        if provider and provider not in providers:
-            providers.append(provider)
-        if len(providers) >= MAX_ADVISORY_PROVIDERS:
+        note = " ".join(item.split())[:160]
+        if note:
+            notes.append(note)
+        if len(notes) >= MAX_ADVISORY_ITEMS:
             break
-    return providers
-
-
-def _bounded_length(value: Any) -> int:
-    return min(len(value), MAX_ADVISORY_ANALYSES) if isinstance(value, list) else 0
+    return notes
 
 
 def _safe_identifier(value: Any) -> str | None:
@@ -243,9 +292,9 @@ def _safe_identifier(value: Any) -> str | None:
     compact = "".join(
         character
         for character in value
-        if character.isascii() and (character.isalnum() or character in "._:-")
+        if character.isascii() and (character.isalnum() or character in "._:- ")
     )
-    return compact[:80] or None
+    return " ".join(compact.split())[:80] or None
 
 
 def _safe_timestamp(value: Any) -> str | None:
@@ -263,28 +312,9 @@ def _safe_scalar(value: Any) -> str | int | float | bool | None:
 
 
 def _parse_timestamp(value: Any) -> datetime | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
+    parsed = parse_iso_datetime(value)
+    if parsed is None:
         return None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
-
-
-def _context_size(analyses: list[dict[str, Any]]) -> int:
-    return len(
-        json.dumps(
-            {
-                "status": "available",
-                "lookback_days": ADVISORY_LOOKBACK_DAYS,
-                "analysis_count": len(analyses),
-                "truncated": False,
-                "analyses": analyses,
-            },
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    )

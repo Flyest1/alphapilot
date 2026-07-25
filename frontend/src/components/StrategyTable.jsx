@@ -1,4 +1,4 @@
-import { actionLabel, displayText } from "../api/reports.js";
+import { actionLabel, displayReportText } from "../api/reports.js";
 import { formatReturn, formatValue } from "../utils/formatters.js";
 import { confidenceBadge } from "../utils/recommendationStats.js";
 
@@ -92,6 +92,9 @@ function confidenceDetailText(detail) {
   } else {
     parts.push("과거 목표 도달 표본 없음");
   }
+  // The breakdown is specified as technical / news / history; the label stays
+  // provider-neutral so no news site is named.
+  parts.push(detail.news_context_used ? "뉴스 컨텍스트 반영" : "뉴스 컨텍스트 미반영");
   return parts.join(" · ");
 }
 
@@ -404,7 +407,7 @@ export default function StrategyTable({ strategies = [], performanceLogs = [], i
               {isDataLimited(strategy) && (
                 <div className="wide-definition">
                   <dt>상태</dt>
-                  <dd>{displayText(strategy.reasoning)}</dd>
+                  <dd>{displayReportText(strategy.reasoning)}</dd>
                 </div>
               )}
             </dl>

@@ -7,6 +7,7 @@ from app.db.supabase_client import InMemoryRepository
 from app.services.market_data_service import MarketDataResult
 from app.services.report import advisory_context as advisory_context_module
 from app.services.report.advisory_context import (
+    ADVISORY_FETCH_LIMIT,
     ADVISORY_LOOKBACK_DAYS,
     build_advisory_context,
 )
@@ -167,6 +168,10 @@ def test_completed_advisory_summary_is_bounded_in_prompt_and_snapshot(report_typ
                     "limitations": ["raw limitation"],
                     "missing_fields": [],
                 },
+                "risk_categories": [
+                    {"category": "supply_chain", "status": "identified"},
+                    {"category": "litigation", "status": "not_identified"},
+                ],
                 "evidence": [{"provider": "sec_edgar", "url": "https://example.com"}],
                 "ai_narrative": {"summary": "must-not-leak"},
             },
@@ -179,19 +184,26 @@ def test_completed_advisory_summary_is_bounded_in_prompt_and_snapshot(report_typ
 
     advisory_context = ai_provider.context["advisory_context"]
     summary = advisory_context["analyses"][0]
-    assert repository.advisory_limits == [1] * 8
+    # One ordered query, not one per advisory type.
+    assert repository.advisory_limits == [ADVISORY_FETCH_LIMIT]
     assert advisory_context["status"] == "available"
     assert advisory_context["lookback_days"] == ADVISORY_LOOKBACK_DAYS
     assert advisory_context["truncated"] is False
     assert summary["analysis_type"] == "sec_filing_risk"
     assert summary["findings"] == {
-        "result_count": 0,
+        "result_count": 2,
         "tickers": ["AAPL"],
         "actions": [],
+        "top_items": [
+            {"category": "supply_chain", "status": "identified"},
+            {"category": "litigation", "status": "not_identified"},
+        ],
         "risk_rating": "high_risk",
         "evaluation_status": "available",
     }
-    assert summary["evidence"] == {"count": 1, "providers": ["sec_edgar"]}
+    # Provider names are vendor identifiers the report must never surface.
+    assert summary["evidence"] == {"count": 1}
+    assert "sec_edgar" not in str(advisory_context)
     assert "secret" not in str(advisory_context)
     assert "raw narrative" not in str(advisory_context)
     assert "https://example.com" not in str(advisory_context)
@@ -206,12 +218,31 @@ def test_advisory_storage_failure_keeps_report_generation_available():
     report = service(repository, FailingAI()).generate_report("domestic")
 
     assert report["content"]
+    # Same shape as the success path, so consumers never hit a missing key on the
+    # degraded path.
     assert repository.get_report(report["id"])["report_inputs"]["advisory_context"] == {
         "status": "unavailable",
         "lookback_days": ADVISORY_LOOKBACK_DAYS,
         "analysis_count": 0,
+        "truncated": False,
         "analyses": [],
     }
+
+
+def test_advisory_context_survives_malformed_rows():
+    class MalformedRepository(InMemoryRepository):
+        def list_advisory_analyses(self, analysis_type=None, limit=None):
+            return ["not-a-mapping", None, {"analysis_type": "etf_overlap"}]
+
+    repository = seeded_repository(MalformedRepository())
+
+    report = service(repository, FailingAI()).generate_report("domestic")
+
+    assert report["content"]
+    assert (
+        repository.get_report(report["id"])["report_inputs"]["advisory_context"]["analysis_count"]
+        == 0
+    )
 
 
 def test_report_prompt_keeps_news_sources_internal():
@@ -221,7 +252,9 @@ def test_report_prompt_keeps_news_sources_internal():
     service(repository, ai_provider).generate_report("domestic")
 
     assert "[evidence_id" not in ai_provider.prompt
-    assert "Never expose evidence IDs" in ai_provider.prompt
+    assert "Never write URLs, domains, publisher or site names" in ai_provider.prompt
+    # Attribution stays measurable through a marker the backend strips before display.
+    assert "[[N1]]" in ai_provider.prompt
     assert "Never let advisory context override fresh prices" in ai_provider.prompt
 
 
@@ -321,3 +354,61 @@ def test_advisory_context_keeps_only_whitelisted_structured_findings():
     ]
     assert "free-form narrative" not in str(context)
     assert "https://example.com/private" not in str(context)
+
+
+def test_advisory_context_reports_true_counts_and_limitation_text():
+    repository = InMemoryRepository()
+    now = datetime(2026, 7, 19, tzinfo=timezone.utc)
+    repository.create_advisory_analysis(
+        {
+            "analysis_id": "analysis-counts",
+            "job_id": "job-counts",
+            "analysis_type": "sector_outlook",
+            "request_payload": {},
+            "result_payload": {
+                "analysis_type": "sector_outlook",
+                "sectors": [{"sector": "technology", "attractiveness_score": 71.0}],
+                "data_quality": {
+                    "status": "partial",
+                    "limitations": [f"제한 {index}" for index in range(25)],
+                    "missing_fields": [f"field_{index}" for index in range(40)],
+                },
+                "evidence": [{"provider": "yfinance"} for _ in range(16)],
+            },
+            "created_at": now.isoformat(),
+        }
+    )
+
+    context = build_advisory_context(repository, now_provider=lambda: now)
+    summary = context["analyses"][0]
+
+    # Counts are facts about the analysis, not payloads that need the analyses cap.
+    assert summary["evidence"]["count"] == 16
+    assert summary["data_quality"]["limitation_count"] == 25
+    assert summary["data_quality"]["missing_field_count"] == 40
+    # The prompt tells the model to weigh limitations, so the text has to reach it.
+    assert summary["data_quality"]["limitations"] == ["제한 0", "제한 1", "제한 2"]
+
+
+def test_advisory_context_orders_by_instant_not_string():
+    repository = InMemoryRepository()
+    now = datetime(2026, 7, 19, tzinfo=timezone.utc)
+    for analysis_id, created_at in [
+        ("older", "2026-07-18T23:00:00+00:00"),
+        ("newer", "2026-07-19T00:00:00+09:00"),
+    ]:
+        repository.create_advisory_analysis(
+            {
+                "analysis_id": analysis_id,
+                "job_id": f"job-{analysis_id}",
+                "analysis_type": "sec_filing_risk",
+                "request_payload": {},
+                "result_payload": {"analysis_type": "sec_filing_risk", "ticker": "AAPL"},
+                "created_at": created_at,
+            }
+        )
+
+    context = build_advisory_context(repository, now_provider=lambda: now)
+
+    # 2026-07-19T00:00:00+09:00 is 2026-07-18T15:00Z, i.e. the older instant.
+    assert context["analyses"][0]["analysis_id"] == "older"

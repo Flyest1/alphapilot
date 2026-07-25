@@ -8,7 +8,7 @@ from app.db.supabase_client import InMemoryRepository
 from app.models.report import AssetStrategy, ReportContent
 from app.services.market_data_service import MarketDataResult
 from app.services.report.persistence import ReportPersistence
-from app.services.report_service import ReportService
+from app.services.report_service import DISCLAIMER, ReportService
 from app.services.technical_analysis_service import TechnicalAnalysisResult
 
 
@@ -219,12 +219,7 @@ def test_news_snapshot_links_cited_evidence_to_output_path():
     content = content.model_copy(
         update={
             "market_summary": content.market_summary.model_copy(
-                update={
-                    "summary": (
-                        "뉴스 근거를 확인했습니다 "
-                        "[N1 · example.com · 2026-07-11 · https://example.com]."
-                    )
-                }
+                update={"summary": "뉴스 근거를 확인했습니다 [[N1]]."}
             )
         }
     )
@@ -239,15 +234,15 @@ def test_news_snapshot_links_cited_evidence_to_output_path():
     ]
     assert snapshot["news_context_used"] is True
 
-    incomplete_content = content.model_copy(
+    uncited_content = content.model_copy(
         update={
             "market_summary": content.market_summary.model_copy(
-                update={"summary": "출처 정보가 빠진 표기 [N1]."}
+                update={"summary": "마커 없이 서술한 문장입니다."}
             )
         }
     )
-    incomplete_snapshot = service._news_input_snapshot(news_context, incomplete_content)
-    assert incomplete_snapshot["news_context_used"] is False
+    uncited_snapshot = service._news_input_snapshot(news_context, uncited_content)
+    assert uncited_snapshot["news_context_used"] is False
 
 
 def test_confidence_detail_marks_only_strategy_level_news_citations_as_used():
@@ -256,12 +251,7 @@ def test_confidence_detail_marks_only_strategy_level_news_citations_as_used():
     report = service.generate_report("domestic")
     content = ReportContent.model_validate(report["content"])
     cited_strategy = content.asset_strategies[0].model_copy(
-        update={
-            "reasoning": (
-                "헤드라인 근거를 참고했습니다 "
-                "[N1 · example.com · 2026-07-11 · https://example.com]."
-            )
-        }
+        update={"reasoning": "헤드라인 근거를 참고했습니다 [[N1]]."}
     )
     content = content.model_copy(update={"asset_strategies": [cited_strategy]})
     news_context = FakeNews().fetch_report_context("domestic", [])
@@ -380,3 +370,63 @@ def test_generate_report_skips_sector_fetch_when_already_set():
 
     assert repo.list_assets()[0]["sector"] == "기존섹터"
     assert market_data.sector_calls == []
+
+
+class CitingAI:
+    """Emits the marker format the prompt asks for, plus a raw source leak."""
+
+    def generate_report(self, _prompt, context):
+        strategy = context["technical_strategies"][0]
+        return {
+            "report_type": context["report_type"],
+            "generated_at": context["generated_at"],
+            "market_summary": {
+                "summary": "반도체 수요가 개선됐습니다 [[N1]].",
+                "key_indices": [],
+                "macro_factors": ["example.com 기준 금리는 유지됩니다."],
+            },
+            "portfolio_summary": {
+                "total_market_value": 1.0,
+                "total_return_rate": 0.0,
+                "risk_level": "medium",
+                "allocation_comment": "비중은 유지합니다.",
+            },
+            "key_risks": ["환율 변동성이 남아 있습니다."],
+            "opportunities": ["기술주 반등 여지가 있습니다."],
+            "asset_strategies": [
+                {
+                    **strategy,
+                    "reasoning": "헤드라인을 참고했습니다 [[N1]].",
+                    "risk": "변동성이 큽니다.",
+                    "invalidation_condition": "지지선 이탈 시 무효화합니다.",
+                }
+            ],
+            "disclaimer": DISCLAIMER,
+        }
+
+
+def test_evidence_markers_are_recorded_then_redacted_before_persistence():
+    repo = seeded_repo()
+    service = ReportService(
+        repo,
+        market_data_service=FakeMarketData(),
+        technical_analysis_service=FakeTechnical(),
+        ai_provider=CitingAI(),
+        news_service=FakeNews(),
+    )
+    news_context = FakeNews().fetch_report_context("domestic", [])
+    news_context["articles"][0]["evidence_id"] = "N1"
+
+    report = service.generate_report("domestic")
+    saved = repo.get_report(report["id"])
+    inputs = saved["report_inputs"]
+
+    # Attribution is measured from the marker...
+    assert inputs["news_context"]["news_context_used"] is True
+    assert inputs["news_context"]["used_evidence_ids"] == ["N1"]
+    # ...and the stored narrative carries neither the marker nor the raw domain.
+    stored = str(saved["content"])
+    assert "[[N1]]" not in stored
+    assert "example.com" not in stored
+    assert "반도체 수요가 개선됐습니다." in stored
+    assert inputs["ai_generation"]["redacted_paths"]

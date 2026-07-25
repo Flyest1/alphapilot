@@ -463,8 +463,9 @@ describe("AdvisoryResult", () => {
     expect(screen.getByText("기술 섹터의 상대 흐름을 확인했습니다.")).toBeInTheDocument();
     expect(screen.getByText("시장 입력의 공백을 함께 고려해야 합니다.")).toBeInTheDocument();
     expect(screen.getByText("후속 데이터 갱신 여부를 관찰합니다.")).toBeInTheDocument();
-    expect(screen.queryByText("sector:XLK")).not.toBeInTheDocument();
-    expect(screen.queryByText("coverage:1")).not.toBeInTheDocument();
+    // 백엔드가 모든 서술 항목에 evidence_ids를 강제하므로 화면에서도 추적 가능해야 한다.
+    expect(screen.getAllByText("sector:XLK").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("coverage:1").length).toBeGreaterThan(0);
   });
 
   it("shows the summary and key findings before supporting metadata", () => {
@@ -489,7 +490,7 @@ describe("AdvisoryResult", () => {
 
     const summary = screen.getByText("핵심 요약입니다.");
     const keyFinding = screen.getByText("가장 중요한 결과입니다.");
-    const supportingDetails = screen.getByText("추가 메타데이터 및 근거").closest("details");
+    const supportingDetails = screen.getByText("근거 목록").closest("details");
 
     expect(supportingDetails).toBeInTheDocument();
     expect(
@@ -520,6 +521,15 @@ describe("AdvisoryResult", () => {
 
     expect(screen.getAllByText("2026년 7월 16일")).not.toHaveLength(0);
     expect(screen.getByText(/2026년 7월 17일/)).toBeInTheDocument();
+  });
+
+  it("reads offset-less timestamps as UTC so the day does not shift by viewer", () => {
+    // yfinance 기반 last_trading_date 등은 오프셋 없이 저장된다. 오프셋이 없으면
+    // ES 규격상 브라우저 로컬로 해석되어 뷰어 기기마다 다른 날짜가 나온다.
+    expect(formatAdvisoryDate("2026-07-16T15:30:00")).toBe(
+      formatAdvisoryDate("2026-07-16T15:30:00Z"),
+    );
+    expect(formatAdvisoryDate("2026-06-30T00:00:00")).toMatch(/2026년 6월 30일 09:00/);
   });
 
   it("keeps data-limited warnings ahead of the structured AI narrative", () => {

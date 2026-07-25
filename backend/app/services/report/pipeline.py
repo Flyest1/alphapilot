@@ -28,7 +28,11 @@ from app.services.portfolio_risk_service import PortfolioRiskService
 from app.services.recommendation_stats_service import ConfidenceCalibrator
 from app.services.report import candidate_screener
 from app.services.report.advisory_context import build_advisory_context
-from app.services.report.fact_enforcer import enforce_report_facts, forbidden_narrative_paths
+from app.services.report.fact_enforcer import (
+    enforce_report_facts,
+    forbidden_narrative_paths,
+    redact_source_references,
+)
 from app.services.report.persistence import ReportPersistence
 from app.services.report.prompt_builder import (
     DISCLAIMER,
@@ -276,6 +280,19 @@ class ReportService:
             ai_generation,
             position_sizing_snapshot,
         )
+        # Redact after the evidence-usage snapshot is taken, so attribution is recorded
+        # from the markers and the persisted narrative is already clean.
+        content, redacted_paths = redact_source_references(
+            content,
+            news_context.get("articles") or [],
+        )
+        if redacted_paths:
+            ai_generation["redacted_paths"] = redacted_paths
+            log_structured_event(
+                "openai",
+                "source_reference_redacted",
+                {"report_type": report_type, "redacted_paths": redacted_paths},
+            )
         with self._timed_step("save_report"):
             saved = self.persistence.save_report(
                 content,
@@ -950,20 +967,14 @@ class ReportService:
         ]
 
     def _text_uses_news_evidence(self, value: str, article: dict[str, Any]) -> bool:
+        """Detect the [[evidence_id]] marker the prompt asks for.
+
+        Attribution is measured on the marker alone: the previous format required the
+        domain, URL and date to appear in the narrative, which the source-exposure rule
+        now forbids, so it could never match again.
+        """
         evidence_id = str(article.get("evidence_id") or "")
-        domain = str(article.get("domain") or "")
-        url = str(article.get("url") or "")
-        seen_date = str(article.get("seen_at") or "")[:10]
-        return bool(
-            evidence_id
-            and domain
-            and url
-            and seen_date
-            and f"[{evidence_id}" in value
-            and domain in value
-            and url in value
-            and seen_date in value
-        )
+        return bool(evidence_id and f"[[{evidence_id}]]" in value)
 
     def _enforce_stale_rules(
         self,

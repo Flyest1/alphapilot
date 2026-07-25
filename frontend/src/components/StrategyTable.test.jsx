@@ -157,4 +157,25 @@ describe("StrategyTable", () => {
     expect(screen.getByText(/제공자 pykrx/)).toBeInTheDocument();
     expect(screen.getByText(/데이터 제한/)).toBeInTheDocument();
   });
+
+  it("keeps the news contribution in the confidence breakdown", () => {
+    renderStrategy({
+      confidence_detail: {
+        technical_confidence: 82,
+        win_rate: 0.6,
+        sample_size: 12,
+        calibrated: true,
+        calibration_factor: 1.1,
+        news_context_used: true,
+      },
+    });
+
+    expect(screen.getByText(/뉴스 컨텍스트 반영/)).toBeInTheDocument();
+
+    renderStrategy({
+      confidence_detail: { technical_confidence: 70, news_context_used: false },
+    });
+
+    expect(screen.getByText(/뉴스 컨텍스트 미반영/)).toBeInTheDocument();
+  });
 });

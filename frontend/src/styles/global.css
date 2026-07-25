@@ -1496,9 +1496,12 @@ form button,
   margin-bottom: 20px;
 }
 
+/* `*` here also beats `table { min-width: 1120px }` and `.badge { min-width: 72px }`
+   on desktop, so the reset is limited to the containers that would otherwise
+   refuse to shrink inside a flex/grid parent. */
 .advisory-page,
 .advisory-result-panel,
-.advisory-result-panel * {
+.advisory-result-panel :is(section, div, ul, ol, li, p, dl, dd, form, label) {
   min-width: 0;
 }
 
@@ -1632,7 +1635,7 @@ form button,
 .advisory-supporting-details {
   margin-top: 24px;
   border: 1px solid var(--market-line);
-  border-radius: 12px;
+  border-radius: 8px;
   background: var(--market-paper);
 }
 
@@ -1641,6 +1644,27 @@ form button,
   padding: 14px 16px;
   color: var(--market-ink);
   font-weight: 700;
+  list-style: none;
+}
+
+.advisory-supporting-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.advisory-narrative-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--market-muted);
+  font-size: 12px;
+}
+
+.advisory-narrative-evidence code {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgb(38 35 31 / 8%);
+  color: var(--market-ink);
 }
 
 .advisory-supporting-content {

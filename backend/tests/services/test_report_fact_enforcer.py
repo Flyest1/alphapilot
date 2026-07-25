@@ -1,7 +1,11 @@
 from types import SimpleNamespace
 
 from app.models.report import AssetStrategy, MarketSummary, PortfolioSummary, ReportContent
-from app.services.report.fact_enforcer import enforce_report_facts, forbidden_narrative_paths
+from app.services.report.fact_enforcer import (
+    enforce_report_facts,
+    forbidden_narrative_paths,
+    redact_source_references,
+)
 from app.services.report.prompt_builder import DISCLAIMER
 
 
@@ -219,3 +223,69 @@ def test_forbidden_narrative_paths_report_safe_paths_only():
     content = report_content(strategy("AAPL", reasoning="반드시 매수하면 수익 보장"))
 
     assert forbidden_narrative_paths(content) == ["asset_strategies[0].reasoning"]
+
+
+def test_redaction_removes_markers_and_source_names_before_persistence():
+    content = report_content(
+        strategy(
+            "AAPL",
+            reasoning="수요가 개선됐습니다 [[N1]].",
+            risk="Reuters에 따르면 공급 위험이 남아 있습니다.",
+            invalidation_condition="출처: reuters.com",
+        )
+    ).model_copy(
+        update={
+            "market_summary": MarketSummary(
+                summary="반도체 수요가 회복됐습니다 [N1 · reuters.com · https://reuters.com/x].",
+                key_indices=[{"name": "AI", "technical_score": 1}],
+                macro_factors=[
+                    "GDELT DOC 2.0 헤드라인을 참고했습니다.",
+                    "[N2 · https://reuters.com/y]",
+                ],
+            ),
+            "key_risks": ["금리는 https://bloomberg.com/z 참고."],
+        }
+    )
+    articles = [
+        {"evidence_id": "N1", "domain": "reuters.com"},
+        {"evidence_id": "N2", "domain": "bloomberg.com"},
+    ]
+
+    redacted, paths = redact_source_references(content, articles)
+
+    assert redacted.market_summary.summary == "반도체 수요가 회복됐습니다."
+    assert redacted.asset_strategies[0].reasoning == "수요가 개선됐습니다."
+    assert redacted.asset_strategies[0].risk == "에 따르면 공급 위험이 남아 있습니다."
+    assert redacted.asset_strategies[0].invalidation_condition == ""
+    # A bullet that was nothing but a citation is dropped, never rendered blank.
+    assert redacted.market_summary.macro_factors == ["헤드라인을 참고했습니다."]
+    assert redacted.key_risks == ["금리는 참고."]
+    assert "market_summary.summary" in paths
+    assert "key_risks[0]" in paths
+
+
+def test_redaction_keeps_tickers_and_ordinary_bracketed_asides():
+    content = report_content(
+        strategy("AAPL", reasoning="삼성전자(005930.KS)의 목표가를 상향합니다.")
+    ).model_copy(
+        update={
+            "market_summary": MarketSummary(
+                summary="005930.KS: 기술 점수 기준 매수 후보",
+                key_indices=[],
+                macro_factors=["[ETF 비중 조정] 필요", "[Fed 금리 인상] 우려", "[PER 12배] 수준"],
+            ),
+            "key_risks": ["시장 데이터가 지연된 종목: 005930.KS, 035720.KQ"],
+        }
+    )
+
+    redacted, paths = redact_source_references(content, [{"domain": "reuters.com"}])
+
+    assert redacted.market_summary.summary == "005930.KS: 기술 점수 기준 매수 후보"
+    assert redacted.asset_strategies[0].reasoning == "삼성전자(005930.KS)의 목표가를 상향합니다."
+    assert redacted.market_summary.macro_factors == [
+        "[ETF 비중 조정] 필요",
+        "[Fed 금리 인상] 우려",
+        "[PER 12배] 수준",
+    ]
+    assert redacted.key_risks == ["시장 데이터가 지연된 종목: 005930.KS, 035720.KQ"]
+    assert paths == []
