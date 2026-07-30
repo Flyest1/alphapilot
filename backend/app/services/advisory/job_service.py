@@ -22,6 +22,7 @@ from app.utils.datetime import parse_iso_datetime
 ACTIVE_JOB_STATUSES = {"queued", "running"}
 ACTIVE_JOB_TIMEOUT = timedelta(minutes=20)
 ADVISORY_RELATIONS = ("advisory_jobs", "advisory_analyses")
+ADVISORY_CAPABILITY_RELATION = "advisory_capabilities"
 ADVISORY_HEARTBEAT_INTERVAL_SECONDS = 15.0
 ADVISORY_MAX_CONCURRENT_JOBS = 1
 UNIQUE_RACE_REQUERY_ATTEMPTS = 3
@@ -46,6 +47,8 @@ def is_advisory_migration_required(exc: BaseException) -> bool:
     code = str(getattr(exc, "code", "") or "").upper()
     if code in {"42P01", "PGRST205"}:
         return any(relation in message for relation in ADVISORY_RELATIONS)
+    if is_profit_taking_review_migration_required(exc):
+        return True
     if not any(relation in message for relation in ADVISORY_RELATIONS):
         return False
     return (
@@ -55,6 +58,20 @@ def is_advisory_migration_required(exc: BaseException) -> bool:
         or "schema cache" in message
         and "table" in message
     )
+
+
+def is_profit_taking_review_migration_required(exc: BaseException) -> bool:
+    message = str(exc).casefold()
+    code = str(getattr(exc, "code", "") or "").upper()
+    check_constraint_missing = (
+        code == "23514"
+        and any(relation in message for relation in ADVISORY_RELATIONS)
+        and "analysis_type" in message
+    )
+    capability_relation_missing = (
+        code in {"42P01", "PGRST205"} and ADVISORY_CAPABILITY_RELATION in message
+    )
+    return check_constraint_missing or capability_relation_missing
 
 
 def _is_active_request_hash_unique_violation(exc: BaseException) -> bool:
@@ -235,6 +252,9 @@ class AdvisoryJobStore:
         """Verify that both advisory persistence relations are queryable."""
         self.repository.list_advisory_jobs(limit=1)
         self.repository.list_advisory_analyses(limit=1)
+
+    def has_capability(self, capability: str) -> bool:
+        return self.repository.has_advisory_capability(capability)
 
     def get(self, job_id: str) -> AdvisoryJob | None:
         row = self.repository.get_advisory_job(job_id)

@@ -1530,8 +1530,24 @@ form button,
 }
 
 .advisory-field input,
-.advisory-field textarea {
+.advisory-field textarea,
+.advisory-field select {
   width: 100%;
+}
+
+.advisory-owned-asset-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.advisory-owned-asset-fields .advisory-independence-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--market-line);
+  border-radius: 10px;
+  background: var(--market-positive-soft);
 }
 
 .advisory-field > span,
@@ -1666,6 +1682,103 @@ form button,
 
 .advisory-result-title h3 {
   margin: 0;
+}
+
+.advisory-profit-taking-review {
+  display: grid;
+  gap: 24px;
+  margin-top: 20px;
+}
+
+.advisory-profit-taking-review .advisory-result-section {
+  margin: 0;
+}
+
+.advisory-profit-decision {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--market-positive);
+  border-radius: 14px;
+  background: var(--market-positive-soft);
+}
+
+.advisory-profit-decision h3 {
+  margin: 3px 0 0;
+  font-size: 20px;
+  line-height: 1.4;
+}
+
+.advisory-profit-decision .advisory-key-values {
+  grid-column: 1 / -1;
+}
+
+.advisory-profit-eyebrow {
+  color: var(--market-positive);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.advisory-profit-option-grid,
+.advisory-profit-trigger-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.advisory-profit-option-grid article,
+.advisory-profit-trigger-list article {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--market-line);
+  border-radius: 10px;
+  background: var(--market-paper);
+}
+
+.advisory-profit-option-grid article > div {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.advisory-profit-option-grid p,
+.advisory-profit-trigger-list p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.advisory-profit-option-grid article > span,
+.advisory-profit-trigger-list small {
+  color: var(--market-muted);
+  font-size: 12px;
+}
+
+.advisory-profit-details {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--market-line);
+  border-radius: 12px;
+  background: var(--market-paper);
+}
+
+.advisory-profit-details > summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.advisory-profit-details[open] {
+  display: grid;
+  gap: 18px;
+}
+
+.advisory-profit-details .advisory-key-values,
+.advisory-profit-details .advisory-list {
+  overflow-wrap: anywhere;
 }
 
 .advisory-status-badge {
@@ -1913,7 +2026,10 @@ form button,
   .advisory-history-list,
   .advisory-result-meta,
   .advisory-key-values,
-  .advisory-evidence-list {
+  .advisory-evidence-list,
+  .advisory-owned-asset-fields,
+  .advisory-profit-option-grid,
+  .advisory-profit-trigger-list {
     grid-template-columns: 1fr;
   }
 
@@ -1945,6 +2061,15 @@ form button,
   .advisory-result-title {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .advisory-profit-decision {
+    grid-template-columns: 1fr;
+    padding: 14px;
+  }
+
+  .advisory-profit-decision > .advisory-status-badge {
+    justify-self: start;
   }
 
   .advisory-desktop-table {

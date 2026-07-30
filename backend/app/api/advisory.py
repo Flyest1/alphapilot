@@ -9,19 +9,31 @@ from app.models.advisory import (
     AdvisoryStatusResponse,
     AnalysisType,
 )
-from app.services.advisory.job_service import AdvisoryJobRunner, is_advisory_migration_required
+from app.services.advisory.job_service import (
+    AdvisoryJobRunner,
+    is_advisory_migration_required,
+    is_profit_taking_review_migration_required,
+)
 
 router = APIRouter(prefix="/api/advisory", tags=["advisory"])
 MIGRATION_FILE = "backend/app/db/migrations/017_create_advisory_analyses.sql"
+PROFIT_TAKING_REVIEW_MIGRATION_FILE = (
+    "backend/app/db/migrations/020_add_profit_taking_review_advisory.sql"
+)
 
 
 def _raise_advisory_storage_error(exc: Exception) -> None:
     if is_advisory_migration_required(exc):
+        migration_file = (
+            PROFIT_TAKING_REVIEW_MIGRATION_FILE
+            if is_profit_taking_review_migration_required(exc)
+            else MIGRATION_FILE
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
                 "code": "migration_required",
-                "message": f"Supabase SQL Editor에서 {MIGRATION_FILE} 전체를 실행해 주세요.",
+                "message": f"Supabase SQL Editor에서 {migration_file} 전체를 실행해 주세요.",
             },
         ) from exc
     raise exc
@@ -36,12 +48,30 @@ def get_advisory_status(request: Request) -> dict:
         storage_status = (
             "migration_required" if is_advisory_migration_required(exc) else "unavailable"
         )
+    profit_taking_review_status = "unavailable"
+    if storage_status == "available":
+        try:
+            profit_taking_review_status = (
+                "available"
+                if request.app.state.advisory_jobs.has_capability("profit_taking_review")
+                else "migration_required"
+            )
+        except Exception as exc:
+            profit_taking_review_status = (
+                "migration_required"
+                if is_profit_taking_review_migration_required(exc)
+                else "unavailable"
+            )
+    elif storage_status == "migration_required":
+        profit_taking_review_status = "migration_required"
     return {
         "storage_status": storage_status,
         "ai_narrative_status": (
             "configured" if request.app.state.advisory_ai_narrative_configured else "not_configured"
         ),
         "migration_file": MIGRATION_FILE,
+        "profit_taking_review_status": profit_taking_review_status,
+        "profit_taking_review_migration_file": PROFIT_TAKING_REVIEW_MIGRATION_FILE,
     }
 
 

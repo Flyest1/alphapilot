@@ -90,6 +90,20 @@ def test_openai_advisory_provider_uses_separate_json_schema():
     )
 
 
+def test_openai_profit_taking_prompt_preserves_independent_deterministic_decision():
+    client = FakeClient(narrative_payload())
+    provider = OpenAIAdvisoryProvider(None, "gpt-test", client=client)
+
+    provider.generate_narrative(
+        "profit_taking_review",
+        {"evidence": [{"evidence_id": "market:1"}], "decision": {"action": "REDUCE"}},
+    )
+
+    prompt = client.chat.completions.kwargs["messages"][0]["content"]
+    assert "기존 리포트 매수 의견" in prompt
+    assert "결정론적 action을 변경" in prompt
+
+
 def test_openai_advisory_provider_forces_backend_disclaimer():
     schema = OpenAIAdvisoryProvider._response_schema({})
     assert schema["properties"]["disclaimer"] == {"const": ADVISORY_DISCLAIMER}

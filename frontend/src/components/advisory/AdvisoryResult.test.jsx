@@ -580,4 +580,127 @@ describe("AdvisoryResult", () => {
     expect(screen.getByText("invalid")).toBeInTheDocument();
     expect(screen.getByText("alpha")).toBeInTheDocument();
   });
+
+  it("prioritizes the mobile-friendly profit-taking decision before supporting details", () => {
+    render(
+      <AdvisoryResult
+        analysis={{
+          result: {
+            ...base,
+            analysis_type: "profit_taking_review",
+            summary: "일부 이익실현을 검토합니다.",
+            ai_narrative: "AI가 추가로 설명하는 후순위 판단입니다.",
+            decision: {
+              action: "REDUCE",
+              confidence: 72,
+              one_line_conclusion: "일부 이익실현을 검토합니다.",
+              primary_reasons: ["보유 비중이 높습니다.", "단기 과열 신호를 확인했습니다."],
+            },
+            position_snapshot: {
+              unrealized_return_pct: 24.5,
+              position_weight_pct: 31.2,
+              average_price: 100,
+              current_price: 124.5,
+              profit_basis_note: "세전·비용 차감 전 평가손익입니다.",
+            },
+            scorecard: {
+              hold_support_score: 68,
+              realization_pressure_score: 61,
+              add_support_score: 22,
+              technical_score: 70,
+            },
+            price_framework: {
+              profit_protection_reference: 115,
+              upside_review_reference: 140,
+              trend_invalidation_reference: 110,
+              review_horizon: "medium",
+            },
+            risks: [{ category: "concentration", detail: "보유 비중이 높습니다." }],
+            catalysts: [{ category: "trend", detail: "중기 추세가 유지됩니다." }],
+            option_comparison: [
+              {
+                name: "이익 보호",
+                action: "REDUCE",
+                current_view: "이익 일부 보호를 우선 검토합니다.",
+                when_it_fits: "집중도와 과열 신호가 함께 높을 때",
+                suitability_score: 76,
+              },
+              {
+                name: "보유 유지",
+                action: "HOLD",
+                current_view: "추세 유지 여부를 관찰합니다.",
+                suitability_score: 48,
+              },
+              {
+                name: "전량 정리 검토",
+                action: "SELL",
+                current_view: "하방 위험이 커지면 다시 확인합니다.",
+                suitability_score: 31,
+              },
+              {
+                name: "추가 노출 검토",
+                action: "BUY",
+                current_view: "추가 노출 조건을 엄격하게 확인합니다.",
+                suitability_score: 22,
+              },
+            ],
+            report_conflict: {
+              action: "BUY",
+              confidence: 81,
+              conflict_status: "different_purpose",
+              conflict_reason: "신규 진입 판단과 보유 이익 보존 판단의 목적이 다릅니다.",
+            },
+            reassessment_triggers: [
+              {
+                trigger_type: "추세 약화",
+                condition: "기술 추세가 약화하면 다시 확인합니다.",
+                response: "새 시장 데이터를 확인합니다.",
+              },
+            ],
+          },
+        }}
+      />,
+    );
+
+    const decision = screen.getByLabelText("최종 의견");
+    const reasons = screen.getByLabelText("핵심 이유");
+    const comparison = screen.getByLabelText("이익실현 보유 추가노출 비교");
+    const reportContext = screen.getByLabelText("기존 리포트와의 비교");
+    const triggers = screen.getByLabelText("재검토 조건");
+    const profitDetails = screen.getByText("세부 점수·가격 기준 보기").closest("details");
+    const details = screen.getByText("추가 메타데이터 및 근거").closest("details");
+
+    expect(screen.getAllByText("일부 이익실현 검토")).not.toHaveLength(0);
+    expect(screen.getAllByText("보유 지속 검토")).not.toHaveLength(0);
+    expect(screen.getAllByText("전량 이익실현 검토")).not.toHaveLength(0);
+    expect(screen.getAllByText("추가 노출 검토")).not.toHaveLength(0);
+    expect(screen.queryByText("REDUCE")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /주문|매도/ })).not.toBeInTheDocument();
+    expect(screen.getByText("AI가 추가로 설명하는 후순위 판단입니다.")).toBeInTheDocument();
+    expect(screen.getAllByText("일부 이익실현을 검토합니다.")).toHaveLength(1);
+    expect(comparison.querySelectorAll(".advisory-profit-option-grid article")).toHaveLength(4);
+    expect(within(reportContext).getByText("의사결정 참고")).toBeInTheDocument();
+    expect(within(reportContext).getByText("판단 신뢰도")).toBeInTheDocument();
+    expect(within(reportContext).getByText("생성 시각")).toBeInTheDocument();
+    expect(within(reportContext).getByText("리포트 관계")).toBeInTheDocument();
+    expect(within(reportContext).getByText("차이 설명")).toBeInTheDocument();
+    expect(decision.compareDocumentPosition(reasons) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(reasons.compareDocumentPosition(comparison) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(
+      comparison.compareDocumentPosition(reportContext) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(reportContext.compareDocumentPosition(triggers) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(triggers.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(screen.getByTestId("profit-taking-review")).toHaveClass("advisory-profit-taking-review");
+    expect(profitDetails).not.toHaveAttribute("open");
+    expect(screen.queryByText("추가 정보")).not.toBeInTheDocument();
+  });
 });

@@ -7,6 +7,7 @@ import {
   getAdvisoryStatus,
   listAdvisoryAnalyses,
 } from "../api/advisory.js";
+import { api } from "../api/client.js";
 import AdvisoryFeatureCards from "../components/advisory/AdvisoryFeatureCards.jsx";
 import AdvisoryInputForm from "../components/advisory/AdvisoryInputForm.jsx";
 import AdvisoryResult from "../components/advisory/AdvisoryResult.jsx";
@@ -25,6 +26,8 @@ import {
 
 const POLL_INTERVAL_MS = 5000;
 const MIGRATION_FILE = "backend/app/db/migrations/017_create_advisory_analyses.sql";
+const PROFIT_TAKING_REVIEW_MIGRATION_FILE =
+  "backend/app/db/migrations/020_add_profit_taking_review_advisory.sql";
 
 const JOB_ERROR_MESSAGES = {
   stale_active_job: "이전 자문 작업이 응답 없이 만료되었습니다. 새로 요청해 주세요.",
@@ -47,6 +50,8 @@ function blankForm() {
     themes: "",
     min_distribution_yield_percent: "",
     customProxies: [{ sector: "", ticker: "" }],
+    asset_id: "",
+    review_horizon: "medium",
   };
 }
 
@@ -90,6 +95,9 @@ export default function Advisory() {
   });
   const [selectedAnalysis, setSelectedAnalysis] = useState(null);
   const [history, setHistory] = useState([]);
+  const [assets, setAssets] = useState([]);
+  const [isLoadingAssets, setIsLoadingAssets] = useState(true);
+  const [assetLoadError, setAssetLoadError] = useState("");
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [error, setError] = useState("");
   const [advisoryStatus, setAdvisoryStatus] = useState(null);
@@ -107,6 +115,9 @@ export default function Advisory() {
   const hasActiveJob = Boolean(activeJobId && !isComplete(job?.status) && !isFailed(job?.status));
   const isSubmitting = isCreatingJob || hasActiveJob;
   const isAdvisoryStorageAvailable = advisoryStatus?.storage_status === "available";
+  const isProfitTakingReviewAvailable = advisoryStatus?.profit_taking_review_status === "available";
+  const isSelectedFeatureAvailable =
+    selectedType !== "profit_taking_review" || isProfitTakingReviewAvailable;
 
   const requestCompletedAnalysis = useCallback((jobId, analysisId) => {
     if (!jobId || !analysisId) return;
@@ -122,6 +133,30 @@ export default function Advisory() {
     }
     persistActiveAdvisoryJobId(activeJobId);
   }, [activeJobId, job?.status]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.assets
+      .list()
+      .then((rows) => {
+        if (cancelled) return;
+        setAssets(
+          (Array.isArray(rows) ? rows : []).filter(
+            (asset) => asset?.market !== "CASH" && Number(asset?.quantity) > 0,
+          ),
+        );
+      })
+      .catch(() => {
+        if (!cancelled)
+          setAssetLoadError("보유 자산을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingAssets(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -276,6 +311,12 @@ export default function Advisory() {
       }
       return;
     }
+    if (!isSelectedFeatureAvailable) {
+      setError(
+        `이익실현 판단 저장소 migration이 필요합니다. ${PROFIT_TAKING_REVIEW_MIGRATION_FILE}`,
+      );
+      return;
+    }
     const payload = buildAdvisoryPayload(feature, form);
     const validationError = validateAdvisoryPayload(feature, payload, form);
     if (validationError) {
@@ -345,6 +386,18 @@ export default function Advisory() {
           </span>
         </div>
       )}
+      {advisoryStatus?.storage_status === "available" &&
+        advisoryStatus?.profit_taking_review_status === "migration_required" && (
+          <div className="notice" role="alert">
+            <span className="alert">
+              이익실현 판단을 사용하려면 운영 데이터베이스에 migration을 적용해야 합니다. 적용 파일:{" "}
+              <code>
+                {advisoryStatus.profit_taking_review_migration_file ||
+                  PROFIT_TAKING_REVIEW_MIGRATION_FILE}
+              </code>
+            </span>
+          </div>
+        )}
       {advisoryStatus?.ai_narrative_status === "not_configured" && (
         <div className="notice" role="status">
           <span className="alert">
@@ -377,8 +430,12 @@ export default function Advisory() {
           style={{ border: 0, margin: 0, minInlineSize: 0, padding: 0 }}
         >
           <AdvisoryInputForm
+            assets={assets}
+            assetLoadError={assetLoadError}
             feature={feature}
             form={form}
+            isDisabled={!isSelectedFeatureAvailable}
+            isLoadingAssets={isLoadingAssets}
             isSubmitting={isSubmitting}
             onChange={setForm}
             onSubmit={submit}

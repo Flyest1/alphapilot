@@ -127,6 +127,7 @@ def test_all_supported_advisory_request_types_validate_strictly():
         {"analysis_type": "sec_filing_risk", "ticker": "AAPL"},
         {"analysis_type": "etf_overlap", "positions": [{"ticker": "VOO", "weight_pct": 60}]},
         {"analysis_type": "sector_outlook", "custom_proxies": {"technology": "XLK"}},
+        {"analysis_type": "profit_taking_review", "asset_id": "asset-1"},
     ]
 
     for payload in payloads:
@@ -143,6 +144,9 @@ def test_all_supported_advisory_request_types_validate_strictly():
 
     with pytest.raises(ValidationError):
         parse_advisory_job_request({"analysis_type": "etf_overlap", "positions": []})
+
+    with pytest.raises(ValidationError):
+        parse_advisory_job_request({"analysis_type": "profit_taking_review"})
 
 
 def test_advisory_result_contract_rejects_missing_required_feature_fields():

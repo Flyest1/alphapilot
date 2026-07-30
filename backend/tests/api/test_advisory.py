@@ -3,7 +3,9 @@ from fastapi.testclient import TestClient
 import app.main as main_module
 from app.db.supabase_client import InMemoryRepository
 from app.main import create_app
+from app.api.advisory import _raise_advisory_storage_error
 from app.services.advisory.job_service import AdvisoryDispatcher
+from fastapi import HTTPException
 
 AUTH = {"Authorization": "Bearer test-api-token"}
 
@@ -46,6 +48,15 @@ class MissingAdvisoryJobsMigrationRepository(InMemoryRepository):
         raise exc
 
 
+class MissingProfitTakingReviewMigrationRepository(InMemoryRepository):
+    def has_advisory_capability(self, capability):
+        exc = RuntimeError(
+            "Could not find the table 'public.advisory_capabilities' in the schema cache"
+        )
+        exc.code = "PGRST205"
+        raise exc
+
+
 def test_advisory_routes_require_normal_api_token():
     client = TestClient(create_app(repository=InMemoryRepository()))
 
@@ -64,7 +75,25 @@ def test_advisory_status_reports_storage_and_ai_configuration():
         "storage_status": "available",
         "ai_narrative_status": "not_configured",
         "migration_file": "backend/app/db/migrations/017_create_advisory_analyses.sql",
+        "profit_taking_review_status": "available",
+        "profit_taking_review_migration_file": (
+            "backend/app/db/migrations/020_add_profit_taking_review_advisory.sql"
+        ),
     }
+
+
+def test_advisory_status_reports_profit_taking_review_migration_separately():
+    client = TestClient(create_app(repository=MissingProfitTakingReviewMigrationRepository()))
+
+    response = client.get("/api/advisory/status", headers=AUTH)
+
+    assert response.status_code == 200
+    assert response.json()["storage_status"] == "available"
+    assert response.json()["profit_taking_review_status"] == "migration_required"
+    assert (
+        "020_add_profit_taking_review_advisory.sql"
+        in response.json()["profit_taking_review_migration_file"]
+    )
 
 
 def test_advisory_status_requires_advisory_jobs_relation_too():
@@ -104,6 +133,40 @@ def test_advisory_job_rejects_unknown_request_fields():
     )
 
     assert response.status_code == 422
+
+
+def test_advisory_job_parses_profit_taking_review_request():
+    app = create_app(repository=InMemoryRepository())
+    app.state.advisory_dispatcher = AdvisoryDispatcher()
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/advisory/jobs",
+        headers=AUTH,
+        json={
+            "analysis_type": "profit_taking_review",
+            "asset_id": "asset-1",
+            "review_horizon": "short",
+        },
+    )
+
+    assert response.status_code == 202
+    assert response.json()["analysis_type"] == "profit_taking_review"
+
+
+def test_profit_taking_check_violation_points_only_to_migration_020():
+    error = RuntimeError(
+        "new row for relation advisory_jobs violates analysis_type check constraint"
+    )
+    error.code = "23514"
+
+    try:
+        _raise_advisory_storage_error(error)
+    except HTTPException as exc:
+        assert exc.status_code == 503
+        assert "020_add_profit_taking_review_advisory.sql" in exc.detail["message"]
+    else:
+        raise AssertionError("expected migration-required HTTP exception")
 
 
 def test_advisory_job_returns_202_and_safe_failure_when_handler_is_unregistered():

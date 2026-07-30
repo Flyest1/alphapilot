@@ -59,6 +59,14 @@ class OpenAIAdvisoryProvider:
 
             self.client = OpenAI(api_key=self.api_key)
         response_schema = self._response_schema(context)
+        profit_taking_instruction = (
+            " profit_taking_review에서는 기존 리포트 매수 의견을 반복하거나 결정 근거로 "
+            "사용하지 말고, 제공된 독립 결정과 위험·무효화 조건만 설명하세요. 더 높은 수익이 "
+            "확실하다는 표현을 금지하고 결정론적 action을 변경하거나 새로운 매도·매수 행동을 "
+            "만들지 마세요."
+            if analysis_type == "profit_taking_review"
+            else ""
+        )
         messages = [
             {
                 "role": "system",
@@ -75,6 +83,7 @@ class OpenAIAdvisoryProvider:
                     "쓰지 마세요. 수치는 결정론적 표에서 별도로 제공되므로 summary, findings, "
                     "risks, actions, limitations 문장에는 숫자·날짜·백분율 문자를 전혀 쓰지 "
                     "말고 방향성·상대평가·한계만 서술하세요."
+                    f"{profit_taking_instruction}"
                 ),
             },
             {

@@ -10,7 +10,12 @@ const api = vi.hoisted(() => ({
   listAdvisoryAnalyses: vi.fn(),
 }));
 
+const assetApi = vi.hoisted(() => ({
+  list: vi.fn(),
+}));
+
 vi.mock("../api/advisory.js", () => api);
+vi.mock("../api/client.js", () => ({ api: { assets: assetApi } }));
 
 import Advisory from "./Advisory.jsx";
 
@@ -19,10 +24,18 @@ describe("Advisory page", () => {
     vi.clearAllMocks();
     window.sessionStorage.clear();
     api.listAdvisoryAnalyses.mockResolvedValue([]);
+    assetApi.list.mockResolvedValue([
+      { id: "asset-aapl", ticker: "AAPL", name: "Apple", market: "US", quantity: 3 },
+      { id: "asset-cash", ticker: "KRW", name: "현금", market: "CASH", quantity: 100000 },
+      { id: "asset-zero", ticker: "MSFT", name: "Microsoft", market: "US", quantity: 0 },
+    ]);
     api.getAdvisoryStatus.mockResolvedValue({
       storage_status: "available",
       ai_narrative_status: "configured",
       migration_file: "backend/app/db/migrations/017_create_advisory_analyses.sql",
+      profit_taking_review_status: "available",
+      profit_taking_review_migration_file:
+        "backend/app/db/migrations/020_add_profit_taking_review_advisory.sql",
     });
     api.createAdvisoryJob.mockResolvedValue({
       job_id: "job-1",
@@ -97,6 +110,62 @@ describe("Advisory page", () => {
         lookback_days: 30,
       }),
     );
+  });
+
+  it("submits the stored-asset profit-taking review without price or quantity inputs", async () => {
+    render(<Advisory />);
+
+    await waitFor(() => expect(assetApi.list).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "AI 자문 요청" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /이익실현 판단/ }));
+
+    const assetSelect = screen.getByLabelText("이익실현을 검토할 보유 자산");
+    expect(assetSelect).toHaveTextContent("Apple (AAPL)");
+    expect(assetSelect).not.toHaveTextContent("현금");
+    expect(assetSelect).not.toHaveTextContent("Microsoft");
+    expect(screen.getByDisplayValue("중기")).toBeInTheDocument();
+    expect(screen.getByText(/기존 리포트 의견은 비교 정보로만 표시/)).toBeInTheDocument();
+    expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
+
+    fireEvent.change(assetSelect, { target: { value: "asset-aapl" } });
+    fireEvent.click(screen.getByRole("button", { name: "AI 자문 요청" }));
+
+    await waitFor(() =>
+      expect(api.createAdvisoryJob).toHaveBeenCalledWith({
+        analysis_type: "profit_taking_review",
+        asset_id: "asset-aapl",
+        review_horizon: "medium",
+      }),
+    );
+  });
+
+  it("requires a stored asset before submitting a profit-taking review", async () => {
+    render(<Advisory />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "AI 자문 요청" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /이익실현 판단/ }));
+    fireEvent.click(screen.getByRole("button", { name: "AI 자문 요청" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/보유 자산을 선택하세요/);
+    expect(api.createAdvisoryJob).not.toHaveBeenCalled();
+  });
+
+  it("blocks only the profit-taking review when migration 020 is missing", async () => {
+    api.getAdvisoryStatus.mockResolvedValue({
+      storage_status: "available",
+      ai_narrative_status: "configured",
+      migration_file: "backend/app/db/migrations/017_create_advisory_analyses.sql",
+      profit_taking_review_status: "migration_required",
+      profit_taking_review_migration_file:
+        "backend/app/db/migrations/020_add_profit_taking_review_advisory.sql",
+    });
+    render(<Advisory />);
+
+    expect(await screen.findByText(/이익실현 판단을 사용하려면/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /이익실현 판단/ }));
+
+    expect(screen.getByRole("button", { name: "AI 자문 요청" })).toBeDisabled();
+    expect(api.createAdvisoryJob).not.toHaveBeenCalled();
   });
 
   it("shows the required migration and blocks a new request", async () => {

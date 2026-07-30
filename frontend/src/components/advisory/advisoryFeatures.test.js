@@ -8,9 +8,10 @@ import {
 } from "./advisoryFeatures.js";
 
 describe("advisory payloads", () => {
-  it("defines all eight advisory analyses", () => {
-    expect(ADVISORY_FEATURES).toHaveLength(8);
+  it("defines all nine advisory analyses", () => {
+    expect(ADVISORY_FEATURES).toHaveLength(9);
     expect(ADVISORY_FEATURES.map((feature) => feature.id)).toEqual([
+      "profit_taking_review",
       "undervalued_us_stocks",
       "etf_rebalancing",
       "post_earnings_opportunities",
@@ -20,6 +21,34 @@ describe("advisory payloads", () => {
       "etf_overlap",
       "sector_outlook",
     ]);
+  });
+
+  it("builds only the stored-asset profit-taking request contract", () => {
+    const feature = getAdvisoryFeature("profit_taking_review");
+    const payload = buildAdvisoryPayload(feature, {
+      asset_id: "asset-123",
+      review_horizon: "medium",
+      avg_price: "100",
+      current_price: "120",
+      return_rate: "20",
+    });
+
+    expect(payload).toEqual({
+      analysis_type: "profit_taking_review",
+      asset_id: "asset-123",
+      review_horizon: "medium",
+    });
+    expect(validateAdvisoryPayload(feature, payload)).toBe("");
+    expect(
+      validateAdvisoryPayload(feature, { analysis_type: "profit_taking_review", asset_id: "" }),
+    ).toMatch(/보유 자산/);
+    expect(
+      validateAdvisoryPayload(feature, {
+        analysis_type: "profit_taking_review",
+        asset_id: "asset-123",
+        review_horizon: "invalid",
+      }),
+    ).toMatch(/단기, 중기, 장기/);
   });
 
   it("builds top-level stock analysis fields without a nested input object", () => {

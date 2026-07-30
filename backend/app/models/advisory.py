@@ -13,6 +13,7 @@ AnalysisType: TypeAlias = Literal[
     "sec_filing_risk",
     "etf_overlap",
     "sector_outlook",
+    "profit_taking_review",
 ]
 AdvisoryJobStatus: TypeAlias = Literal["queued", "running", "completed", "failed"]
 
@@ -76,6 +77,12 @@ class SectorOutlookRequest(AdvisoryRequestBase):
     custom_proxies: dict[str, str] | None = Field(default=None, max_length=20)
 
 
+class ProfitTakingReviewRequest(AdvisoryRequestBase):
+    analysis_type: Literal["profit_taking_review"]
+    asset_id: str = Field(min_length=1, max_length=80)
+    review_horizon: Literal["short", "medium", "long"] = "medium"
+
+
 AdvisoryJobRequest: TypeAlias = Annotated[
     UndervaluedUsStocksRequest
     | EtfRebalancingRequest
@@ -84,7 +91,8 @@ AdvisoryJobRequest: TypeAlias = Annotated[
     | HighDividendEtfsRequest
     | SecFilingRiskRequest
     | EtfOverlapRequest
-    | SectorOutlookRequest,
+    | SectorOutlookRequest
+    | ProfitTakingReviewRequest,
     Field(discriminator="analysis_type"),
 ]
 
@@ -128,6 +136,8 @@ class AdvisoryStatusResponse(BaseModel):
     storage_status: Literal["available", "migration_required", "unavailable"]
     ai_narrative_status: Literal["configured", "not_configured"]
     migration_file: str
+    profit_taking_review_status: Literal["available", "migration_required", "unavailable"]
+    profit_taking_review_migration_file: str
 
 
 class AdvisoryResultBase(BaseModel):
@@ -212,6 +222,21 @@ class SectorOutlookResult(AdvisoryResultBase):
     market_input_coverage: dict[str, Any]
 
 
+class ProfitTakingReviewResult(AdvisoryResultBase):
+    analysis_type: Literal["profit_taking_review"]
+    position_snapshot: dict[str, Any]
+    decision: dict[str, Any]
+    scorecard: dict[str, Any]
+    option_comparison: list[dict[str, Any]]
+    price_framework: dict[str, Any]
+    report_conflict: dict[str, Any]
+    risks: list[dict[str, Any]]
+    catalysts: list[dict[str, Any]]
+    invalidation_conditions: list[dict[str, Any]]
+    evaluation_status: str
+    summary: str
+
+
 AdvisoryResult: TypeAlias = Annotated[
     UndervaluedUsStocksResult
     | EtfRebalancingResult
@@ -220,7 +245,8 @@ AdvisoryResult: TypeAlias = Annotated[
     | HighDividendEtfsResult
     | SecFilingRiskResult
     | EtfOverlapResult
-    | SectorOutlookResult,
+    | SectorOutlookResult
+    | ProfitTakingReviewResult,
     Field(discriminator="analysis_type"),
 ]
 

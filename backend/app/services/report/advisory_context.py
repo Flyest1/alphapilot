@@ -9,7 +9,7 @@ from app.db.supabase_client import Repository
 from app.utils.logging import log_external_failure
 
 ADVISORY_LOOKBACK_DAYS = 30
-MAX_ADVISORY_ANALYSES = 8
+MAX_ADVISORY_ANALYSES = 9
 MAX_ADVISORY_CONTEXT_BYTES = 12_000
 MAX_ADVISORY_TICKERS = 5
 MAX_ADVISORY_ACTIONS = 5
@@ -25,7 +25,7 @@ _FINDING_COLLECTIONS = {
     "etf_overlap": "etfs",
     "sector_outlook": "sectors",
 }
-_ADVISORY_TYPES = (*_FINDING_COLLECTIONS, "sec_filing_risk")
+_ADVISORY_TYPES = (*_FINDING_COLLECTIONS, "sec_filing_risk", "profit_taking_review")
 _SAFE_ACTIONS = {"BUY", "HOLD", "REDUCE", "SELL", "WATCH"}
 _SAFE_ITEM_FIELDS = {
     "ticker",
@@ -171,6 +171,21 @@ def _findings(analysis_type: str, result: Mapping[str, Any]) -> dict[str, Any]:
         if ticker:
             findings["tickers"] = [ticker]
         findings["risk_rating"] = _safe_identifier(result.get("risk_rating"))
+        findings["evaluation_status"] = _safe_identifier(result.get("evaluation_status"))
+    if analysis_type == "profit_taking_review":
+        position = result.get("position_snapshot")
+        decision = result.get("decision")
+        if isinstance(position, Mapping):
+            ticker = _safe_identifier(position.get("ticker"))
+            if ticker:
+                findings["tickers"] = [ticker]
+            market = _safe_identifier(position.get("market"))
+            if market:
+                findings["market"] = market
+        if isinstance(decision, Mapping):
+            action = _safe_identifier(decision.get("action"))
+            findings["actions"] = [action] if action in _SAFE_ACTIONS else []
+            findings["confidence"] = _safe_scalar(decision.get("confidence"))
         findings["evaluation_status"] = _safe_identifier(result.get("evaluation_status"))
     return findings
 

@@ -21,6 +21,14 @@ const LIMITATION_MESSAGES = {
   unavailable: "필수 데이터가 없어 현재 결과를 제공할 수 없습니다.",
 };
 
+const PROFIT_TAKING_ACTION_LABELS = {
+  SELL: "전량 이익실현 검토",
+  REDUCE: "일부 이익실현 검토",
+  HOLD: "보유 지속 검토",
+  BUY: "추가 노출 검토",
+  WATCH: "추가 확인",
+};
+
 function StatusBadge({ value }) {
   if (value == null || value === "") return null;
   const normalized = String(value).toLowerCase();
@@ -32,6 +40,15 @@ function StatusBadge({ value }) {
       ? "caution"
       : "neutral";
   return <span className={`advisory-status-badge ${tone}`}>{statusLabel(value)}</span>;
+}
+
+function ProfitTakingActionBadge({ value }) {
+  if (value == null || value === "") return null;
+  return (
+    <span className="advisory-status-badge neutral">
+      {PROFIT_TAKING_ACTION_LABELS[value] || statusLabel(value)}
+    </span>
+  );
 }
 
 function Value({ field, value }) {
@@ -293,6 +310,224 @@ function FallbackDetails({ result, knownKeys }) {
   );
 }
 
+function textItems(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object") {
+          return item.text || item.summary || item.reason || item.detail || "";
+        }
+        return "";
+      })
+      .filter(Boolean);
+  }
+  return value == null || value === "" ? [] : [String(value)];
+}
+
+function ReviewKeyValues({ value, fields, showMissing = false }) {
+  if (!value || typeof value !== "object") {
+    return <p className="field-hint">제공되지 않음</p>;
+  }
+  const rows = showMissing
+    ? fields
+    : fields.filter((field) => value[field] != null && value[field] !== "");
+  if (!rows.length) return <p className="field-hint">제공되지 않음</p>;
+  return (
+    <dl className="advisory-key-values">
+      {rows.map((field) => (
+        <div key={field}>
+          <dt>{labelFor(field)}</dt>
+          <dd>
+            <Value field={field} value={value[field]} />
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function ProfitTakingReview({ result }) {
+  const decision = result.decision && typeof result.decision === "object" ? result.decision : {};
+  const position =
+    result.position_snapshot && typeof result.position_snapshot === "object"
+      ? result.position_snapshot
+      : {};
+  const reportContext =
+    result.report_conflict && typeof result.report_conflict === "object"
+      ? result.report_conflict
+      : result.latest_report_context && typeof result.latest_report_context === "object"
+        ? result.latest_report_context
+        : {};
+  const reasons = textItems(
+    decision.primary_reasons || decision.decision_reason || decision.reasons || result.key_reasons,
+  );
+  const comparisons = safeRows(result.option_comparison || result.options);
+  const triggers = safeRows(result.reassessment_triggers || result.invalidation_conditions);
+  const risks = textItems(result.risks);
+  const catalysts = textItems(result.catalysts);
+  const conclusion = decision.one_line_conclusion || decision.summary || result.summary;
+
+  return (
+    <section className="advisory-profit-taking-review" data-testid="profit-taking-review">
+      <section className="advisory-profit-decision" aria-label="최종 의견">
+        <div>
+          <span className="advisory-profit-eyebrow">최종 의견</span>
+          <h3>{conclusion || "현재 데이터를 바탕으로 이익실현 여부를 검토합니다."}</h3>
+        </div>
+        <ProfitTakingActionBadge value={decision.action || result.action || "WATCH"} />
+        <ReviewKeyValues
+          value={{ ...decision, ...position }}
+          fields={[
+            "confidence",
+            "unrealized_return_pct",
+            "position_weight_pct",
+            "average_price",
+            "current_price",
+          ]}
+        />
+      </section>
+
+      <section className="advisory-result-section" aria-label="핵심 이유">
+        <h3>핵심 이유</h3>
+        {reasons.length ? (
+          <ul className="advisory-list">
+            {reasons.map((reason, index) => (
+              <li key={`profit-taking-reason-${index}`}>{reason}</li>
+            ))}
+          </ul>
+        ) : (
+          <p className="field-hint">핵심 판단 근거를 제공하지 않았습니다.</p>
+        )}
+      </section>
+
+      <section className="advisory-result-section" aria-label="이익실현 보유 추가노출 비교">
+        <h3>이익실현·보유·추가 노출 비교</h3>
+        {comparisons.length ? (
+          <div className="advisory-profit-option-grid">
+            {comparisons.map((option, index) => (
+              <article key={option.action || option.name || index}>
+                <div>
+                  <strong>
+                    {option.name ||
+                      PROFIT_TAKING_ACTION_LABELS[option.action] ||
+                      statusLabel("option")}
+                  </strong>
+                  <ProfitTakingActionBadge value={option.action} />
+                </div>
+                {option.current_view && (
+                  <p>{formatAdvisoryValue("current_view", option.current_view)}</p>
+                )}
+                {option.when_it_fits && (
+                  <p>{formatAdvisoryValue("when_it_fits", option.when_it_fits)}</p>
+                )}
+                {option.suitability_score != null && (
+                  <span>
+                    {formatAdvisoryValue("suitability_score", option.suitability_score)}점
+                  </span>
+                )}
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="field-hint">비교 시나리오를 제공하지 않았습니다.</p>
+        )}
+      </section>
+
+      <section className="advisory-result-section" aria-label="기존 리포트와의 비교">
+        <h3>기존 리포트와의 비교</h3>
+        <p className="field-hint">
+          기존 리포트는 비교 정보일 뿐, 이번 이익실현 판단의 점수나 최종 의견에는 영향을 주지
+          않습니다.
+        </p>
+        <ReviewKeyValues
+          value={reportContext}
+          fields={["action", "confidence", "generated_at", "conflict_status", "conflict_reason"]}
+          showMissing
+        />
+      </section>
+
+      <section className="advisory-result-section" aria-label="재검토 조건">
+        <h3>재검토 조건</h3>
+        {triggers.length ? (
+          <div className="advisory-profit-trigger-list">
+            {triggers.map((trigger, index) => (
+              <article key={trigger.id || trigger.trigger_type || index}>
+                <strong>
+                  {formatAdvisoryValue(
+                    "trigger_type",
+                    trigger.trigger_type || trigger.type || "재검토 조건",
+                  )}
+                </strong>
+                <p>{formatAdvisoryValue("condition", trigger.condition || trigger.summary)}</p>
+                {trigger.response && (
+                  <small>{formatAdvisoryValue("response", trigger.response)}</small>
+                )}
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="field-hint">재검토 조건을 제공하지 않았습니다.</p>
+        )}
+      </section>
+
+      <details className="advisory-profit-details">
+        <summary>세부 점수·가격 기준 보기</summary>
+        <section className="advisory-result-section">
+          <h3>판단 점수표</h3>
+          <ReviewKeyValues
+            value={result.scorecard}
+            fields={[
+              "hold_support_score",
+              "realization_pressure_score",
+              "add_support_score",
+              "technical_score",
+            ]}
+          />
+        </section>
+        <section className="advisory-result-section">
+          <h3>가격 재검토 기준</h3>
+          <ReviewKeyValues
+            value={result.price_framework}
+            fields={[
+              "profit_protection_reference",
+              "upside_review_reference",
+              "trend_invalidation_reference",
+              "review_horizon",
+              "note",
+            ]}
+          />
+        </section>
+        <section className="advisory-result-section">
+          <h3>핵심 위험</h3>
+          {risks.length ? (
+            <ul className="advisory-list">
+              {risks.map((risk, index) => (
+                <li key={`profit-taking-risk-${index}`}>{risk}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="field-hint">추가로 확인된 핵심 위험이 없습니다.</p>
+          )}
+        </section>
+        <section className="advisory-result-section">
+          <h3>보유·상승 촉매</h3>
+          {catalysts.length ? (
+            <ul className="advisory-list">
+              {catalysts.map((catalyst, index) => (
+                <li key={`profit-taking-catalyst-${index}`}>{catalyst}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="field-hint">확인 가능한 보유·상승 촉매가 없습니다.</p>
+          )}
+        </section>
+        {position.profit_basis_note && <p className="field-hint">{position.profit_basis_note}</p>}
+      </details>
+    </section>
+  );
+}
+
 export function AdvisoryPriorityNotices({ result }) {
   const limitations = limitedStatuses(result);
   const nport = nportDisclosure(result);
@@ -334,16 +569,33 @@ export default function AdvisoryResultView({ result }) {
     "retrieved_at",
     "source_as_of",
     "latest_filings",
+    "position_snapshot",
+    "decision",
+    "option_comparison",
+    "options",
+    "key_reasons",
+    "report_conflict",
+    "latest_report_context",
+    "reassessment_triggers",
+    "invalidation_conditions",
+    "scorecard",
+    "price_framework",
+    "risks",
+    "catalysts",
+    "evaluation_status",
     ...config.sections
       .filter((section) => Array.isArray(result[section.key]))
       .map((section) => section.key),
   ]);
   return (
     <>
-      <section className="advisory-result-title">
-        <h3>{config.title}</h3>
-        {result.risk_rating && <StatusBadge value={result.risk_rating} />}
-      </section>
+      {result.analysis_type === "profit_taking_review" && <ProfitTakingReview result={result} />}
+      {result.analysis_type !== "profit_taking_review" && (
+        <section className="advisory-result-title">
+          <h3>{config.title}</h3>
+          {result.risk_rating && <StatusBadge value={result.risk_rating} />}
+        </section>
+      )}
       {result.beginner_explanation && (
         <section className="advisory-result-section">
           <h3>초보자 안내</h3>
@@ -357,9 +609,10 @@ export default function AdvisoryResultView({ result }) {
         </section>
       )}
       {result.analysis_type === "sec_filing_risk" && <SecFilings filings={result.latest_filings} />}
-      {config.sections.map(({ key, ...section }) => (
-        <ResultTable key={key} {...section} rows={result[key]} />
-      ))}
+      {result.analysis_type !== "profit_taking_review" &&
+        config.sections.map(({ key, ...section }) => (
+          <ResultTable key={key} {...section} rows={result[key]} />
+        ))}
       <FallbackDetails result={result} knownKeys={knownKeys} />
     </>
   );

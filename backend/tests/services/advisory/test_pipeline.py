@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 from app.db.supabase_client import InMemoryRepository
 from app.models.advisory import parse_advisory_job_request
-from app.services.advisory.pipeline import AdvisoryPipeline
+from app.services.advisory.pipeline import AdvisoryPipeline, PROFIT_TAKING_EVENT_WINDOW_DAYS
 
 
 class FakeMarketData:
@@ -32,7 +32,7 @@ class FakeNewsService:
         }
 
 
-def test_pipeline_registers_all_eight_analysis_types():
+def test_pipeline_registers_all_nine_analysis_types():
     pipeline = AdvisoryPipeline(InMemoryRepository(), FakeMarketData(), yf_module=FakeYFinance())
 
     assert set(pipeline.handlers()) == {
@@ -44,7 +44,59 @@ def test_pipeline_registers_all_eight_analysis_types():
         "sec_filing_risk",
         "etf_overlap",
         "sector_outlook",
+        "profit_taking_review",
     }
+
+
+def test_profit_taking_event_windows_follow_review_horizon():
+    assert PROFIT_TAKING_EVENT_WINDOW_DAYS == {"short": 30, "medium": 90, "long": 180}
+
+
+def test_pipeline_compares_profit_taking_review_with_market_specific_report_type():
+    class ReportRepository(InMemoryRepository):
+        def __init__(self):
+            super().__init__()
+            self.report_types = []
+
+        def get_latest_report(self, report_type=None):
+            self.report_types.append(report_type)
+            return {
+                "created_at": "2026-07-30T00:00:00+00:00",
+                "content": {
+                    "asset_strategies": [{"ticker": "EXM", "action": "BUY", "confidence": 70}]
+                },
+            }
+
+    repository = ReportRepository()
+    pipeline = AdvisoryPipeline(repository, FakeMarketData(), yf_module=FakeYFinance())
+
+    domestic = pipeline._latest_report_strategy({"market": "KR", "ticker": "EXM"})
+    global_report = pipeline._latest_report_strategy({"market": "ETF", "ticker": "EXM"})
+
+    assert repository.report_types == ["domestic", "global"]
+    assert domestic["action"] == "BUY"
+    assert global_report["action"] == "BUY"
+
+
+def test_profit_taking_context_uses_usd_rate_when_us_asset_currency_is_missing(monkeypatch):
+    class FakePortfolioService:
+        def __init__(self, *_args):
+            pass
+
+        def get_summary(self):
+            return SimpleNamespace(total_market_value=100000, usd_krw_rate=1400)
+
+    monkeypatch.setattr(
+        "app.services.advisory.pipeline.PortfolioService",
+        FakePortfolioService,
+    )
+    pipeline = AdvisoryPipeline(InMemoryRepository(), FakeMarketData(), yf_module=FakeYFinance())
+
+    context = pipeline._profit_taking_context(
+        {"id": "asset-us", "market": "US", "ticker": "AAPL", "currency": None}
+    )
+
+    assert context["currency_fx_rate"] == 1400
 
 
 def test_pipeline_uses_owned_etfs_when_request_has_no_positions():

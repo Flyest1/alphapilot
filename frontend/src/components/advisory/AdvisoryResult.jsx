@@ -115,6 +115,10 @@ export default function AdvisoryResult({ analysis }) {
   const limitations = firstDefined(result.limitations, dataQuality.limitations);
   const summary = typeof result.ai_narrative === "string" ? result.ai_narrative : result.summary;
   const structuredNarrative = isRecord(result.ai_narrative) ? result.ai_narrative : null;
+  const isProfitTakingReview = result.analysis_type === "profit_taking_review";
+  const heroConclusion = result.decision?.one_line_conclusion || result.summary;
+  const shouldShowSummary =
+    Boolean(summary) && (!isProfitTakingReview || String(summary) !== String(heroConclusion));
 
   return (
     <section className="panel advisory-result-panel">
@@ -132,14 +136,15 @@ export default function AdvisoryResult({ analysis }) {
           <span className="alert">AI 설명 상태: {AI_NARRATIVE_ALERTS[aiNarrativeState]}</span>
         </p>
       )}
-      {summary && (
+      {isProfitTakingReview && <AdvisoryResultView result={result} />}
+      {shouldShowSummary && (
         <section className="advisory-result-section">
           <h3>요약</h3>
           <p>{formatAdvisoryValue("summary", summary)}</p>
         </section>
       )}
       <AdvisoryNarrative narrative={structuredNarrative} />
-      <AdvisoryResultView result={result} />
+      {!isProfitTakingReview && <AdvisoryResultView result={result} />}
       {result.disclaimer && (
         <section className="advisory-result-section">
           <h3>{labelFor("disclaimer")}</h3>

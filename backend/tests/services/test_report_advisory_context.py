@@ -179,7 +179,7 @@ def test_completed_advisory_summary_is_bounded_in_prompt_and_snapshot(report_typ
 
     advisory_context = ai_provider.context["advisory_context"]
     summary = advisory_context["analyses"][0]
-    assert repository.advisory_limits == [1] * 8
+    assert repository.advisory_limits == [1] * 9
     assert advisory_context["status"] == "available"
     assert advisory_context["lookback_days"] == ADVISORY_LOOKBACK_DAYS
     assert advisory_context["truncated"] is False
@@ -212,6 +212,11 @@ def test_advisory_storage_failure_keeps_report_generation_available():
         "analysis_count": 0,
         "analyses": [],
     }
+
+
+def test_advisory_context_capacity_covers_all_supported_types():
+    assert advisory_context_module.MAX_ADVISORY_ANALYSES == 9
+    assert len(advisory_context_module._ADVISORY_TYPES) == 9
 
 
 def test_report_prompt_keeps_news_sources_internal():
@@ -321,3 +326,44 @@ def test_advisory_context_keeps_only_whitelisted_structured_findings():
     ]
     assert "free-form narrative" not in str(context)
     assert "https://example.com/private" not in str(context)
+
+
+def test_profit_taking_review_is_summarized_without_reusing_raw_reasoning():
+    repository = InMemoryRepository()
+    now = datetime(2026, 7, 19, tzinfo=timezone.utc)
+    repository.create_advisory_analysis(
+        {
+            "analysis_id": "profit-taking-1",
+            "job_id": "job-1",
+            "analysis_type": "profit_taking_review",
+            "request_payload": {"asset_id": "secret-asset"},
+            "result_payload": {
+                "analysis_type": "profit_taking_review",
+                "position_snapshot": {"ticker": "AAPL", "market": "US"},
+                "decision": {
+                    "action": "REDUCE",
+                    "confidence": 70,
+                    "decision_reason": ["raw reasoning must not be copied"],
+                },
+                "evaluation_status": "available",
+                "data_quality": {"status": "fresh", "limitations": [], "missing_fields": []},
+                "evidence": [{"provider": "yfinance"}],
+            },
+            "created_at": now.isoformat(),
+        }
+    )
+
+    context = build_advisory_context(repository, now_provider=lambda: now)
+
+    summary = next(
+        row for row in context["analyses"] if row["analysis_type"] == "profit_taking_review"
+    )
+    assert summary["findings"] == {
+        "result_count": 0,
+        "tickers": ["AAPL"],
+        "actions": ["REDUCE"],
+        "confidence": 70,
+        "market": "US",
+        "evaluation_status": "available",
+    }
+    assert "raw reasoning" not in str(context)

@@ -104,6 +104,8 @@ class Repository(Protocol):
         self, analysis_type: str | None = None, limit: int | None = None
     ) -> list[dict[str, Any]]: ...
 
+    def has_advisory_capability(self, capability: str) -> bool: ...
+
     def create_portfolio_snapshot(self, data: dict[str, Any]) -> dict[str, Any]: ...
 
     def list_portfolio_snapshots(self, limit: int | None = None) -> list[dict[str, Any]]: ...
@@ -597,6 +599,9 @@ class InMemoryRepository:
             rows = [row for row in rows if row.get("analysis_type") == analysis_type]
         rows = sorted(rows, key=lambda row: row.get("created_at") or "", reverse=True)
         return rows[:limit] if limit is not None else rows
+
+    def has_advisory_capability(self, capability: str) -> bool:
+        return capability == "profit_taking_review"
 
     def create_portfolio_snapshot(self, data: dict[str, Any]) -> dict[str, Any]:
         row = deepcopy(data)
@@ -1253,6 +1258,20 @@ class SupabaseRepository:
             builder,
             {"operation": "list_advisory_analyses", "analysis_type": analysis_type},
         )
+
+    def has_advisory_capability(self, capability: str) -> bool:
+        builder = (
+            self.client.table("advisory_capabilities")
+            .select("capability")
+            .eq("capability", capability)
+            .eq("enabled", True)
+            .limit(1)
+        )
+        rows = self._run(
+            builder,
+            {"operation": "has_advisory_capability", "capability": capability},
+        )
+        return bool(rows)
 
     def create_portfolio_snapshot(self, data: dict[str, Any]) -> dict[str, Any]:
         builder = self.client.table("portfolio_snapshots").insert(data)

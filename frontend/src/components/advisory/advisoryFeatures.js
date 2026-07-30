@@ -1,5 +1,12 @@
 export const ADVISORY_FEATURES = [
   {
+    id: "profit_taking_review",
+    title: "이익실현 판단",
+    description: "수익 중인 보유 자산의 이익 보존·보유·추가 노출 조건을 독립적으로 점검합니다.",
+    inputMode: "owned_asset",
+    details: ["최종 의견", "핵심 이유", "이익실현·보유 비교", "리포트 충돌", "재검토 조건"],
+  },
+  {
     id: "undervalued_us_stocks",
     title: "저평가 미국 주식",
     description: "실적·밸류에이션·가이던스와 하방 위험을 함께 비교합니다.",
@@ -107,6 +114,13 @@ function customProxies(rows) {
 
 export function buildAdvisoryPayload(feature, form) {
   const payload = { analysis_type: feature.id };
+  if (feature.inputMode === "owned_asset") {
+    return {
+      ...payload,
+      asset_id: String(form.asset_id || "").trim(),
+      review_horizon: form.review_horizon || "medium",
+    };
+  }
   if (feature.inputMode === "ticker") {
     const payloadWithTicker = {
       ...payload,
@@ -175,6 +189,12 @@ export function buildAdvisoryPayload(feature, form) {
 }
 
 export function validateAdvisoryPayload(feature, payload, form = {}) {
+  if (feature.inputMode === "owned_asset") {
+    if (!payload.asset_id) return "이익실현 판단을 위해 보유 자산을 선택하세요.";
+    if (!["short", "medium", "long"].includes(payload.review_horizon)) {
+      return "검토 기간은 단기, 중기, 장기 중에서 선택하세요.";
+    }
+  }
   if (feature.inputMode === "ticker" && !payload.ticker) {
     return "SEC 공시 위험 분석에는 티커를 입력하세요.";
   }

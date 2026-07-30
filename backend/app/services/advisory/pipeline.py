@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping
 
+from app.config import get_env_application_defaults, resolve_application_settings
 from app.models.advisory import AdvisoryJobRequest
 from app.services.advisory.features.ai_beneficiaries import AIBeneficiariesAnalyzer
 from app.services.advisory.features.etf_overlap import EtfOverlapService
@@ -11,6 +12,7 @@ from app.services.advisory.features.high_dividend_etfs import HighDividendEtfSer
 from app.services.advisory.features.post_earnings_opportunities import (
     PostEarningsOpportunitiesAnalyzer,
 )
+from app.services.advisory.features.profit_taking_review import ProfitTakingReviewService
 from app.services.advisory.features.sec_filing_risk import SECFilingRiskAnalyzer
 from app.services.advisory.features.sector_outlook import (
     SECTOR_BOND_PROXIES,
@@ -20,6 +22,8 @@ from app.services.advisory.features.undervalued_us_stocks import UndervaluedUSSt
 from app.services.advisory.openai_provider import OpenAIAdvisoryProvider
 from app.services.portfolio_service import PortfolioService
 from app.utils.logging import log_external_failure
+
+PROFIT_TAKING_EVENT_WINDOW_DAYS = {"short": 30, "medium": 90, "long": 180}
 
 
 class AdvisoryPipeline:
@@ -51,6 +55,7 @@ class AdvisoryPipeline:
             "sec_filing_risk": self._sec_filing_risk,
             "etf_overlap": self._etf_overlap,
             "sector_outlook": self._sector_outlook,
+            "profit_taking_review": self._profit_taking_review,
         }
 
     def _undervalued_us_stocks(self, _job: Any, request: Any) -> dict[str, Any]:
@@ -146,6 +151,106 @@ class AdvisoryPipeline:
         self._attach_news_context(result, [])
         result["market_input_coverage"] = self._sector_market_input_coverage(result)
         return self._add_narrative(result)
+
+    def _profit_taking_review(self, _job: Any, request: Any) -> dict[str, Any]:
+        asset = self.repository.get_asset(str(request.asset_id))
+        context = self._profit_taking_context(asset)
+        events = []
+        if asset is not None:
+            try:
+                event_window_days = PROFIT_TAKING_EVENT_WINDOW_DAYS[request.review_horizon]
+                event_result = self.market_data_service.fetch_asset_events(
+                    [asset],
+                    days=event_window_days,
+                )
+                events = list(event_result.get("events") or [])
+            except Exception as exc:
+                log_external_failure(
+                    "yfinance",
+                    exc,
+                    {"operation": "resolve_profit_taking_events", "asset_id": request.asset_id},
+                )
+        result = ProfitTakingReviewService(
+            self.market_data_service,
+            self._yf_module(),
+        ).analyze(
+            asset,
+            request.review_horizon,
+            portfolio_total_value=context["portfolio_total_value"],
+            currency_fx_rate=context["currency_fx_rate"],
+            max_asset_weight_pct=context["max_asset_weight_pct"],
+            latest_report=context["latest_report"],
+            upcoming_events=events,
+        )
+        if asset is not None:
+            self._attach_news_context(result, [str(asset.get("ticker") or "").upper()])
+        return self._add_narrative(result)
+
+    def _profit_taking_context(self, asset: dict[str, Any] | None) -> dict[str, Any]:
+        context: dict[str, Any] = {
+            "portfolio_total_value": None,
+            "currency_fx_rate": None,
+            "max_asset_weight_pct": 25.0,
+            "latest_report": self._latest_report_strategy(asset),
+        }
+        try:
+            settings = resolve_application_settings(
+                self.repository.get_settings(),
+                get_env_application_defaults(),
+            )
+            context["max_asset_weight_pct"] = float(settings.target_max_asset_pct)
+            summary = PortfolioService(self.repository, self.market_data_service).get_summary()
+            context["portfolio_total_value"] = float(summary.total_market_value)
+            asset_market = str((asset or {}).get("market") or "").upper()
+            asset_currency = str((asset or {}).get("currency") or "").upper()
+            uses_usd = (
+                asset_market == "US"
+                or asset_currency == "USD"
+                or (asset_market == "ETF" and asset_currency != "KRW")
+            )
+            if asset and uses_usd:
+                context["currency_fx_rate"] = float(summary.usd_krw_rate)
+            else:
+                context["currency_fx_rate"] = 1.0
+        except Exception as exc:
+            log_external_failure(
+                "portfolio",
+                exc,
+                {"operation": "resolve_profit_taking_concentration"},
+            )
+        return context
+
+    def _latest_report_strategy(self, asset: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not asset:
+            return None
+        try:
+            report_type = "domestic" if str(asset.get("market") or "").upper() == "KR" else "global"
+            report = self.repository.get_latest_report(report_type)
+        except Exception as exc:
+            log_external_failure(
+                "reports",
+                exc,
+                {"operation": "resolve_profit_taking_report_comparison"},
+            )
+            return None
+        if not isinstance(report, dict):
+            return None
+        content = report.get("content")
+        if not isinstance(content, dict):
+            return None
+        ticker = str(asset.get("ticker") or "").upper()
+        for strategy in content.get("asset_strategies") or []:
+            if not isinstance(strategy, dict):
+                continue
+            strategy_ticker = str(strategy.get("ticker") or "").upper()
+            if strategy_ticker != ticker:
+                continue
+            return {
+                "action": strategy.get("action"),
+                "confidence": strategy.get("confidence"),
+                "generated_at": content.get("generated_at") or report.get("created_at"),
+            }
+        return None
 
     def _positions(self, request: Any) -> list[dict[str, Any]]:
         raw_positions = getattr(request, "positions", None)

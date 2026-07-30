@@ -56,8 +56,9 @@ Signal-quality improvement Phase 6 shadow-evaluation foundation is implemented i
 was applied manually to the operating Supabase project on 2026-07-17. No challenger model or promotion
 threshold is configured yet.
 The manually requested AI advisory baseline tracked in `docs/ai_advisory_plan_2026_07.md` is implemented
-and deployed. Migration 017 and all eight authenticated request-to-persistence workflows were verified
-against the operating environment on 2026-07-17.
+and deployed. Migration 017 and the original eight authenticated request-to-persistence workflows were
+verified against the operating environment on 2026-07-17. A ninth `profit_taking_review` workflow is
+approved for implementation and requires additive migration 020 before operating use.
 ```
 
 The detailed upgrade plan lives in `docs/development_plan_v2.md` and the code review baseline in `docs/code_review_2026_06.md`. When this file and the plan conflict, this file wins.
@@ -509,6 +510,7 @@ high_dividend_etfs
 sec_filing_risk
 etf_overlap
 sector_outlook
+profit_taking_review
 ```
 
 AI advisory requests must be asynchronous, persisted, traceable to evidence, and manual only. Missing
@@ -621,6 +623,11 @@ Migration 017 adds these advisory tables when manually applied:
 
 - `advisory_jobs`
 - `advisory_analyses`
+- `advisory_capabilities`
+
+Migration 020 expands the existing advisory analysis-type constraints to allow
+`profit_taking_review` and adds the `advisory_capabilities` marker used for read-only capability
+status checks. It does not remove or rewrite existing advisory rows.
 
 Existing additive settings columns:
 
@@ -1059,15 +1066,20 @@ Do not implement any part of this phase without approval.
 
 ### AI Advisory (Manual Analysis)
 
-Status: baseline implemented and deployed (2026-07). Migration 017 was applied to the operating
-Supabase project, and Bundle A operational verification completed on 2026-07-17. Follow-up Bundle B
+Status: the original eight-workflow baseline is implemented and deployed (2026-07). Migration 017 was
+applied to the operating Supabase project, and Bundle A operational verification completed on
+2026-07-17. Follow-up Bundle B
 (persistent SEC accession cache and advisory job recovery) and Bundle C (eight dedicated result views
 and active-job browser recovery) were implemented, deployed, and operationally verified on
 2026-07-17. The 2026-07-18 follow-up adds a one-job in-process runner, a 1GB default persistent SEC
 cache byte cap with status metrics, inline advanced request forms, `gpt-5.6-luna` as the application
 default, lazy-loaded frontend pages, and a 30-stock curated US equity universe.
 
-Goal: provide the eight manual analysis workflows defined in `docs/ai_advisory_plan_2026_07.md`
+The ninth `profit_taking_review` workflow is implemented only after its code and additive migration 020
+are present. It remains operationally unavailable until migration 020 is manually applied to the
+operating Supabase project and the authenticated request-to-persistence flow is verified.
+
+Goal: provide the nine manual analysis workflows defined in `docs/ai_advisory_plan_2026_07.md`
 without automatic trading, order tickets, or unsupported factual claims.
 
 Implement:
@@ -1075,12 +1087,12 @@ Implement:
 - persisted asynchronous advisory jobs and analysis history
 - deterministic calculations before OpenAI explanation
 - evidence ids, source dates, providers, freshness, missing fields, and limitations
-- the eight advisory analysis types listed in the public API contract
+- the nine advisory analysis types listed in the public API contract
 - Korean AI advisory tab with manual inputs, polling, history, and result tables
 - bounded local-disk SEC accession cache with SHA-256 integrity checks and atomic writes
 - periodic advisory job heartbeat and single-process startup recovery without an external worker
 - one-job bounded in-process execution with queue-depth status, without an external queue service
-- dedicated Korean result views for all eight analysis types with evidence-safe links
+- dedicated Korean result views for all nine analysis types with evidence-safe links
 - inline advanced request inputs and severity-aware partial/data-limited notices
 
 SEC EDGAR, FRED, delayed SEC N-PORT data, and clearly labeled yfinance ETF-flow proxies were approved
@@ -1107,6 +1119,7 @@ Follow this order unless the user explicitly changes priority:
 12. Phase 9: in-app notification center.
 13. Decide and implement stronger security (Phase 7) if approved; Phase 10 only with explicit approval.
 14. Complete the eight manual AI advisory workflows and deploy migration 017. Done.
+15. Implement the independent profit-taking review workflow and deploy migration 020.
 
 Each step must include:
 
