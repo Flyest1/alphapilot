@@ -36,12 +36,12 @@ def test_openai_provider_uses_structured_output_schema_and_parses_response():
     assert "reasoning_effort" not in kwargs
 
 
-def test_openai_provider_uses_max_reasoning_effort_for_luna():
+def test_openai_provider_uses_highest_supported_reasoning_effort_for_luna():
     client = FakeClient()
     provider = OpenAIProvider(api_key="unused", model="gpt-5.6-luna", client=client)
 
     provider.generate_report("prompt", {"ticker": "AAPL"})
 
     kwargs = client.chat.completions.kwargs
-    assert kwargs["reasoning_effort"] == "max"
+    assert kwargs["reasoning_effort"] == "xhigh"
     assert "temperature" not in kwargs

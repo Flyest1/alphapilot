@@ -810,7 +810,8 @@ AI 자문 Bundle B·C는 다음 안정화와 화면 개선을 포함합니다.
   `data-limited`·`insufficient_data`는 강한 경고를 유지합니다.
 - 애플리케이션 기본 OpenAI 모델은 `gpt-5.6-luna`이며 `settings.ai_model`, `OPENAI_MODEL`,
   Pydantic 기본값 순서로 해석합니다. 이 모델의 리포트·자문 생성 요청은
-  `reasoning_effort=max`를 사용하며 지원되지 않는 `temperature` 파라미터는 보내지 않습니다.
+  OpenAI API가 허용하는 최고 수준인 `reasoning_effort=xhigh`를 사용하며 지원되지 않는
+  `temperature` 파라미터는 보내지 않습니다.
 - 프런트 페이지는 `React.lazy`로 분리해 최초 번들에 모든 화면을 한꺼번에 포함하지 않습니다.
 
 2026-07-17 Bundle B·C 운영 검증에서는 기본 미국 주식 15개와 ETF 10개를 사용해 8개 자문 유형이 모두 완료되고 OpenAI 설명과 추적 가능한 evidence가 저장되는 것을 확인했습니다. 실행 중인 대규모 자문 job의 `updated_at` heartbeat가 전진한 뒤 Oracle 백엔드를 재시작했으며, 동일 job이 분석 1건만 생성하고 완료 상태로 복구되었습니다. 재시작 후 AAPL SEC 분석은 기존 85개 accession payload를 변경하거나 추가 다운로드하지 않고 최신 10-K·10-Q·8-K를 다시 제공했습니다. GitHub CI, Pages, Oracle 배포와 실제 Pages 정적 번들의 전용 결과·재시도·N-PORT 경고·active job 복원 코드도 확인했습니다.

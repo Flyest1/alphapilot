@@ -1,9 +1,10 @@
 from typing import Any
 
-MAX_REASONING_MODEL = "gpt-5.6-luna"
+LUNA_MODEL = "gpt-5.6-luna"
+LUNA_REASONING_EFFORT = "xhigh"
 
 
 def build_completion_options(model: str) -> dict[str, Any]:
-    if model.strip().lower() == MAX_REASONING_MODEL:
-        return {"reasoning_effort": "max"}
+    if model.strip().lower() == LUNA_MODEL:
+        return {"reasoning_effort": LUNA_REASONING_EFFORT}
     return {"temperature": 0.2}
