@@ -15,6 +15,15 @@ function shortDate(timestamp) {
   return text.length >= 10 ? text.slice(5, 10) : "";
 }
 
+function displayAssetLabel(ticker, assetsByTicker) {
+  const asset = assetsByTicker.get(normalizeTicker(ticker));
+  const isDomesticAsset = asset?.market === "KR" || asset?.currency === "KRW";
+  if (isDomesticAsset && asset.name?.trim()) {
+    return asset.name.trim();
+  }
+  return ticker;
+}
+
 // 대시보드 "오늘 확인할 것" 항목을 기존 데이터에서 도출한다 (Phase 6-1).
 // kind: target | stop | reduce | drift | candidate | stale
 export function buildActionBriefing({
@@ -25,7 +34,8 @@ export function buildActionBriefing({
   now = Date.now(),
 }) {
   const items = [];
-  const ownedTickers = new Set(assets.map((asset) => normalizeTicker(asset.ticker)));
+  const assetsByTicker = new Map(assets.map((asset) => [normalizeTicker(asset.ticker), asset]));
+  const ownedTickers = new Set(assetsByTicker.keys());
   const strategies = report?.content?.asset_strategies || [];
 
   // 1) 최근 종료된 추천 cycle: 목표/손절 도달
@@ -37,19 +47,20 @@ export function buildActionBriefing({
     .sort((a, b) => String(b.closed_at).localeCompare(String(a.closed_at)));
   recentClosed.slice(0, MAX_ITEMS_PER_KIND).forEach((cycle) => {
     const when = shortDate(cycle.closed_at);
+    const assetLabel = displayAssetLabel(cycle.ticker, assetsByTicker);
     if (cycle.status === "hit_target") {
       items.push({
         kind: "target",
         tone: "positive",
         key: `target-${cycle.id}`,
-        text: `${cycle.ticker} 목표가 도달 (${when}) — 이익 실현 또는 전략 재검토를 확인하세요.`,
+        text: `${assetLabel} 목표가 도달 (${when}) — 이익 실현 또는 전략 재검토를 확인하세요.`,
       });
     } else {
       items.push({
         kind: "stop",
         tone: "negative",
         key: `stop-${cycle.id}`,
-        text: `${cycle.ticker} 손절가 도달 (${when}) — 손절 실행 여부와 무효화 조건을 확인하세요.`,
+        text: `${assetLabel} 손절가 도달 (${when}) — 손절 실행 여부와 무효화 조건을 확인하세요.`,
       });
     }
   });
@@ -63,12 +74,13 @@ export function buildActionBriefing({
     )
     .slice(0, MAX_ITEMS_PER_KIND)
     .forEach((strategy) => {
+      const assetLabel = displayAssetLabel(strategy.ticker, assetsByTicker);
       items.push({
         kind: "reduce",
         tone: "negative",
         key: `reduce-${strategy.ticker}`,
         text:
-          `보유 ${strategy.ticker}: ${ACTION_LABELS[strategy.action] || strategy.action} 판단 — ` +
+          `보유 ${assetLabel}: ${ACTION_LABELS[strategy.action] || strategy.action} 판단 — ` +
           "매도/축소 조건과 손절 기준을 확인하세요.",
       });
     });
@@ -101,7 +113,7 @@ export function buildActionBriefing({
   // 5) 데이터 지연 종목
   const staleTickers = Object.entries(report?.report_inputs?.tickers || {})
     .filter(([, inputs]) => inputs?.is_stale)
-    .map(([ticker]) => ticker);
+    .map(([ticker]) => displayAssetLabel(ticker, assetsByTicker));
   if (staleTickers.length) {
     items.push({
       kind: "stale",

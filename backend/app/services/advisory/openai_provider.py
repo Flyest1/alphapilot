@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.services.openai_request_options import build_completion_options
 from app.utils.logging import log_external_failure
 
 ADVISORY_DISCLAIMER = " ".join(
@@ -107,7 +108,7 @@ class OpenAIAdvisoryProvider:
                         },
                     },
                     messages=messages,
-                    temperature=0.2,
+                    **build_completion_options(self.model),
                 )
                 message = response.choices[0].message.content
                 if not message:

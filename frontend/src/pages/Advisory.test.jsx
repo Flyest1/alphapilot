@@ -83,6 +83,56 @@ describe("Advisory page", () => {
     expect(screen.getAllByText("관찰")).not.toHaveLength(0);
   });
 
+  it("renders the active job beneath its feature card", async () => {
+    api.getAdvisoryJob.mockImplementation(() => new Promise(() => {}));
+    render(<Advisory />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "AI 자문 요청" })).toBeEnabled());
+    fireEvent.change(screen.getByPlaceholderText("예: AAPL, MSFT, NVDA"), {
+      target: { value: "aapl" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "AI 자문 요청" }));
+
+    const featureCard = screen.getByRole("button", { name: /저평가 미국 주식/ });
+    const featureItem = featureCard.closest(".advisory-feature-item");
+    expect(featureItem).toContainElement(await screen.findByRole("status"));
+    expect(
+      screen.getByRole("heading", { name: "최근 자문" }).closest(".advisory-history"),
+    ).toBeTruthy();
+  });
+
+  it("opens a recent advisory result beneath the matching feature card", async () => {
+    api.listAdvisoryAnalyses.mockResolvedValue([
+      {
+        analysis_id: "analysis-sector-1",
+        analysis_type: "sector_outlook",
+        created_at: "2026-07-17T00:00:00Z",
+      },
+    ]);
+    api.getAdvisoryAnalysis.mockResolvedValue({
+      analysis_id: "analysis-sector-1",
+      analysis_type: "sector_outlook",
+      result: {
+        analysis_type: "sector_outlook",
+        summary: "섹터 전망 결과",
+        data_quality: { status: "available" },
+        disclaimer: "투자 의사결정 지원 정보입니다.",
+      },
+    });
+    render(<Advisory />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /섹터 전망.*2026년/ }));
+
+    const featureCard = screen
+      .getAllByRole("button", { name: /섹터 전망/ })
+      .find((button) => button.classList.contains("advisory-feature-card"));
+    const featureItem = featureCard.closest(".advisory-feature-item");
+    expect(featureItem).toContainElement(await screen.findByText("자문 결과"));
+    expect(
+      screen.getByRole("heading", { name: "최근 자문" }).closest(".advisory-history"),
+    ).toBeTruthy();
+  });
+
   it("opens the selected card's form inline and submits supplied advanced inputs", async () => {
     render(<Advisory />);
 
@@ -254,13 +304,13 @@ describe("Advisory page", () => {
       job_id: "restored-job",
       status: "completed",
       analysis_id: "restored-analysis",
-      analysis_type: "undervalued_us_stocks",
+      analysis_type: "post_earnings_opportunities",
     });
     api.getAdvisoryAnalysis.mockResolvedValue({
       analysis_id: "restored-analysis",
-      analysis_type: "undervalued_us_stocks",
+      analysis_type: "post_earnings_opportunities",
       result: {
-        analysis_type: "undervalued_us_stocks",
+        analysis_type: "post_earnings_opportunities",
         rows: [{ ticker: "AAPL", investment_score: 82, action: "WATCH" }],
         top_candidates: [],
         data_quality: { status: "available" },
@@ -275,6 +325,10 @@ describe("Advisory page", () => {
     await waitFor(() => expect(api.getAdvisoryAnalysis).toHaveBeenCalledWith("restored-analysis"));
     expect(window.sessionStorage.getItem(ACTIVE_ADVISORY_JOB_STORAGE_KEY)).toBeNull();
     expect((await screen.findAllByText("AAPL")).length).toBeGreaterThan(0);
+    const featureCard = screen.getByRole("button", { name: /실적 발표 후 기회/ });
+    expect(featureCard.closest(".advisory-feature-item")).toContainElement(
+      screen.getByText("자문 결과"),
+    );
   });
 
   it("stops polling at completed status and offers retry when analysis loading fails", async () => {

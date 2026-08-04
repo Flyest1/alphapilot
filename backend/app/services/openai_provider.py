@@ -5,6 +5,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from app.models.report import ReportContent
 from app.services.ai_provider import AIProvider
+from app.services.openai_request_options import build_completion_options
 from app.utils.logging import log_external_failure
 
 
@@ -69,7 +70,7 @@ class OpenAIProvider(AIProvider):
                     ),
                 },
             ],
-            temperature=0.2,
+            **build_completion_options(self.model),
         )
         message = response.choices[0].message.content
         if not message:

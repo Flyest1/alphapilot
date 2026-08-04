@@ -88,6 +88,22 @@ def test_openai_advisory_provider_uses_separate_json_schema():
         "숫자·날짜·백분율 문자를 전혀 쓰지"
         in client.chat.completions.kwargs["messages"][0]["content"]
     )
+    assert client.chat.completions.kwargs["temperature"] == 0.2
+    assert "reasoning_effort" not in client.chat.completions.kwargs
+
+
+def test_openai_advisory_provider_uses_max_reasoning_effort_for_luna():
+    client = FakeClient(narrative_payload())
+    provider = OpenAIAdvisoryProvider(None, "gpt-5.6-luna", client=client)
+
+    provider.generate_narrative(
+        "sector_outlook",
+        {"rows": [], "evidence": [{"evidence_id": "market:1"}]},
+    )
+
+    kwargs = client.chat.completions.kwargs
+    assert kwargs["reasoning_effort"] == "max"
+    assert "temperature" not in kwargs
 
 
 def test_openai_profit_taking_prompt_preserves_independent_deterministic_decision():

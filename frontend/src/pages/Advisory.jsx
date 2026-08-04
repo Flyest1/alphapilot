@@ -63,6 +63,10 @@ function analysisIdentifier(job) {
   return job?.analysis_id || job?.analysis?.id || job?.result?.analysis_id;
 }
 
+function analysisType(value) {
+  return value?.analysis_type || value?.result?.analysis_type || value?.content?.analysis_type;
+}
+
 function isComplete(status) {
   return ["completed", "succeeded", "success"].includes(String(status || "").toLowerCase());
 }
@@ -112,6 +116,8 @@ export default function Advisory() {
 
   const feature = getAdvisoryFeature(selectedType);
   const activeJobId = jobIdentifier(job);
+  const activeJobType = analysisType(job);
+  const selectedAnalysisType = analysisType(selectedAnalysis);
   const hasActiveJob = Boolean(activeJobId && !isComplete(job?.status) && !isFailed(job?.status));
   const isSubmitting = isCreatingJob || hasActiveJob;
   const isAdvisoryStorageAvailable = advisoryStatus?.storage_status === "available";
@@ -218,6 +224,8 @@ export default function Advisory() {
           terminalJobIdsRef.current.add(activeJobId);
           clearActiveAdvisoryJobId(activeJobId);
           if (intervalId) window.clearInterval(intervalId);
+          const nextJobType = analysisType(nextJob);
+          if (nextJobType) setSelectedType(nextJobType);
           setJob(nextJob);
           if (isFailed(nextJob.status)) {
             setError(advisoryErrorMessage(nextJob));
@@ -226,7 +234,10 @@ export default function Advisory() {
           const nextAnalysisId = analysisIdentifier(nextJob);
           const inlineAnalysis = nextJob.analysis || nextJob.result;
           if (inlineAnalysis) {
-            setSelectedAnalysis(inlineAnalysis);
+            setSelectedAnalysis({
+              ...inlineAnalysis,
+              analysis_type: analysisType(inlineAnalysis) || nextJobType,
+            });
           } else if (nextAnalysisId) {
             requestCompletedAnalysis(activeJobId, nextAnalysisId);
           } else {
@@ -244,6 +255,8 @@ export default function Advisory() {
           }
           return;
         }
+        const nextJobType = analysisType(nextJob);
+        if (nextJobType) setSelectedType(nextJobType);
         setJob(nextJob);
       } catch (requestError) {
         if (!cancelled && pollId === latestPollRef.current)
@@ -272,6 +285,8 @@ export default function Advisory() {
         ) {
           return;
         }
+        const loadedType = analysisType(analysis);
+        if (loadedType) setSelectedType(loadedType);
         setSelectedAnalysis(analysis);
         setAnalysisLoadRequest(null);
         setError("");
@@ -332,7 +347,7 @@ export default function Advisory() {
     try {
       const createdJob = await createAdvisoryJob(payload);
       terminalJobIdsRef.current.delete(jobIdentifier(createdJob));
-      setJob(createdJob);
+      setJob({ ...createdJob, analysis_type: analysisType(createdJob) || feature.id });
     } catch (requestError) {
       setError(advisoryErrorMessage(requestError));
     } finally {
@@ -343,13 +358,18 @@ export default function Advisory() {
 
   async function selectAnalysis(analysis) {
     const analysisId = analysis.id || analysis.analysis_id;
+    const nextType = analysisType(analysis);
+    if (nextType) setSelectedType(nextType);
     if (!analysisId || analysis.result || analysis.content) {
       setSelectedAnalysis(analysis);
       return;
     }
     setError("");
     try {
-      setSelectedAnalysis(await getAdvisoryAnalysis(analysisId));
+      const loadedAnalysis = await getAdvisoryAnalysis(analysisId);
+      const loadedType = analysisType(loadedAnalysis);
+      if (loadedType) setSelectedType(loadedType);
+      setSelectedAnalysis(loadedAnalysis);
     } catch (requestError) {
       setError(advisoryErrorMessage(requestError, "저장된 자문을 불러오지 못했습니다."));
     }
@@ -424,31 +444,51 @@ export default function Advisory() {
         </div>
       )}
       <AdvisoryFeatureCards selectedType={selectedType} onSelect={selectFeature}>
-        <fieldset
-          className="advisory-feature-inline-form"
-          disabled={!isAdvisoryStorageAvailable}
-          style={{ border: 0, margin: 0, minInlineSize: 0, padding: 0 }}
-        >
-          <AdvisoryInputForm
-            assets={assets}
-            assetLoadError={assetLoadError}
-            feature={feature}
-            form={form}
-            isDisabled={!isSelectedFeatureAvailable}
-            isLoadingAssets={isLoadingAssets}
-            isSubmitting={isSubmitting}
-            onChange={setForm}
-            onSubmit={submit}
-          />
-        </fieldset>
+        {(selectedFeature) => {
+          const isActiveFeatureJob = hasActiveJob && activeJobType === selectedFeature.id;
+          const isLoadingFeatureResult =
+            isLoadingCompletedAnalysis && activeJobType === selectedFeature.id;
+          const isSelectedFeatureAnalysis = selectedAnalysisType === selectedFeature.id;
+
+          return (
+            <div className="advisory-feature-current">
+              <fieldset
+                className="advisory-feature-inline-form"
+                disabled={!isAdvisoryStorageAvailable}
+                style={{ border: 0, margin: 0, minInlineSize: 0, padding: 0 }}
+              >
+                <AdvisoryInputForm
+                  assets={assets}
+                  assetLoadError={assetLoadError}
+                  feature={selectedFeature}
+                  form={form}
+                  isDisabled={
+                    selectedFeature.id === "profit_taking_review" && !isProfitTakingReviewAvailable
+                  }
+                  isLoadingAssets={isLoadingAssets}
+                  isSubmitting={isSubmitting}
+                  onChange={setForm}
+                  onSubmit={submit}
+                />
+              </fieldset>
+              {isActiveFeatureJob && (
+                <p className="notice advisory-inline-job-status" role="status">
+                  {job?.status === "queued"
+                    ? "AI 자문 요청이 대기 중입니다."
+                    : "AI 자문을 분석 중입니다."}{" "}
+                  이 화면을 유지하면 결과를 자동으로 불러옵니다.
+                </p>
+              )}
+              {isLoadingFeatureResult && (
+                <p className="notice advisory-inline-job-status" role="status">
+                  AI 자문 결과를 불러오는 중입니다.
+                </p>
+              )}
+              {isSelectedFeatureAnalysis && <AdvisoryResult analysis={selectedAnalysis} />}
+            </div>
+          );
+        }}
       </AdvisoryFeatureCards>
-      {isSubmitting && (
-        <p className="notice">
-          {job?.status === "queued" ? "AI 자문 요청이 대기 중입니다." : "AI 자문을 분석 중입니다."}{" "}
-          이 화면을 유지하면 결과를 자동으로 불러옵니다.
-        </p>
-      )}
-      {selectedAnalysis && <AdvisoryResult analysis={selectedAnalysis} />}
       <section className="panel advisory-history">
         <div className="section-heading">
           <div>

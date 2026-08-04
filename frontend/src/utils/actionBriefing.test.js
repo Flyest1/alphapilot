@@ -19,7 +19,7 @@ const report = {
   },
   report_inputs: {
     tickers: {
-      "005930": { is_stale: false },
+      "005930": { is_stale: true },
       KAKAO: { is_stale: true },
     },
   },
@@ -46,7 +46,12 @@ const cycles = [
   },
 ];
 
-const assets = [{ ticker: "005930" }];
+const assets = [
+  { ticker: "005930", name: "삼성전자", market: "KR", currency: "KRW" },
+  { ticker: "069500", name: "KODEX 200", market: "ETF", currency: "KRW" },
+  { ticker: "035720", name: "카카오", market: "KR", currency: "KRW" },
+  { ticker: "MSFT", name: "Microsoft", market: "US", currency: "USD" },
+];
 
 describe("buildActionBriefing", () => {
   it("collects target/stop hits, reduce checks, drift, candidates, and stale tickers", () => {
@@ -59,8 +64,11 @@ describe("buildActionBriefing", () => {
     expect(kinds).toContain("drift");
     expect(kinds).toContain("candidate");
     expect(kinds).toContain("stale");
-    expect(items.find((item) => item.kind === "target").text).toContain("069500");
-    expect(items.find((item) => item.kind === "reduce").text).toContain("005930");
+    expect(items.find((item) => item.kind === "target").text).toContain("KODEX 200");
+    expect(items.find((item) => item.kind === "stop").text).toContain("카카오");
+    expect(items.find((item) => item.kind === "reduce").text).toContain("삼성전자");
+    expect(items.find((item) => item.kind === "reduce").text).not.toContain("005930");
+    expect(items.find((item) => item.kind === "stale").text).toContain("삼성전자");
     expect(items.find((item) => item.kind === "stale").text).toContain("KAKAO");
     // 7일이 지난 종료 cycle은 제외된다
     expect(items.some((item) => item.text.includes("OLD"))).toBe(false);
@@ -72,6 +80,35 @@ describe("buildActionBriefing", () => {
 
     expect(candidates[0].text).toContain("NVDA");
     expect(candidates.some((item) => item.text.includes("005930"))).toBe(false);
+  });
+
+  it("keeps US holding tickers while replacing Korean holding tickers with names", () => {
+    const usReport = {
+      content: {
+        asset_strategies: [{ ticker: "MSFT", name: "Microsoft", action: "REDUCE", confidence: 45 }],
+      },
+      report_inputs: { tickers: { MSFT: { is_stale: true } } },
+    };
+    const usCycle = [
+      {
+        id: "c4",
+        ticker: "MSFT",
+        status: "hit_target",
+        closed_at: "2026-06-10T01:00:00+00:00",
+      },
+    ];
+
+    const items = buildActionBriefing({
+      summary: {},
+      report: usReport,
+      cycles: usCycle,
+      assets,
+      now: NOW,
+    });
+
+    expect(items.find((item) => item.kind === "target").text).toContain("MSFT");
+    expect(items.find((item) => item.kind === "reduce").text).toContain("MSFT");
+    expect(items.find((item) => item.kind === "stale").text).toContain("MSFT");
   });
 
   it("returns an empty list without data", () => {

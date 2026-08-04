@@ -33,8 +33,61 @@ const rangeOptions = [
 
 const COMPARISON_CACHE_MS = 5 * 60 * 1000;
 
+function validReturnPoints(points = []) {
+  const pointsByDate = new Map();
+  points.forEach((point) => {
+    const returnRate = Number(point?.return_rate);
+    if (point?.date && Number.isFinite(returnRate)) {
+      pointsByDate.set(point.date, returnRate);
+    }
+  });
+  return pointsByDate;
+}
+
+function rebasedReturnRate(returnRate, baselineReturnRate) {
+  return ((1 + returnRate / 100) / (1 + baselineReturnRate / 100) - 1) * 100;
+}
+
+export function alignComparisonSeries(series = []) {
+  const usableSeries = series
+    .map((row) => ({ ...row, pointsByDate: validReturnPoints(row.points) }))
+    .filter((row) => row.pointsByDate.size > 0);
+  if (!usableSeries.length) return { chartData: [], commonStartDate: null, series: [] };
+
+  const commonDates = [...usableSeries[0].pointsByDate.keys()].filter((date) =>
+    usableSeries.every((row) => row.pointsByDate.has(date)),
+  );
+  const commonStartDate = commonDates.sort((left, right) => left.localeCompare(right))[0];
+  if (!commonStartDate) return { chartData: [], commonStartDate: null, series: usableSeries };
+
+  const alignedSeries = usableSeries.map(({ pointsByDate, ...row }) => {
+    const baselineReturnRate = pointsByDate.get(commonStartDate);
+    const points = [...pointsByDate.entries()]
+      .filter(([date]) => date >= commonStartDate)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([date, returnRate]) => ({
+        date,
+        return_rate: rebasedReturnRate(returnRate, baselineReturnRate),
+      }));
+    return { ...row, points };
+  });
+  const chartByDate = new Map();
+  alignedSeries.forEach((row) => {
+    row.points.forEach((point) => {
+      if (!chartByDate.has(point.date)) chartByDate.set(point.date, { date: point.date });
+      chartByDate.get(point.date)[row.key] = point.return_rate;
+    });
+  });
+
+  return {
+    chartData: [...chartByDate.values()].sort((left, right) => left.date.localeCompare(right.date)),
+    commonStartDate,
+    series: alignedSeries,
+  };
+}
+
 export default function Comparison() {
-  const [days, setDays] = useState(60);
+  const [days, setDays] = useState(10);
   const cachePath = `/api/portfolio/benchmark-returns?days=${days}`;
   const cached = readApiCache(cachePath, { maxAgeMs: COMPARISON_CACHE_MS });
   const [data, setData] = useState(cached);
@@ -75,19 +128,8 @@ export default function Comparison() {
     [data, enabled],
   );
 
-  const chartData = useMemo(() => {
-    const byDate = new Map();
-    visibleSeries.forEach((row) => {
-      (row.points || []).forEach((point) => {
-        if (!byDate.has(point.date)) byDate.set(point.date, { date: point.date });
-        const numeric = Number(point.return_rate);
-        if (Number.isFinite(numeric)) {
-          byDate.get(point.date)[row.key] = numeric;
-        }
-      });
-    });
-    return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
-  }, [visibleSeries]);
+  const alignedComparison = useMemo(() => alignComparisonSeries(visibleSeries), [visibleSeries]);
+  const { chartData, commonStartDate } = alignedComparison;
 
   const labelByKey = useMemo(
     () => Object.fromEntries((data?.series || []).map((row) => [row.key, row.label])),
@@ -114,7 +156,7 @@ export default function Comparison() {
         <div className="section-heading">
           <div>
             <h2>벤치마크 수익률</h2>
-            <p>x축은 날짜, y축은 시작일 대비 누적 수익률입니다.</p>
+            <p>모든 표시 수익률에 실제 관측값이 있는 첫 공통 날짜부터 0%로 비교합니다.</p>
           </div>
           <div className="filter-row">
             {rangeOptions.map((option) => (
@@ -144,7 +186,11 @@ export default function Comparison() {
         </div>
 
         {!visibleSeries.length || chartData.length < 2 ? (
-          <p className="empty-state">표시할 수익률 데이터가 아직 없습니다.</p>
+          <p className="empty-state">
+            {visibleSeries.length && !commonStartDate
+              ? "모든 표시 수익률에 공통으로 관측된 날짜가 아직 없습니다."
+              : "표시할 수익률 데이터가 아직 없습니다."}
+          </p>
         ) : (
           <div className="benchmark-recharts">
             <ResponsiveContainer height="100%" width="100%">
@@ -170,7 +216,6 @@ export default function Comparison() {
                 {visibleSeries.map((row) => (
                   <Line
                     activeDot={{ r: 4 }}
-                    connectNulls
                     dataKey={row.key}
                     dot={false}
                     key={row.key}
@@ -186,7 +231,7 @@ export default function Comparison() {
         )}
 
         <div className="metric-grid compact">
-          {visibleSeries.map((row) => {
+          {alignedComparison.series.map((row) => {
             const last = row.points[row.points.length - 1];
             return (
               <div key={row.key}>

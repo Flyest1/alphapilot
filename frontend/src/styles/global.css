@@ -1511,6 +1511,17 @@ form button,
   min-width: 0;
 }
 
+.advisory-feature-current {
+  display: grid;
+  flex: 0 0 100%;
+  gap: 0.8rem;
+  min-width: 0;
+}
+
+.advisory-inline-job-status {
+  margin: 0;
+}
+
 .advisory-input-panel form {
   display: grid;
   gap: 16px;

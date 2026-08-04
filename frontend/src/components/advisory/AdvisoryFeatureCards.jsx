@@ -17,7 +17,8 @@ export default function AdvisoryFeatureCards({ children, selectedType, onSelect 
             <small>{feature.description}</small>
             <span className="advisory-feature-tags">{feature.details.join(" · ")}</span>
           </button>
-          {selectedType === feature.id && children}
+          {selectedType === feature.id &&
+            (typeof children === "function" ? children(feature) : children)}
         </div>
       ))}
     </section>
