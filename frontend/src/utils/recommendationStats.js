@@ -29,7 +29,10 @@ export function statsHeadlines(stats, limit = 4) {
 export function confidenceBadge(detail) {
   if (!detail) return null;
   if (detail.calibrated) {
-    return { kind: "calibrated", label: "승률 보정됨" };
+    if (Number(detail.calibration_factor) < 1) {
+      return { kind: "warning", label: "과거 성과 경고" };
+    }
+    return { kind: "calibrated", label: "과거 성과 참고" };
   }
-  return { kind: "uncalibrated", label: "보정 전(표본 부족)" };
+  return { kind: "uncalibrated", label: "성과 보정 미적용" };
 }

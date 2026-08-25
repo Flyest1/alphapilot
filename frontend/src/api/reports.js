@@ -1,3 +1,9 @@
+import {
+  compareStrategyBaseConfidence,
+  downsideCalibration,
+  strategyBaseConfidence,
+} from "../utils/strategyScores.js";
+
 export function strategyCount(report) {
   return report?.content?.asset_strategies?.length || 0;
 }
@@ -120,7 +126,7 @@ export function importantStrategyMessages(strategies = [], limit = 8) {
     .sort(
       (a, b) =>
         (priority[a.action] ?? 9) - (priority[b.action] ?? 9) ||
-        Number(b.confidence || 0) - Number(a.confidence || 0),
+        compareStrategyBaseConfidence(a, b),
     )
     .slice(0, limit)
     .map((strategy) => {
@@ -131,15 +137,16 @@ export function importantStrategyMessages(strategies = [], limit = 8) {
       );
       const target = formatStrategyMessageValue(strategy.target_price);
       const stop = formatStrategyMessageValue(strategy.stop_loss);
-      const confidence =
-        strategy.confidence == null || strategy.confidence === ""
-          ? ""
-          : `신호 점수 ${strategy.confidence}/100`;
+      const baseConfidence = strategyBaseConfidence(strategy);
+      const confidence = baseConfidence == null ? "" : `보정 전 점수 ${baseConfidence}/100`;
+      const warning = downsideCalibration(strategy);
+      const calibrationWarning = warning ? `과거 성과 경고 ×${warning.factor}` : "";
       const rangeLine = buyRange ? `매수구간 ${buyRange}` : "";
       const exitLine = [
         target ? `목표 ${target}` : "",
         stop ? `손절 ${stop}` : "",
         confidence,
+        calibrationWarning,
       ].filter(Boolean);
 
       return {

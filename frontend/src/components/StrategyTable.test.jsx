@@ -33,12 +33,30 @@ describe("StrategyTable", () => {
     expect(screen.getByText("표시할 전략이 없습니다.")).toBeInTheDocument();
   });
 
-  it("renders confidence as a signal score, not a probability", () => {
+  it("renders the pre-calibration score, not a probability", () => {
     renderStrategy();
 
-    expect(screen.getByText("신호 점수")).toBeInTheDocument();
+    expect(screen.getByText("보정 전 점수")).toBeInTheDocument();
     expect(screen.getByText("82 /100")).toBeInTheDocument();
     expect(screen.queryByText("82%")).not.toBeInTheDocument();
+  });
+
+  it("shows downside calibration as a warning without replacing the main score", () => {
+    renderStrategy({
+      confidence: 60,
+      confidence_detail: {
+        calibrated: true,
+        base_confidence: 100,
+        technical_confidence: 100,
+        calibration_factor: 0.6,
+        win_rate: 0.1,
+        sample_size: 30,
+      },
+    });
+
+    expect(screen.getByText("과거 성과 경고")).toBeInTheDocument();
+    expect(screen.getByText("100 /100")).toBeInTheDocument();
+    expect(screen.getByText(/참고 신뢰도 60/)).toBeInTheDocument();
   });
 
   it("keeps rendering legacy position sizing", () => {

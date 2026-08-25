@@ -1,4 +1,9 @@
 import { ACTION_LABELS, normalizeTicker } from "../api/reports.js";
+import {
+  compareStrategyBaseConfidence,
+  downsideCalibration,
+  strategyBaseConfidence,
+} from "./strategyScores.js";
 
 const RECENT_CLOSE_DAYS = 7;
 const MAX_ITEMS_PER_KIND = 3;
@@ -93,20 +98,22 @@ export function buildActionBriefing({
     items.push({ kind: "drift", tone: "warning", key: `concentration-${index}`, text });
   });
 
-  // 4) 신규 매수 후보 (신뢰도 상위)
+  // 4) 신규 매수 후보 (보정 전 기술 신호 상위)
   strategies
     .filter(
       (strategy) =>
         strategy.action === "BUY" && !ownedTickers.has(normalizeTicker(strategy.ticker)),
     )
-    .sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
+    .sort(compareStrategyBaseConfidence)
     .slice(0, MAX_ITEMS_PER_KIND)
     .forEach((strategy) => {
+      const warning = downsideCalibration(strategy);
+      const warningText = warning ? ` · 과거 성과 경고 ×${warning.factor}` : "";
       items.push({
         kind: "candidate",
         tone: "positive",
         key: `candidate-${strategy.ticker}`,
-        text: `신규 매수 후보 ${strategy.ticker} (신호 점수 ${strategy.confidence}/100) — 검토용 투입 금액 상한을 확인하세요.`,
+        text: `신규 매수 후보 ${strategy.ticker} (보정 전 점수 ${strategyBaseConfidence(strategy) ?? "-"}/100${warningText}) — 검토용 투입 금액 상한을 확인하세요.`,
       });
     });
 

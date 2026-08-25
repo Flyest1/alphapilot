@@ -82,6 +82,43 @@ describe("buildActionBriefing", () => {
     expect(candidates.some((item) => item.text.includes("005930"))).toBe(false);
   });
 
+  it("ranks candidates by the pre-calibration score and keeps the warning visible", () => {
+    const calibratedReport = {
+      content: {
+        asset_strategies: [
+          {
+            ticker: "HIGH",
+            action: "BUY",
+            confidence: 60,
+            confidence_detail: {
+              calibrated: true,
+              base_confidence: 100,
+              calibration_factor: 0.6,
+            },
+          },
+          {
+            ticker: "MID",
+            action: "BUY",
+            confidence: 70,
+            confidence_detail: { calibrated: false, base_confidence: 70 },
+          },
+        ],
+      },
+    };
+
+    const candidates = buildActionBriefing({
+      summary: {},
+      report: calibratedReport,
+      cycles: [],
+      assets: [],
+      now: NOW,
+    }).filter((item) => item.kind === "candidate");
+
+    expect(candidates[0].text).toContain("HIGH");
+    expect(candidates[0].text).toContain("보정 전 점수 100/100");
+    expect(candidates[0].text).toContain("과거 성과 경고 ×0.6");
+  });
+
   it("keeps US holding tickers while replacing Korean holding tickers with names", () => {
     const usReport = {
       content: {

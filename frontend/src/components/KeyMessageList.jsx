@@ -1,5 +1,6 @@
 import { formatStrategyMessageValue, importantStrategyMessages } from "../api/reports.js";
 import { formatReturn as formatReturnValue } from "../utils/formatters.js";
+import { downsideCalibration, strategyBaseConfidence } from "../utils/strategyScores.js";
 
 function formatRange(strategy) {
   const low = formatStrategyMessageValue(strategy.buy_range_low);
@@ -69,16 +70,16 @@ function RangeLine({ strategy }) {
 function ExitLine({ strategy }) {
   const target = formatStrategyMessageValue(strategy.target_price);
   const stop = formatStrategyMessageValue(strategy.stop_loss);
-  const confidence =
-    strategy.confidence == null || strategy.confidence === ""
-      ? ""
-      : `신호 점수 ${strategy.confidence}/100`;
+  const baseConfidence = strategyBaseConfidence(strategy);
+  const confidence = baseConfidence == null ? "" : `보정 전 점수 ${baseConfidence}/100`;
+  const warning = downsideCalibration(strategy);
   const parts = [
     target
       ? `목표 ${target}${formatCurrentPercent(strategy.target_price, strategy.current_price)}`
       : "",
     stop ? `손절 ${stop}${formatCurrentPercent(strategy.stop_loss, strategy.current_price)}` : "",
     confidence,
+    warning ? `과거 성과 경고 ×${warning.factor}` : "",
   ].filter(Boolean);
 
   return parts.length ? <span>{parts.join(", ")}</span> : null;
@@ -109,8 +110,12 @@ export default function KeyMessageList({ strategies = [], limit = 8, performance
                 <dd>{formatValue(strategy.current_price)}</dd>
               </div>
               <div>
-                <dt>신호 점수</dt>
-                <dd>{strategy.confidence == null ? "-" : `${strategy.confidence}/100`}</dd>
+                <dt>보정 전 점수</dt>
+                <dd>
+                  {strategyBaseConfidence(strategy) == null
+                    ? "-"
+                    : `${strategyBaseConfidence(strategy)}/100`}
+                </dd>
               </div>
               <div>
                 <dt>매수구간</dt>

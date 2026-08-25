@@ -1,6 +1,7 @@
 import { actionLabel, displayText } from "../api/reports.js";
 import { formatReturn, formatValue } from "../utils/formatters.js";
 import { confidenceBadge } from "../utils/recommendationStats.js";
+import { strategyBaseConfidence } from "../utils/strategyScores.js";
 
 const DATA_LIMITED_NOTE_PATTERN = /insufficient|short|data[-\s]?limited/i;
 
@@ -31,6 +32,7 @@ const UNAVAILABLE_REASON_LABELS = {
 };
 
 function nonNegativeNumber(value) {
+  if (value == null || value === "") return null;
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric >= 0 ? numeric : null;
 }
@@ -81,13 +83,19 @@ function performanceFor(strategy, performanceLogs) {
   );
 }
 
-function confidenceDetailText(detail) {
-  const parts = [`기술 점수 기여 ${displayNumber(detail.technical_confidence)}`];
+function confidenceDetailText(detail, calibratedConfidence) {
+  const parts = [
+    `보정 전 점수 ${displayNumber(detail.base_confidence ?? detail.technical_confidence)}`,
+  ];
   if (nonNegativeNumber(detail.win_rate) != null) {
     parts.push(
       `과거 목표 도달 비율 ${Math.round(nonNegativeNumber(detail.win_rate) * 100)}% (종료 표본 ${displayNumber(
         detail.sample_size,
-      )}건${detail.calibrated ? `, 보정계수 ×${displayNumber(detail.calibration_factor)}` : ", 보정 미적용"})`,
+      )}건${
+        detail.calibrated
+          ? `, 보정계수 ×${displayNumber(detail.calibration_factor)}, 참고 신뢰도 ${displayNumber(calibratedConfidence)}`
+          : ", 보정 기준 미충족"
+      })`,
     );
   } else {
     parts.push("과거 목표 도달 표본 없음");
@@ -354,8 +362,8 @@ export default function StrategyTable({ strategies = [], performanceLogs = [], i
                 <dd>{displayNumber(strategy.current_price)}</dd>
               </div>
               <div>
-                <dt>신호 점수</dt>
-                <dd>{displayNumber(strategy.confidence)} /100</dd>
+                <dt>보정 전 점수</dt>
+                <dd>{displayNumber(strategyBaseConfidence(strategy))} /100</dd>
               </div>
               <div>
                 <dt>매수 구간</dt>
@@ -391,8 +399,8 @@ export default function StrategyTable({ strategies = [], performanceLogs = [], i
               )}
               {strategy.confidence_detail && !isDataLimited(strategy) && (
                 <div className="wide-definition">
-                  <dt>신호 점수 근거</dt>
-                  <dd>{confidenceDetailText(strategy.confidence_detail)}</dd>
+                  <dt>보정 전 점수·성과 참고</dt>
+                  <dd>{confidenceDetailText(strategy.confidence_detail, strategy.confidence)}</dd>
                 </div>
               )}
               {inputs && (

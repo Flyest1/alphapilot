@@ -1,8 +1,10 @@
+import { compareStrategyBaseConfidence } from "./strategyScores.js";
+
 export const STRATEGY_FILTERS = ["ALL", "BUY", "HOLD", "REDUCE", "SELL", "WATCH", "DATA_LIMITED"];
 
 export const STRATEGY_SORTS = [
   { key: "default", label: "기본 순서" },
-  { key: "confidence", label: "신뢰도순" },
+  { key: "confidence", label: "보정 전 점수순" },
   { key: "return20d", label: "20일 수익률순" },
 ];
 
@@ -22,10 +24,10 @@ function return20dFor(strategy, performanceLogs) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
-// 정렬: 신뢰도순 또는 20일 수익률순(성과 로그 기준, 값 없는 항목은 뒤로). (Phase 6-3)
+// 정렬: 보정 전 기술 신호순 또는 20일 수익률순(성과 로그 기준, 값 없는 항목은 뒤로).
 export function sortStrategies(strategies = [], sortKey = "default", performanceLogs = []) {
   if (sortKey === "confidence") {
-    return [...strategies].sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0));
+    return [...strategies].sort(compareStrategyBaseConfidence);
   }
   if (sortKey === "return20d") {
     return [...strategies].sort((a, b) => {

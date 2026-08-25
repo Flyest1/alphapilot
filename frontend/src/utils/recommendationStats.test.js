@@ -55,7 +55,12 @@ describe("confidenceBadge", () => {
   });
 
   it("labels calibrated and uncalibrated details", () => {
-    expect(confidenceBadge({ calibrated: true }).label).toBe("승률 보정됨");
-    expect(confidenceBadge({ calibrated: false }).label).toBe("보정 전(표본 부족)");
+    expect(confidenceBadge({ calibrated: true, calibration_factor: 0.6 }).label).toBe(
+      "과거 성과 경고",
+    );
+    expect(confidenceBadge({ calibrated: true, calibration_factor: 1.2 }).label).toBe(
+      "과거 성과 참고",
+    );
+    expect(confidenceBadge({ calibrated: false }).label).toBe("성과 보정 미적용");
   });
 });

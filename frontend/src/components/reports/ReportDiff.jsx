@@ -15,7 +15,9 @@ export default function ReportDiff({ selected, previous }) {
         </div>
       </div>
       {!diff.hasChanges && (
-        <p className="empty-state">직전 리포트와 비교해 액션/신뢰도/종목 구성 변화가 없습니다.</p>
+        <p className="empty-state">
+          직전 리포트와 비교해 액션/보정 전 점수/종목 구성 변화가 없습니다.
+        </p>
       )}
       {diff.actionChanges.length > 0 && (
         <>
@@ -34,7 +36,7 @@ export default function ReportDiff({ selected, previous }) {
       )}
       {diff.confidenceChanges.length > 0 && (
         <>
-          <h3>신호 점수 변화 (±10 이상)</h3>
+          <h3>보정 전 점수 변화 (±10 이상)</h3>
           <ul>
             {diff.confidenceChanges.map((row) => (
               <li key={`confidence-${row.ticker}`}>

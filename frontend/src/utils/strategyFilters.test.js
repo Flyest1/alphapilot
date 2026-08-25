@@ -49,6 +49,51 @@ describe("sortStrategies", () => {
     ]);
   });
 
+  it("sorts by the pre-calibration score so warnings do not invert rank", () => {
+    const calibrated = [
+      {
+        ticker: "CALIBRATED",
+        action: "BUY",
+        confidence: 60,
+        confidence_detail: {
+          calibrated: true,
+          base_confidence: 100,
+          calibration_factor: 0.6,
+        },
+      },
+      {
+        ticker: "UNCALIBRATED",
+        action: "BUY",
+        confidence: 70,
+        confidence_detail: { calibrated: false, base_confidence: 70 },
+      },
+    ];
+
+    expect(sortStrategies(calibrated, "confidence").map((row) => row.ticker)).toEqual([
+      "CALIBRATED",
+      "UNCALIBRATED",
+    ]);
+  });
+
+  it("falls back for legacy reports and pushes missing scores to the end", () => {
+    const mixed = [
+      { ticker: "MISSING", action: "WATCH" },
+      { ticker: "LEGACY", action: "BUY", confidence: 80 },
+      {
+        ticker: "DETAIL",
+        action: "BUY",
+        confidence: 90,
+        confidence_detail: { technical_confidence: 85 },
+      },
+    ];
+
+    expect(sortStrategies(mixed, "confidence").map((row) => row.ticker)).toEqual([
+      "DETAIL",
+      "LEGACY",
+      "MISSING",
+    ]);
+  });
+
   it("sorts by 20d return and pushes missing values to the end", () => {
     expect(sortStrategies(unsorted, "return20d", logs).map((row) => row.ticker)).toEqual([
       "A",

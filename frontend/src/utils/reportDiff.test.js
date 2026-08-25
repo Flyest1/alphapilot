@@ -46,6 +46,33 @@ describe("diffReports", () => {
     const diff = diffReports(previous, previous);
     expect(diff.hasChanges).toBe(false);
   });
+
+  it("does not report a signal change when only the calibration result changes", () => {
+    const before = makeReport("before", "2026-06-10", [
+      {
+        ticker: "A",
+        name: "A",
+        action: "BUY",
+        confidence: 100,
+        confidence_detail: { calibrated: false, base_confidence: 100 },
+      },
+    ]);
+    const after = makeReport("after", "2026-06-11", [
+      {
+        ticker: "A",
+        name: "A",
+        action: "BUY",
+        confidence: 60,
+        confidence_detail: {
+          calibrated: true,
+          base_confidence: 100,
+          calibration_factor: 0.6,
+        },
+      },
+    ]);
+
+    expect(diffReports(after, before).confidenceChanges).toEqual([]);
+  });
 });
 
 describe("findPreviousReport", () => {

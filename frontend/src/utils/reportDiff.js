@@ -1,3 +1,5 @@
+import { strategyBaseConfidence } from "./strategyScores.js";
+
 const CONFIDENCE_CHANGE_THRESHOLD = 10;
 
 function strategyMap(report) {
@@ -5,7 +7,7 @@ function strategyMap(report) {
   return new Map(strategies.map((strategy) => [strategy.ticker, strategy]));
 }
 
-// 직전 리포트 대비 변화: 액션 변경, 큰 신뢰도 변화, 신규/제외 종목 (Phase 6-2)
+// 직전 리포트 대비 변화: 액션 변경, 큰 보정 전 점수 변화, 신규/제외 종목 (Phase 6-2)
 export function diffReports(current, previous) {
   if (!current || !previous) return null;
   const currentMap = strategyMap(current);
@@ -30,13 +32,18 @@ export function diffReports(current, previous) {
         to: strategy.action,
       });
     }
-    const delta = Number(strategy.confidence || 0) - Number(before.confidence || 0);
-    if (Math.abs(delta) >= CONFIDENCE_CHANGE_THRESHOLD) {
+    const currentConfidence = strategyBaseConfidence(strategy);
+    const previousConfidence = strategyBaseConfidence(before);
+    const delta =
+      currentConfidence == null || previousConfidence == null
+        ? null
+        : currentConfidence - previousConfidence;
+    if (delta != null && Math.abs(delta) >= CONFIDENCE_CHANGE_THRESHOLD) {
       confidenceChanges.push({
         ticker,
         name: strategy.name,
-        from: Number(before.confidence || 0),
-        to: Number(strategy.confidence || 0),
+        from: previousConfidence,
+        to: currentConfidence,
         delta,
       });
     }
