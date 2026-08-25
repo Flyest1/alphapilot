@@ -36,8 +36,9 @@ const COMPARISON_CACHE_MS = 5 * 60 * 1000;
 function validReturnPoints(points = []) {
   const pointsByDate = new Map();
   points.forEach((point) => {
+    if (!point?.date || point.return_rate == null || point.return_rate === "") return;
     const returnRate = Number(point?.return_rate);
-    if (point?.date && Number.isFinite(returnRate)) {
+    if (Number.isFinite(returnRate)) {
       pointsByDate.set(point.date, returnRate);
     }
   });
@@ -58,7 +59,7 @@ export function alignComparisonSeries(series = []) {
     usableSeries.every((row) => row.pointsByDate.has(date)),
   );
   const commonStartDate = commonDates.sort((left, right) => left.localeCompare(right))[0];
-  if (!commonStartDate) return { chartData: [], commonStartDate: null, series: usableSeries };
+  if (!commonStartDate) return { chartData: [], commonStartDate: null, series: [] };
 
   const alignedSeries = usableSeries.map(({ pointsByDate, ...row }) => {
     const baselineReturnRate = pointsByDate.get(commonStartDate);

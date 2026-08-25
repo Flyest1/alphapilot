@@ -809,8 +809,8 @@ AI 자문 Bundle B·C는 다음 안정화와 화면 개선을 포함합니다.
   기준으로 판정합니다. `partial`은 일부 지표 제한 안내로 표시하고, 전체 필수 근거가 부족한
   `data-limited`·`insufficient_data`는 강한 경고를 유지합니다.
 - 애플리케이션 기본 OpenAI 모델은 `gpt-5.6-luna`이며 `settings.ai_model`, `OPENAI_MODEL`,
-  Pydantic 기본값 순서로 해석합니다. 이 모델의 리포트·자문 생성 요청은
-  OpenAI API가 허용하는 최고 수준인 `reasoning_effort=xhigh`를 사용하며 지원되지 않는
+  Pydantic 기본값 순서로 해석합니다. GPT-5.6 모델 계열의 리포트·자문 생성 요청은
+  OpenAI API가 허용하는 최고 수준인 `reasoning_effort=max`를 사용하며 지원되지 않는
   `temperature` 파라미터는 보내지 않습니다.
 - 프런트 페이지는 `React.lazy`로 분리해 최초 번들에 모든 화면을 한꺼번에 포함하지 않습니다.
 

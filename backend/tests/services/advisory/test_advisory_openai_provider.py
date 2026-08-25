@@ -92,7 +92,7 @@ def test_openai_advisory_provider_uses_separate_json_schema():
     assert "reasoning_effort" not in client.chat.completions.kwargs
 
 
-def test_openai_advisory_provider_uses_highest_supported_reasoning_effort_for_luna():
+def test_openai_advisory_provider_uses_max_reasoning_effort_for_luna():
     client = FakeClient(narrative_payload())
     provider = OpenAIAdvisoryProvider(None, "gpt-5.6-luna", client=client)
 
@@ -102,7 +102,7 @@ def test_openai_advisory_provider_uses_highest_supported_reasoning_effort_for_lu
     )
 
     kwargs = client.chat.completions.kwargs
-    assert kwargs["reasoning_effort"] == "xhigh"
+    assert kwargs["reasoning_effort"] == "max"
     assert "temperature" not in kwargs
 
 

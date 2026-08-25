@@ -331,6 +331,36 @@ describe("Advisory page", () => {
     );
   });
 
+  it("renders an inline completed analysis beneath its nested analysis type card", async () => {
+    window.sessionStorage.setItem(ACTIVE_ADVISORY_JOB_STORAGE_KEY, "restored-inline-job");
+    api.getAdvisoryJob.mockResolvedValue({
+      job_id: "restored-inline-job",
+      status: "completed",
+      analysis: {
+        analysis_id: "inline-analysis",
+        analysis_type: "post_earnings_opportunities",
+        result: {
+          analysis_type: "post_earnings_opportunities",
+          rows: [{ ticker: "MSFT", investment_score: 76, action: "WATCH" }],
+          top_candidates: [],
+          data_quality: { status: "available" },
+          evidence: [],
+          disclaimer: "투자 의사결정 참고 정보입니다.",
+        },
+      },
+    });
+
+    render(<Advisory />);
+
+    await waitFor(() => expect(api.getAdvisoryJob).toHaveBeenCalledWith("restored-inline-job"));
+    expect((await screen.findAllByText("MSFT")).length).toBeGreaterThan(0);
+    const featureCard = screen.getByRole("button", { name: /실적 발표 후 기회/ });
+    expect(featureCard.closest(".advisory-feature-item")).toContainElement(
+      screen.getByText("자문 결과"),
+    );
+    expect(api.getAdvisoryAnalysis).not.toHaveBeenCalled();
+  });
+
   it("stops polling at completed status and offers retry when analysis loading fails", async () => {
     api.getAdvisoryAnalysis
       .mockRejectedValueOnce(new Error("analysis unavailable"))

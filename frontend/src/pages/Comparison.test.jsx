@@ -19,9 +19,9 @@ describe("alignComparisonSeries", () => {
       {
         key: "kospi",
         points: [
+          { date: "2026-08-03", return_rate: 5 },
           { date: "2026-08-01", return_rate: 1 },
           { date: "2026-08-02", return_rate: 3 },
-          { date: "2026-08-03", return_rate: 5 },
         ],
       },
       {
@@ -60,6 +60,33 @@ describe("alignComparisonSeries", () => {
 
     expect(result.commonStartDate).toBeNull();
     expect(result.chartData).toEqual([]);
+    expect(result.series).toEqual([]);
+  });
+
+  it("ignores missing return values instead of treating them as zero", () => {
+    const result = alignComparisonSeries([
+      {
+        key: "kospi",
+        points: [
+          { date: "2026-08-01", return_rate: null },
+          { date: "2026-08-02", return_rate: 2 },
+          { date: "2026-08-03", return_rate: 4.04 },
+        ],
+      },
+      {
+        key: "alphapilot",
+        points: [
+          { date: "2026-08-01", return_rate: 1 },
+          { date: "2026-08-02", return_rate: 10 },
+          { date: "2026-08-03", return_rate: 21 },
+        ],
+      },
+    ]);
+
+    expect(result.commonStartDate).toBe("2026-08-02");
+    expect(result.chartData[0]).toEqual({ date: "2026-08-02", kospi: 0, alphapilot: 0 });
+    expect(result.chartData[1].kospi).toBeCloseTo(2, 4);
+    expect(result.chartData[1].alphapilot).toBeCloseTo(10, 4);
   });
 });
 

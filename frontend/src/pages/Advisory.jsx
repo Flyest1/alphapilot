@@ -60,11 +60,21 @@ function jobIdentifier(job) {
 }
 
 function analysisIdentifier(job) {
-  return job?.analysis_id || job?.analysis?.id || job?.result?.analysis_id;
+  return (
+    job?.analysis_id ||
+    job?.analysis?.analysis_id ||
+    job?.analysis?.id ||
+    job?.result?.analysis_id
+  );
 }
 
 function analysisType(value) {
-  return value?.analysis_type || value?.result?.analysis_type || value?.content?.analysis_type;
+  return (
+    value?.analysis_type ||
+    value?.analysis?.analysis_type ||
+    value?.result?.analysis_type ||
+    value?.content?.analysis_type
+  );
 }
 
 function isComplete(status) {
