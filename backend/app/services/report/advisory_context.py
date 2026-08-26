@@ -9,7 +9,7 @@ from app.db.supabase_client import Repository
 from app.utils.logging import log_external_failure
 
 ADVISORY_LOOKBACK_DAYS = 30
-MAX_ADVISORY_ANALYSES = 9
+MAX_ADVISORY_ANALYSES = 10
 MAX_ADVISORY_CONTEXT_BYTES = 12_000
 MAX_ADVISORY_TICKERS = 5
 MAX_ADVISORY_ACTIONS = 5
@@ -24,6 +24,7 @@ _FINDING_COLLECTIONS = {
     "high_dividend_etfs": "etfs",
     "etf_overlap": "etfs",
     "sector_outlook": "sectors",
+    "high_upside_speculative_stocks": "top_candidates",
 }
 _ADVISORY_TYPES = (*_FINDING_COLLECTIONS, "sec_filing_risk", "profit_taking_review")
 _SAFE_ACTIONS = {"BUY", "HOLD", "REDUCE", "SELL", "WATCH"}
@@ -43,6 +44,9 @@ _SAFE_ITEM_FIELDS = {
     "attractiveness_score",
     "attractiveness_label",
     "risk_rating",
+    "asymmetric_opportunity_score",
+    "upside_evidence_score",
+    "downside_risk_score",
     "current_weight_pct",
     "overlap_pct",
     "company_weight_pct",

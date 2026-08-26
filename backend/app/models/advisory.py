@@ -14,6 +14,7 @@ AnalysisType: TypeAlias = Literal[
     "etf_overlap",
     "sector_outlook",
     "profit_taking_review",
+    "high_upside_speculative_stocks",
 ]
 AdvisoryJobStatus: TypeAlias = Literal["queued", "running", "completed", "failed"]
 
@@ -32,6 +33,10 @@ class TickerScreenRequestBase(AdvisoryRequestBase):
 class UndervaluedUsStocksRequest(TickerScreenRequestBase):
     analysis_type: Literal["undervalued_us_stocks"]
     min_market_cap_usd: int | None = Field(default=None, ge=0)
+
+
+class HighUpsideSpeculativeStocksRequest(TickerScreenRequestBase):
+    analysis_type: Literal["high_upside_speculative_stocks"]
 
 
 class ETFPosition(BaseModel):
@@ -92,7 +97,8 @@ AdvisoryJobRequest: TypeAlias = Annotated[
     | SecFilingRiskRequest
     | EtfOverlapRequest
     | SectorOutlookRequest
-    | ProfitTakingReviewRequest,
+    | ProfitTakingReviewRequest
+    | HighUpsideSpeculativeStocksRequest,
     Field(discriminator="analysis_type"),
 ]
 
@@ -138,6 +144,8 @@ class AdvisoryStatusResponse(BaseModel):
     migration_file: str
     profit_taking_review_status: Literal["available", "migration_required", "unavailable"]
     profit_taking_review_migration_file: str
+    high_upside_speculative_stocks_status: Literal["available", "migration_required", "unavailable"]
+    high_upside_speculative_stocks_migration_file: str
 
 
 class AdvisoryResultBase(BaseModel):
@@ -237,6 +245,16 @@ class ProfitTakingReviewResult(AdvisoryResultBase):
     summary: str
 
 
+class HighUpsideSpeculativeStocksResult(AdvisoryResultBase):
+    analysis_type: Literal["high_upside_speculative_stocks"]
+    rows: list[dict[str, Any]]
+    top_candidates: list[dict[str, Any]]
+    speculative_watch: list[dict[str, Any]]
+    rejected_or_data_limited: list[dict[str, Any]]
+    screening_scope: dict[str, Any]
+    scoring_methodology: dict[str, Any]
+
+
 AdvisoryResult: TypeAlias = Annotated[
     UndervaluedUsStocksResult
     | EtfRebalancingResult
@@ -246,7 +264,8 @@ AdvisoryResult: TypeAlias = Annotated[
     | SecFilingRiskResult
     | EtfOverlapResult
     | SectorOutlookResult
-    | ProfitTakingReviewResult,
+    | ProfitTakingReviewResult
+    | HighUpsideSpeculativeStocksResult,
     Field(discriminator="analysis_type"),
 ]
 

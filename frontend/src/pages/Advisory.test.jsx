@@ -36,6 +36,9 @@ describe("Advisory page", () => {
       profit_taking_review_status: "available",
       profit_taking_review_migration_file:
         "backend/app/db/migrations/020_add_profit_taking_review_advisory.sql",
+      high_upside_speculative_stocks_status: "available",
+      high_upside_speculative_stocks_migration_file:
+        "backend/app/db/migrations/021_add_high_upside_speculative_stocks_advisory.sql",
     });
     api.createAdvisoryJob.mockResolvedValue({
       job_id: "job-1",
@@ -213,6 +216,29 @@ describe("Advisory page", () => {
 
     expect(await screen.findByText(/이익실현 판단을 사용하려면/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /이익실현 판단/ }));
+
+    expect(screen.getByRole("button", { name: "AI 자문 요청" })).toBeDisabled();
+    expect(api.createAdvisoryJob).not.toHaveBeenCalled();
+  });
+
+  it("blocks only the speculative screen when migration 021 is missing", async () => {
+    api.getAdvisoryStatus.mockResolvedValue({
+      storage_status: "available",
+      ai_narrative_status: "configured",
+      migration_file: "backend/app/db/migrations/017_create_advisory_analyses.sql",
+      profit_taking_review_status: "available",
+      profit_taking_review_migration_file:
+        "backend/app/db/migrations/020_add_profit_taking_review_advisory.sql",
+      high_upside_speculative_stocks_status: "migration_required",
+      high_upside_speculative_stocks_migration_file:
+        "backend/app/db/migrations/021_add_high_upside_speculative_stocks_advisory.sql",
+    });
+    render(<Advisory />);
+
+    expect(
+      await screen.findByText(/고위험·고상승 잠재 종목 탐색을 사용하려면/),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /고위험·고상승 잠재 종목/ }));
 
     expect(screen.getByRole("button", { name: "AI 자문 요청" })).toBeDisabled();
     expect(api.createAdvisoryJob).not.toHaveBeenCalled();

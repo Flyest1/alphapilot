@@ -128,6 +128,7 @@ def test_all_supported_advisory_request_types_validate_strictly():
         {"analysis_type": "etf_overlap", "positions": [{"ticker": "VOO", "weight_pct": 60}]},
         {"analysis_type": "sector_outlook", "custom_proxies": {"technology": "XLK"}},
         {"analysis_type": "profit_taking_review", "asset_id": "asset-1"},
+        {"analysis_type": "high_upside_speculative_stocks", "tickers": ["BIOX"]},
     ]
 
     for payload in payloads:

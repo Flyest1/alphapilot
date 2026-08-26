@@ -32,11 +32,12 @@ Broker Sync: Toss Invest Open API (조회 전용)
 5. `설정` 화면에서 보유 외 추가 매수 후보군을 직접 추가하거나 비활성화합니다.
 6. `상태` 화면에서 백엔드, Supabase, OpenAI 설정과 최근 리포트 상태를 확인합니다.
 7. `리포트` 화면에서 국내/글로벌 리포트를 수동 생성하거나, GitHub Actions 정기 실행 결과를 확인합니다.
-8. `AI 자문` 화면에서 9가지 수동 분석을 요청하고 작업 상태와 저장된 결과를 확인합니다.
+8. `AI 자문` 화면에서 10가지 수동 분석을 요청하고 작업 상태와 저장된 결과를 확인합니다.
 9. `성과 추적`은 리포트 생성 이후 1일, 5일, 20일 가격 데이터가 쌓이면 표시됩니다.
 
 AI 자문은 저평가 미국 주식, ETF 리밸런싱, 실적 발표 후 기회, AI 수혜 근거,
-고배당 ETF 위험, SEC 공시 위험, ETF 중복, 6개월 섹터 전망, 보유 수익 종목의 이익실현 판단을 제공합니다. 계산 가능한 값은
+고배당 ETF 위험, SEC 공시 위험, ETF 중복, 6개월 섹터 전망, 보유 수익 종목의 이익실현 판단,
+고위험·고상승 잠재 미국 상장주 탐색을 제공합니다. 계산 가능한 값은
 백엔드에서 계산하고 OpenAI는 저장된 근거 안에서만 설명합니다. 데이터가 없거나 오래된 경우
 값을 추정하지 않고 `data-limited` 또는 `평가 불가`로 표시합니다. ETF 목표 비중과 관심 가격대는
 검토용 정보이며 주문 수량·주문 미리보기·자동매매로 연결되지 않습니다.
@@ -335,6 +336,7 @@ AI 자문 요청을 저장하려면 반드시 적용해야 합니다. 적용 전
 backend/app/db/migrations/018_upgrade_default_openai_model.sql
 backend/app/db/migrations/019_expand_us_candidate_universe.sql
 backend/app/db/migrations/020_add_profit_taking_review_advisory.sql
+backend/app/db/migrations/021_add_high_upside_speculative_stocks_advisory.sql
 ```
 
 018은 기존 기본 모델 값이 `gpt-5.4-mini`인 설정만 `gpt-5.6-luna`로 변경하고 SQL 기본값도
@@ -344,6 +346,9 @@ backend/app/db/migrations/020_add_profit_taking_review_advisory.sql
 분석 유형 제약을 비파괴적으로 확장하고 `advisory_capabilities` 적용 상태 표식을 추가해
 `profit_taking_review` 저장과 사전 상태 확인을 허용합니다. 운영 데이터베이스에
 020을 적용하기 전에는 기존 8가지 자문은 계속 동작하지만 이익실현 판단 요청 저장은 실패합니다.
+021은 고위험·고상승 잠재 종목 유형을 같은 제약과 capability 표식에 추가합니다. 이 탐색은
+비상장 스타트업을 제외하고 미국 상장주만 다루며, 결과를 성공 확률이나 목표수익률로 해석하지
+않고 모두 추가 조사용 `WATCH`로 표시합니다.
 
 AI 자문의 SEC 공시 분석은 무료 공식 EDGAR 데이터를 읽기 전용으로 사용합니다.
 `SEC_EDGAR_USER_AGENT`에는 애플리케이션 이름과 실제 연락 가능한 이메일을 입력해야 하며,

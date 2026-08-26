@@ -179,7 +179,7 @@ def test_completed_advisory_summary_is_bounded_in_prompt_and_snapshot(report_typ
 
     advisory_context = ai_provider.context["advisory_context"]
     summary = advisory_context["analyses"][0]
-    assert repository.advisory_limits == [1] * 9
+    assert repository.advisory_limits == [1] * 10
     assert advisory_context["status"] == "available"
     assert advisory_context["lookback_days"] == ADVISORY_LOOKBACK_DAYS
     assert advisory_context["truncated"] is False
@@ -215,8 +215,8 @@ def test_advisory_storage_failure_keeps_report_generation_available():
 
 
 def test_advisory_context_capacity_covers_all_supported_types():
-    assert advisory_context_module.MAX_ADVISORY_ANALYSES == 9
-    assert len(advisory_context_module._ADVISORY_TYPES) == 9
+    assert advisory_context_module.MAX_ADVISORY_ANALYSES == 10
+    assert len(advisory_context_module._ADVISORY_TYPES) == 10
 
 
 def test_report_prompt_keeps_news_sources_internal():

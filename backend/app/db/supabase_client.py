@@ -601,7 +601,7 @@ class InMemoryRepository:
         return rows[:limit] if limit is not None else rows
 
     def has_advisory_capability(self, capability: str) -> bool:
-        return capability == "profit_taking_review"
+        return capability in {"profit_taking_review", "high_upside_speculative_stocks"}
 
     def create_portfolio_snapshot(self, data: dict[str, Any]) -> dict[str, Any]:
         row = deepcopy(data)

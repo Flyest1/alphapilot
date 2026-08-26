@@ -28,6 +28,8 @@ const POLL_INTERVAL_MS = 5000;
 const MIGRATION_FILE = "backend/app/db/migrations/017_create_advisory_analyses.sql";
 const PROFIT_TAKING_REVIEW_MIGRATION_FILE =
   "backend/app/db/migrations/020_add_profit_taking_review_advisory.sql";
+const HIGH_UPSIDE_SPECULATIVE_STOCKS_MIGRATION_FILE =
+  "backend/app/db/migrations/021_add_high_upside_speculative_stocks_advisory.sql";
 
 const JOB_ERROR_MESSAGES = {
   stale_active_job: "이전 자문 작업이 응답 없이 만료되었습니다. 새로 요청해 주세요.",
@@ -61,10 +63,7 @@ function jobIdentifier(job) {
 
 function analysisIdentifier(job) {
   return (
-    job?.analysis_id ||
-    job?.analysis?.analysis_id ||
-    job?.analysis?.id ||
-    job?.result?.analysis_id
+    job?.analysis_id || job?.analysis?.analysis_id || job?.analysis?.id || job?.result?.analysis_id
   );
 }
 
@@ -132,8 +131,11 @@ export default function Advisory() {
   const isSubmitting = isCreatingJob || hasActiveJob;
   const isAdvisoryStorageAvailable = advisoryStatus?.storage_status === "available";
   const isProfitTakingReviewAvailable = advisoryStatus?.profit_taking_review_status === "available";
+  const isHighUpsideSpeculativeStocksAvailable =
+    advisoryStatus?.high_upside_speculative_stocks_status === "available";
   const isSelectedFeatureAvailable =
-    selectedType !== "profit_taking_review" || isProfitTakingReviewAvailable;
+    (selectedType !== "profit_taking_review" || isProfitTakingReviewAvailable) &&
+    (selectedType !== "high_upside_speculative_stocks" || isHighUpsideSpeculativeStocksAvailable);
 
   const requestCompletedAnalysis = useCallback((jobId, analysisId) => {
     if (!jobId || !analysisId) return;
@@ -337,9 +339,11 @@ export default function Advisory() {
       return;
     }
     if (!isSelectedFeatureAvailable) {
-      setError(
-        `이익실현 판단 저장소 migration이 필요합니다. ${PROFIT_TAKING_REVIEW_MIGRATION_FILE}`,
-      );
+      const migrationFile =
+        selectedType === "high_upside_speculative_stocks"
+          ? HIGH_UPSIDE_SPECULATIVE_STOCKS_MIGRATION_FILE
+          : PROFIT_TAKING_REVIEW_MIGRATION_FILE;
+      setError(`선택한 자문 저장소 migration이 필요합니다. ${migrationFile}`);
       return;
     }
     const payload = buildAdvisoryPayload(feature, form);
@@ -428,6 +432,19 @@ export default function Advisory() {
             </span>
           </div>
         )}
+      {advisoryStatus?.storage_status === "available" &&
+        advisoryStatus?.high_upside_speculative_stocks_status === "migration_required" && (
+          <div className="notice" role="alert">
+            <span className="alert">
+              고위험·고상승 잠재 종목 탐색을 사용하려면 운영 데이터베이스에 migration을 적용해야
+              합니다. 적용 파일:{" "}
+              <code>
+                {advisoryStatus.high_upside_speculative_stocks_migration_file ||
+                  HIGH_UPSIDE_SPECULATIVE_STOCKS_MIGRATION_FILE}
+              </code>
+            </span>
+          </div>
+        )}
       {advisoryStatus?.ai_narrative_status === "not_configured" && (
         <div className="notice" role="status">
           <span className="alert">
@@ -473,7 +490,10 @@ export default function Advisory() {
                   feature={selectedFeature}
                   form={form}
                   isDisabled={
-                    selectedFeature.id === "profit_taking_review" && !isProfitTakingReviewAvailable
+                    (selectedFeature.id === "profit_taking_review" &&
+                      !isProfitTakingReviewAvailable) ||
+                    (selectedFeature.id === "high_upside_speculative_stocks" &&
+                      !isHighUpsideSpeculativeStocksAvailable)
                   }
                   isLoadingAssets={isLoadingAssets}
                   isSubmitting={isSubmitting}

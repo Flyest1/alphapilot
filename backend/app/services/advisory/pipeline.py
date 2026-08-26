@@ -9,6 +9,9 @@ from app.services.advisory.features.ai_beneficiaries import AIBeneficiariesAnaly
 from app.services.advisory.features.etf_overlap import EtfOverlapService
 from app.services.advisory.features.etf_rebalancing import EtfRebalancingService
 from app.services.advisory.features.high_dividend_etfs import HighDividendEtfService
+from app.services.advisory.features.high_upside_speculative_stocks import (
+    HighUpsideSpeculativeStocksAnalyzer,
+)
 from app.services.advisory.features.post_earnings_opportunities import (
     PostEarningsOpportunitiesAnalyzer,
 )
@@ -56,6 +59,7 @@ class AdvisoryPipeline:
             "etf_overlap": self._etf_overlap,
             "sector_outlook": self._sector_outlook,
             "profit_taking_review": self._profit_taking_review,
+            "high_upside_speculative_stocks": self._high_upside_speculative_stocks,
         }
 
     def _undervalued_us_stocks(self, _job: Any, request: Any) -> dict[str, Any]:
@@ -70,6 +74,23 @@ class AdvisoryPipeline:
             min_market_cap_usd=getattr(request, "min_market_cap_usd", None),
         )
         self._attach_news_context(result, tickers)
+        return self._add_narrative(result)
+
+    def _high_upside_speculative_stocks(self, _job: Any, request: Any) -> dict[str, Any]:
+        requested = [str(ticker).upper() for ticker in getattr(request, "tickers", [])]
+        if requested:
+            tickers = list(dict.fromkeys(requested))
+            discovery = {"source": "user_supplied_tickers", "discovered_count": len(tickers)}
+        else:
+            tickers, discovery = self._discover_speculative_tickers()
+        result = HighUpsideSpeculativeStocksAnalyzer(
+            self.market_data_service,
+            self._yf_module(),
+            filing_provider=self.filing_provider,
+        ).analyze(tickers, limit=getattr(request, "max_results", 5))
+        result["screening_scope"].update(discovery)
+        ranked_tickers = [row["ticker"] for row in result.get("top_candidates", [])]
+        self._attach_news_context(result, ranked_tickers or tickers)
         return self._add_narrative(result)
 
     def _etf_rebalancing(self, _job: Any, request: Any) -> dict[str, Any]:
@@ -333,6 +354,36 @@ class AdvisoryPipeline:
             for row in rows
             if row.get("market") == "US" and row.get("ticker")
         ]
+
+    def _discover_speculative_tickers(self) -> tuple[list[str], dict[str, Any]]:
+        try:
+            response = self._yf_module().screen("aggressive_small_caps", count=25)
+            quotes = response.get("quotes", []) if isinstance(response, dict) else []
+            tickers = [
+                str(row.get("symbol") or "").upper()
+                for row in quotes
+                if isinstance(row, dict)
+                and row.get("symbol")
+                and str(row.get("quoteType") or "EQUITY").upper() == "EQUITY"
+            ]
+            tickers = list(dict.fromkeys(tickers))
+            if tickers:
+                return tickers, {
+                    "source": "yfinance_aggressive_small_caps",
+                    "discovered_count": len(tickers),
+                }
+        except Exception as exc:
+            log_external_failure(
+                "yfinance",
+                exc,
+                {"operation": "discover_speculative_tickers"},
+            )
+        fallback = self._equity_tickers([])
+        return fallback, {
+            "source": "current_global_candidates_fallback",
+            "discovered_count": len(fallback),
+            "discovery_status": "data-limited",
+        }
 
     def _yf_module(self) -> Any:
         if self.yf_module is not None:

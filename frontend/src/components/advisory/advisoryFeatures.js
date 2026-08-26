@@ -15,6 +15,14 @@ export const ADVISORY_FEATURES = [
     details: ["최근 3개월", "분기 재무", "가이던스", "밸류", "리스크", "상위 5개"],
   },
   {
+    id: "high_upside_speculative_stocks",
+    title: "고위험·고상승 잠재 종목",
+    description: "소형 성장주·바이오의 상승 근거와 생존·희석 위험을 분리해 관찰 후보를 찾습니다.",
+    inputMode: "tickers",
+    defaultUniverse: "yfinance_aggressive_small_caps",
+    details: ["미국 상장주", "SEC 공시", "현금 생존기간", "유동성", "하락 위험", "관찰 후보"],
+  },
+  {
     id: "etf_rebalancing",
     title: "ETF 리밸런싱",
     description: "보유 ETF 비중을 기준으로 성과·위험과 세 가지 성향 조합을 검토합니다.",
@@ -151,7 +159,11 @@ export function buildAdvisoryPayload(feature, form) {
   }
   if (feature.inputMode === "tickers") {
     const tickers = parseTickers(form.tickers);
-    const maxResults = ["undervalued_us_stocks", "post_earnings_opportunities"].includes(feature.id)
+    const maxResults = [
+      "undervalued_us_stocks",
+      "post_earnings_opportunities",
+      "high_upside_speculative_stocks",
+    ].includes(feature.id)
       ? { max_results: 5 }
       : {};
     const tickerPayload = tickers.length

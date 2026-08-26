@@ -59,6 +59,8 @@ The manually requested AI advisory baseline tracked in `docs/ai_advisory_plan_20
 and deployed. Migration 017 and the original eight authenticated request-to-persistence workflows were
 verified against the operating environment on 2026-07-17. A ninth `profit_taking_review` workflow is
 approved for implementation and requires additive migration 020 before operating use.
+A tenth `high_upside_speculative_stocks` workflow is implemented in code and requires additive
+migration 021 before operating use.
 ```
 
 The detailed upgrade plan lives in `docs/development_plan_v2.md` and the code review baseline in `docs/code_review_2026_06.md`. When this file and the plan conflict, this file wins.
@@ -511,6 +513,7 @@ sec_filing_risk
 etf_overlap
 sector_outlook
 profit_taking_review
+high_upside_speculative_stocks
 ```
 
 AI advisory requests must be asynchronous, persisted, traceable to evidence, and manual only. Missing
@@ -628,6 +631,11 @@ Migration 017 adds these advisory tables when manually applied:
 Migration 020 expands the existing advisory analysis-type constraints to allow
 `profit_taking_review` and adds the `advisory_capabilities` marker used for read-only capability
 status checks. It does not remove or rewrite existing advisory rows.
+
+Migration 021 expands those constraints and capability markers to allow
+`high_upside_speculative_stocks`. The workflow is restricted to US-listed public equities, excludes
+private startups, treats all outputs as `WATCH`, and presents relative upside-evidence and downside-
+risk scores rather than jackpot probability or expected return.
 
 Existing additive settings columns:
 
@@ -1079,7 +1087,10 @@ The ninth `profit_taking_review` workflow is implemented only after its code and
 are present. It remains operationally unavailable until migration 020 is manually applied to the
 operating Supabase project and the authenticated request-to-persistence flow is verified.
 
-Goal: provide the nine manual analysis workflows defined in `docs/ai_advisory_plan_2026_07.md`
+The tenth `high_upside_speculative_stocks` workflow is implemented in code and remains operationally
+unavailable until additive migration 021 is manually applied and verified.
+
+Goal: provide the ten manual analysis workflows defined in `docs/ai_advisory_plan_2026_07.md`
 without automatic trading, order tickets, or unsupported factual claims.
 
 Implement:
@@ -1087,12 +1098,12 @@ Implement:
 - persisted asynchronous advisory jobs and analysis history
 - deterministic calculations before OpenAI explanation
 - evidence ids, source dates, providers, freshness, missing fields, and limitations
-- the nine advisory analysis types listed in the public API contract
+- the ten advisory analysis types listed in the public API contract
 - Korean AI advisory tab with manual inputs, polling, history, and result tables
 - bounded local-disk SEC accession cache with SHA-256 integrity checks and atomic writes
 - periodic advisory job heartbeat and single-process startup recovery without an external worker
 - one-job bounded in-process execution with queue-depth status, without an external queue service
-- dedicated Korean result views for all nine analysis types with evidence-safe links
+- dedicated Korean result views for all ten analysis types with evidence-safe links
 - inline advanced request inputs and severity-aware partial/data-limited notices
 
 SEC EDGAR, FRED, delayed SEC N-PORT data, and clearly labeled yfinance ETF-flow proxies were approved

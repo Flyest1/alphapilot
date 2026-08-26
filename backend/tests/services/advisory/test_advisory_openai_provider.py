@@ -120,6 +120,21 @@ def test_openai_profit_taking_prompt_preserves_independent_deterministic_decisio
     assert "결정론적 action을 변경" in prompt
 
 
+def test_openai_speculative_prompt_preserves_watch_and_rejects_probability_claims():
+    client = FakeClient(narrative_payload())
+    provider = OpenAIAdvisoryProvider(None, "gpt-test", client=client)
+
+    provider.generate_narrative(
+        "high_upside_speculative_stocks",
+        {"evidence": [{"evidence_id": "market:1"}], "action": "WATCH"},
+    )
+
+    prompt = client.chat.completions.kwargs["messages"][0]["content"]
+    assert "WATCH 행동을 변경" in prompt
+    assert "성공 확률·예상 수익률" in prompt
+    assert "전액 손실·희석·유동성" in prompt
+
+
 def test_openai_advisory_provider_forces_backend_disclaimer():
     schema = OpenAIAdvisoryProvider._response_schema({})
     assert schema["properties"]["disclaimer"] == {"const": ADVISORY_DISCLAIMER}

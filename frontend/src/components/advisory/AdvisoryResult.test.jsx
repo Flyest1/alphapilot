@@ -20,6 +20,28 @@ const base = {
 
 const fixtures = [
   [
+    "high_upside_speculative_stocks",
+    "고위험·고상승 잠재 관찰 후보",
+    {
+      rows: [],
+      top_candidates: [
+        {
+          ticker: "BIOX",
+          speculative_track: "biotech",
+          asymmetric_opportunity_score: 68,
+          upside_evidence_score: 75,
+          downside_risk_score: 48,
+          cash_runway_quarters: 8,
+          official_catalyst_categories: ["clinical_milestone"],
+          dilution_signal: false,
+          action: "WATCH",
+        },
+      ],
+      speculative_watch: [],
+      rejected_or_data_limited: [],
+    },
+  ],
+  [
     "undervalued_us_stocks",
     "미국 저평가 후보",
     {

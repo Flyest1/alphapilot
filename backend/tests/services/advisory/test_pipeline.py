@@ -32,7 +32,7 @@ class FakeNewsService:
         }
 
 
-def test_pipeline_registers_all_nine_analysis_types():
+def test_pipeline_registers_all_ten_analysis_types():
     pipeline = AdvisoryPipeline(InMemoryRepository(), FakeMarketData(), yf_module=FakeYFinance())
 
     assert set(pipeline.handlers()) == {
@@ -45,7 +45,52 @@ def test_pipeline_registers_all_nine_analysis_types():
         "etf_overlap",
         "sector_outlook",
         "profit_taking_review",
+        "high_upside_speculative_stocks",
     }
+
+
+def test_pipeline_discovers_speculative_tickers_with_yfinance_screener(monkeypatch):
+    captured = {}
+
+    class ScreeningYFinance:
+        @staticmethod
+        def screen(name, count):
+            captured["screen"] = (name, count)
+            return {"quotes": [{"symbol": "BIOX", "quoteType": "EQUITY"}]}
+
+    class FakeAnalyzer:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def analyze(self, tickers, limit):
+            captured["analyze"] = (tickers, limit)
+            return {
+                "analysis_type": "high_upside_speculative_stocks",
+                "rows": [],
+                "top_candidates": [],
+                "speculative_watch": [],
+                "rejected_or_data_limited": [],
+                "screening_scope": {},
+                "scoring_methodology": {},
+                "evidence": [],
+                "data_quality": {},
+                "disclaimer": "정보 제공",
+            }
+
+    monkeypatch.setattr(
+        "app.services.advisory.pipeline.HighUpsideSpeculativeStocksAnalyzer", FakeAnalyzer
+    )
+    pipeline = AdvisoryPipeline(
+        InMemoryRepository(), FakeMarketData(), yf_module=ScreeningYFinance()
+    )
+    request = parse_advisory_job_request(
+        {"analysis_type": "high_upside_speculative_stocks", "max_results": 5}
+    )
+
+    result = pipeline._high_upside_speculative_stocks(None, request)
+
+    assert captured == {"screen": ("aggressive_small_caps", 25), "analyze": (["BIOX"], 5)}
+    assert result["screening_scope"]["source"] == "yfinance_aggressive_small_caps"
 
 
 def test_profit_taking_event_windows_follow_review_horizon():

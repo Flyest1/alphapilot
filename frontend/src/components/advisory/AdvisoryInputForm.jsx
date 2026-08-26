@@ -92,6 +92,8 @@ export default function AdvisoryInputForm({
             />
             <small>
               비워 두면 기본 유니버스 <code>{feature.defaultUniverse}</code>를 사용합니다.
+              {feature.id === "high_upside_speculative_stocks" &&
+                " 비상장 스타트업은 제외하며 결과는 모두 추가 조사용 관찰 후보입니다."}
             </small>
           </label>
         )}

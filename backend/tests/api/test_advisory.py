@@ -57,6 +57,11 @@ class MissingProfitTakingReviewMigrationRepository(InMemoryRepository):
         raise exc
 
 
+class MissingSpeculativeMigrationRepository(InMemoryRepository):
+    def has_advisory_capability(self, capability):
+        return capability == "profit_taking_review"
+
+
 def test_advisory_routes_require_normal_api_token():
     client = TestClient(create_app(repository=InMemoryRepository()))
 
@@ -79,6 +84,10 @@ def test_advisory_status_reports_storage_and_ai_configuration():
         "profit_taking_review_migration_file": (
             "backend/app/db/migrations/020_add_profit_taking_review_advisory.sql"
         ),
+        "high_upside_speculative_stocks_status": "available",
+        "high_upside_speculative_stocks_migration_file": (
+            "backend/app/db/migrations/021_add_high_upside_speculative_stocks_advisory.sql"
+        ),
     }
 
 
@@ -93,6 +102,20 @@ def test_advisory_status_reports_profit_taking_review_migration_separately():
     assert (
         "020_add_profit_taking_review_advisory.sql"
         in response.json()["profit_taking_review_migration_file"]
+    )
+
+
+def test_advisory_status_reports_speculative_migration_separately():
+    client = TestClient(create_app(repository=MissingSpeculativeMigrationRepository()))
+
+    response = client.get("/api/advisory/status", headers=AUTH)
+
+    assert response.status_code == 200
+    assert response.json()["profit_taking_review_status"] == "available"
+    assert response.json()["high_upside_speculative_stocks_status"] == "migration_required"
+    assert (
+        "021_add_high_upside_speculative_stocks_advisory.sql"
+        in response.json()["high_upside_speculative_stocks_migration_file"]
     )
 
 
@@ -154,6 +177,21 @@ def test_advisory_job_parses_profit_taking_review_request():
     assert response.json()["analysis_type"] == "profit_taking_review"
 
 
+def test_advisory_job_parses_high_upside_speculative_stocks_request():
+    app = create_app(repository=InMemoryRepository())
+    app.state.advisory_dispatcher = AdvisoryDispatcher()
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/advisory/jobs",
+        headers=AUTH,
+        json={"analysis_type": "high_upside_speculative_stocks", "tickers": ["BIOX"]},
+    )
+
+    assert response.status_code == 202
+    assert response.json()["analysis_type"] == "high_upside_speculative_stocks"
+
+
 def test_profit_taking_check_violation_points_only_to_migration_020():
     error = RuntimeError(
         "new row for relation advisory_jobs violates analysis_type check constraint"
@@ -165,6 +203,21 @@ def test_profit_taking_check_violation_points_only_to_migration_020():
     except HTTPException as exc:
         assert exc.status_code == 503
         assert "020_add_profit_taking_review_advisory.sql" in exc.detail["message"]
+    else:
+        raise AssertionError("expected migration-required HTTP exception")
+
+
+def test_speculative_check_violation_points_to_migration_021():
+    error = RuntimeError(
+        "new row for relation advisory_jobs violates analysis_type check constraint"
+    )
+    error.code = "23514"
+
+    try:
+        _raise_advisory_storage_error(error, "high_upside_speculative_stocks")
+    except HTTPException as exc:
+        assert exc.status_code == 503
+        assert "021_add_high_upside_speculative_stocks_advisory.sql" in exc.detail["message"]
     else:
         raise AssertionError("expected migration-required HTTP exception")
 

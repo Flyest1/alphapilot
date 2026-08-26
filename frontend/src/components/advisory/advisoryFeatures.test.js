@@ -8,11 +8,12 @@ import {
 } from "./advisoryFeatures.js";
 
 describe("advisory payloads", () => {
-  it("defines all nine advisory analyses", () => {
-    expect(ADVISORY_FEATURES).toHaveLength(9);
+  it("defines all ten advisory analyses", () => {
+    expect(ADVISORY_FEATURES).toHaveLength(10);
     expect(ADVISORY_FEATURES.map((feature) => feature.id)).toEqual([
       "profit_taking_review",
       "undervalued_us_stocks",
+      "high_upside_speculative_stocks",
       "etf_rebalancing",
       "post_earnings_opportunities",
       "ai_beneficiaries",
@@ -62,6 +63,20 @@ describe("advisory payloads", () => {
       max_results: 5,
     });
     expect(payload).not.toHaveProperty("input");
+  });
+
+  it("builds a bounded speculative stock discovery request", () => {
+    const feature = getAdvisoryFeature("high_upside_speculative_stocks");
+
+    expect(buildAdvisoryPayload(feature, { tickers: "biox, rxrx" })).toEqual({
+      analysis_type: "high_upside_speculative_stocks",
+      tickers: ["BIOX", "RXRX"],
+      max_results: 5,
+    });
+    expect(buildAdvisoryPayload(feature, { tickers: "" })).toEqual({
+      analysis_type: "high_upside_speculative_stocks",
+      max_results: 5,
+    });
   });
 
   it("builds ETF positions and accepts optional weights", () => {
