@@ -160,6 +160,15 @@ export const FIELD_LABELS = {
   excluded_tickers: "제외 ETF",
   weight_changes_vs_current_pct: "현재 대비 비중 변화",
   data_quality: "데이터 상태",
+  screening_scope: "탐색 범위",
+  scoring_methodology: "점수 해석",
+  listing_scope: "상장 범위",
+  private_startups_excluded: "비상장 스타트업 제외",
+  market_cap_range_usd: "시가총액 범위",
+  minimum_median_dollar_volume_usd: "최소 중앙 거래대금",
+  action_policy: "행동 원칙",
+  minimum: "최소",
+  maximum: "최대",
 };
 
 const PERCENT_FIELD = /(_pct|_percent|_percentage|_rate)$/;
@@ -184,6 +193,8 @@ const EVIDENCE_HOSTS = {
 export const RESULT_CONFIG = {
   high_upside_speculative_stocks: {
     title: "고위험·고상승 잠재 관찰 후보",
+    fallbackTitle: "탐색 기준 및 상세 정보",
+    hiddenKeys: ["rows"],
     sections: [
       {
         key: "top_candidates",

@@ -288,25 +288,30 @@ function BoundedValue({ field, value, depth = 0 }) {
   return <Value field={field} value={value} />;
 }
 
-function FallbackDetails({ result, knownKeys }) {
+function FallbackDetails({ result, knownKeys, title = "추가 정보" }) {
   const entries = Object.entries(result).filter(
     ([key, value]) => !knownKeys.has(key) && value != null,
   );
   if (!entries.length) return null;
   return (
-    <section className="advisory-result-section">
-      <h3>추가 정보</h3>
-      <dl className="advisory-key-values">
-        {entries.map(([key, value]) => (
-          <div key={key}>
-            <dt>{labelFor(key)}</dt>
-            <dd>
-              <BoundedValue field={key} value={value} />
-            </dd>
-          </div>
-        ))}
-      </dl>
-    </section>
+    <details className="advisory-fallback-details">
+      <summary>
+        <span>{title}</span>
+        <small>{entries.length}개 항목</small>
+      </summary>
+      <div className="advisory-fallback-content">
+        <dl className="advisory-key-values">
+          {entries.map(([key, value]) => (
+            <div key={key}>
+              <dt>{labelFor(key)}</dt>
+              <dd>
+                <BoundedValue field={key} value={value} />
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    </details>
   );
 }
 
@@ -583,6 +588,7 @@ export default function AdvisoryResultView({ result }) {
     "risks",
     "catalysts",
     "evaluation_status",
+    ...(config.hiddenKeys || []),
     ...config.sections
       .filter((section) => Array.isArray(result[section.key]))
       .map((section) => section.key),
@@ -613,7 +619,11 @@ export default function AdvisoryResultView({ result }) {
         config.sections.map(({ key, ...section }) => (
           <ResultTable key={key} {...section} rows={result[key]} />
         ))}
-      <FallbackDetails result={result} knownKeys={knownKeys} />
+      <FallbackDetails
+        result={result}
+        knownKeys={knownKeys}
+        title={config.fallbackTitle || "추가 정보"}
+      />
     </>
   );
 }

@@ -1676,6 +1676,43 @@ form button,
   padding: 0 16px 16px;
 }
 
+.advisory-fallback-details {
+  margin-top: 24px;
+  border: 1px solid var(--market-line);
+  border-radius: 12px;
+  background: var(--market-paper);
+}
+
+.advisory-fallback-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  padding: 14px 16px;
+  color: var(--market-ink);
+  font-weight: 700;
+}
+
+.advisory-fallback-details > summary small {
+  color: var(--market-muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.advisory-fallback-content {
+  padding: 0 16px 16px;
+}
+
+.advisory-fallback-content > .advisory-key-values {
+  margin: 0;
+}
+
+.advisory-fallback-values {
+  grid-template-columns: 1fr;
+}
+
 .advisory-result-section + .advisory-result-section {
   margin-top: 24px;
 }
@@ -2067,6 +2104,12 @@ form button,
 
   .advisory-result-panel {
     padding: 14px;
+  }
+
+  .advisory-fallback-details > summary,
+  .advisory-fallback-content {
+    padding-right: 12px;
+    padding-left: 12px;
   }
 
   .advisory-result-title {

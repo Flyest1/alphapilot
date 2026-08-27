@@ -603,6 +603,53 @@ describe("AdvisoryResult", () => {
     expect(screen.getByText("alpha")).toBeInTheDocument();
   });
 
+  it("keeps speculative screening context collapsed without repeating raw rows", () => {
+    render(
+      <AdvisoryResult
+        analysis={{
+          result: {
+            ...base,
+            analysis_type: "high_upside_speculative_stocks",
+            rows: [
+              {
+                ticker: "RAWONLY",
+                asymmetric_opportunity_score: 42,
+                sec_filings: [{ form: "8-K", accession_number: "0000000000-26-000001" }],
+              },
+            ],
+            top_candidates: [
+              {
+                ticker: "BIOX",
+                asymmetric_opportunity_score: 68,
+                upside_evidence_score: 75,
+                downside_risk_score: 48,
+                action: "WATCH",
+              },
+            ],
+            speculative_watch: [],
+            rejected_or_data_limited: [],
+            screening_scope: {
+              listing_scope: "US-listed public equities only",
+              private_startups_excluded: true,
+            },
+            scoring_methodology: {
+              action_policy: "All rows remain WATCH until separate due diligence.",
+            },
+          },
+        }}
+      />,
+    );
+
+    const details = screen.getByText("탐색 기준 및 상세 정보").closest("details");
+
+    expect(details).toBeInTheDocument();
+    expect(details).not.toHaveAttribute("open");
+    expect(within(details).getByText("탐색 범위")).toBeInTheDocument();
+    expect(within(details).getByText("점수 해석")).toBeInTheDocument();
+    expect(screen.queryByText("RAWONLY")).not.toBeInTheDocument();
+    expect(screen.getAllByText("BIOX")).not.toHaveLength(0);
+  });
+
   it("prioritizes the mobile-friendly profit-taking decision before supporting details", () => {
     render(
       <AdvisoryResult
