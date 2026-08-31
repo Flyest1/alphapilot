@@ -4,6 +4,7 @@ from app.config import clear_settings_cache
 from app.db.supabase_client import InMemoryRepository
 from app.main import create_app
 from app.services.report_service import ReportService
+from app.services.toss_invest_service import TossInvestService
 
 
 def client():
@@ -81,13 +82,22 @@ def test_scheduler_endpoint_rejects_wrong_token():
 
 
 def test_scheduler_report_endpoint_queues_job_with_scheduler_token(monkeypatch):
+    execution_order = []
+    monkeypatch.setattr(
+        TossInvestService,
+        "sync_holdings",
+        lambda _self: execution_order.append("toss_sync"),
+    )
     monkeypatch.setattr(
         ReportService,
         "generate_report",
-        lambda _self, report_type, generation_source="manual": {
-            "id": "report-1",
-            "report_type": report_type,
-        },
+        lambda _self, report_type, generation_source="manual": (
+            execution_order.append("report_generation")
+            or {
+                "id": "report-1",
+                "report_type": report_type,
+            }
+        ),
     )
     test_client = client()
 
@@ -108,9 +118,49 @@ def test_scheduler_report_endpoint_queues_job_with_scheduler_token(monkeypatch):
 
     assert status_response.status_code == 200
     assert status_response.json()["status"] == "completed"
+    assert execution_order == ["toss_sync", "report_generation"]
+
+
+def test_scheduler_report_stops_when_toss_sync_fails(monkeypatch):
+    report_generated = False
+
+    def fail_sync(_self):
+        raise RuntimeError("asset persistence failed")
+
+    def generate_report(_self, report_type, generation_source="manual"):
+        nonlocal report_generated
+        report_generated = True
+        return {"id": "unexpected", "report_type": report_type}
+
+    monkeypatch.setattr(TossInvestService, "sync_holdings", fail_sync)
+    monkeypatch.setattr(ReportService, "generate_report", generate_report)
+    test_client = client()
+
+    response = test_client.post(
+        "/api/reports/domestic/generate",
+        headers={"Authorization": "Bearer test-scheduler-token"},
+    )
+    body = response.json()
+    status_response = test_client.get(
+        f"/api/reports/manual-jobs/{body['job_id']}",
+        headers={"Authorization": "Bearer test-api-token"},
+    )
+
+    assert response.status_code == 202
+    assert status_response.json()["status"] == "failed"
+    assert status_response.json()["error_category"] == "toss_sync_error"
+    assert status_response.json()["step_timings"]["toss_sync"]["status"] == "failed"
+    assert report_generated is False
 
 
 def test_manual_report_endpoint_uses_api_token(monkeypatch):
+    toss_sync_called = False
+
+    def sync_holdings(_self):
+        nonlocal toss_sync_called
+        toss_sync_called = True
+
+    monkeypatch.setattr(TossInvestService, "sync_holdings", sync_holdings)
     monkeypatch.setattr(
         ReportService,
         "generate_report",
@@ -138,6 +188,7 @@ def test_manual_report_endpoint_uses_api_token(monkeypatch):
 
     assert status_response.status_code == 200
     assert status_response.json()["status"] == "completed"
+    assert toss_sync_called is False
 
 
 def test_manual_report_job_status_returns_404_for_unknown_job():
