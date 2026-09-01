@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
+from math import isfinite
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -204,8 +205,10 @@ class TossInvestService:
             "market": market,
             "ticker": symbol,
             "name": str(item.get("name") or symbol),
-            "quantity": _to_nonnegative_quantity(item.get("quantity")),
-            "avg_price": _to_float(item.get("averagePurchasePrice")),
+            "quantity": _to_nonnegative_number(item.get("quantity"), "quantity"),
+            "avg_price": _to_nonnegative_number(
+                item.get("averagePurchasePrice"), "average purchase price"
+            ),
             "currency": currency,
             "memo": "Toss Invest Open API read-only sync",
             "synced_at": synced_at,
@@ -291,23 +294,19 @@ class TossInvestService:
         return json.loads(raw or "{}")
 
 
-def _to_float(value: Any) -> float:
-    try:
-        return float(Decimal(str(value or "0")))
-    except (InvalidOperation, ValueError):
-        return 0.0
-
-
-def _to_nonnegative_quantity(value: Any) -> float:
+def _to_nonnegative_number(value: Any, field_name: str) -> float:
     if value is None or (isinstance(value, str) and not value.strip()):
-        raise TossInvestError("Toss Invest holding quantity is missing or invalid.")
+        raise TossInvestError(f"Toss Invest holding {field_name} is missing or invalid.")
     try:
         parsed = Decimal(str(value))
     except (InvalidOperation, ValueError):
-        raise TossInvestError("Toss Invest holding quantity is missing or invalid.") from None
+        raise TossInvestError(f"Toss Invest holding {field_name} is missing or invalid.") from None
     if not parsed.is_finite() or parsed < 0:
-        raise TossInvestError("Toss Invest holding quantity must be finite and nonnegative.")
-    return float(parsed)
+        raise TossInvestError(f"Toss Invest holding {field_name} must be finite and nonnegative.")
+    converted = float(parsed)
+    if not isfinite(converted):
+        raise TossInvestError(f"Toss Invest holding {field_name} must be finite and nonnegative.")
+    return converted
 
 
 def _safe_error_detail(exc: HTTPError) -> str:
