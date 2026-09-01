@@ -204,7 +204,7 @@ class TossInvestService:
             "market": market,
             "ticker": symbol,
             "name": str(item.get("name") or symbol),
-            "quantity": _to_float(item.get("quantity")),
+            "quantity": _to_nonnegative_quantity(item.get("quantity")),
             "avg_price": _to_float(item.get("averagePurchasePrice")),
             "currency": currency,
             "memo": "Toss Invest Open API read-only sync",
@@ -296,6 +296,18 @@ def _to_float(value: Any) -> float:
         return float(Decimal(str(value or "0")))
     except (InvalidOperation, ValueError):
         return 0.0
+
+
+def _to_nonnegative_quantity(value: Any) -> float:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        raise TossInvestError("Toss Invest holding quantity is missing or invalid.")
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        raise TossInvestError("Toss Invest holding quantity is missing or invalid.") from None
+    if not parsed.is_finite() or parsed < 0:
+        raise TossInvestError("Toss Invest holding quantity must be finite and nonnegative.")
+    return float(parsed)
 
 
 def _safe_error_detail(exc: HTTPError) -> str:
