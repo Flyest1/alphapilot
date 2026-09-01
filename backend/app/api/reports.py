@@ -6,12 +6,13 @@ from app.api.dependencies import get_repository
 from app.db.supabase_client import Repository
 from app.services.notification_service import NotificationService
 from app.services.report_service import ReportService
+from app.services.toss_invest_service import TossInvestService
 from app.utils.logging import log_external_failure
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
 
-def _run_manual_report_job(
+def _run_report_job(
     app_state: Any,
     repository: Repository,
     report_type: str,
@@ -19,9 +20,26 @@ def _run_manual_report_job(
     scheduled: bool = False,
 ) -> None:
     app_state.report_jobs.mark_running(job_id)
-    notification_service = NotificationService(repository, app_state.market_data_service)
-    previous_cycle_states = notification_service.capture_cycle_states() if scheduled else {}
+    toss_service = TossInvestService(repository) if scheduled else None
+    if toss_service is not None and toss_service.status()["configured"]:
+        try:
+            with app_state.report_jobs.time_step(job_id, "toss_sync"):
+                toss_service.sync_holdings()
+        except Exception as exc:
+            log_external_failure(
+                "toss_invest",
+                exc,
+                {
+                    "operation": "scheduled_report_sync",
+                    "report_type": report_type,
+                    "job_id": job_id,
+                },
+            )
+            app_state.report_jobs.mark_failed(job_id, error_category="toss_sync_error")
+            return
     try:
+        notification_service = NotificationService(repository, app_state.market_data_service)
+        previous_cycle_states = notification_service.capture_cycle_states() if scheduled else {}
         report = ReportService(
             repository=repository,
             market_data_service=app_state.market_data_service,
@@ -46,14 +64,14 @@ def _run_manual_report_job(
                 )
     except Exception as exc:
         log_external_failure(
-            "manual_report_job",
+            "report_job",
             exc,
             {"operation": "generate_report", "report_type": report_type, "job_id": job_id},
         )
         app_state.report_jobs.mark_failed(job_id, error_category="internal_error")
 
 
-def _start_manual_report_job(
+def _start_report_job(
     report_type: str,
     endpoint_key: str,
     request: Request,
@@ -67,7 +85,7 @@ def _start_manual_report_job(
     job, created = request.app.state.report_jobs.create_or_get_active(report_type)
     if created:
         background_tasks.add_task(
-            _run_manual_report_job,
+            _run_report_job,
             request.app.state,
             request.app.state.repository,
             report_type,
@@ -82,7 +100,7 @@ def generate_domestic_report(
     background_tasks: BackgroundTasks,
     request: Request,
 ) -> dict:
-    return _start_manual_report_job(
+    return _start_report_job(
         "domestic",
         "/api/reports/domestic/generate",
         request,
@@ -96,7 +114,7 @@ def generate_global_report(
     background_tasks: BackgroundTasks,
     request: Request,
 ) -> dict:
-    return _start_manual_report_job(
+    return _start_report_job(
         "global",
         "/api/reports/global/generate",
         request,
@@ -110,7 +128,7 @@ def manually_generate_domestic_report(
     background_tasks: BackgroundTasks,
     request: Request,
 ) -> dict:
-    return _start_manual_report_job(
+    return _start_report_job(
         "domestic",
         "/api/reports/domestic/manual-generate",
         request,
@@ -123,7 +141,7 @@ def manually_generate_global_report(
     background_tasks: BackgroundTasks,
     request: Request,
 ) -> dict:
-    return _start_manual_report_job(
+    return _start_report_job(
         "global",
         "/api/reports/global/manual-generate",
         request,

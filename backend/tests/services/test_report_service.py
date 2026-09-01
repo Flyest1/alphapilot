@@ -170,6 +170,39 @@ def test_openai_failure_generates_technical_only_report_with_capped_confidence()
     assert saved["report_inputs"]["ai_generation"]["fallback_reason"] == "provider_error"
 
 
+def test_report_does_not_treat_zero_quantity_asset_as_owned():
+    repo = seeded_repo()
+    zero_quantity_asset = repo.create_asset(
+        {
+            "source": "toss_api",
+            "external_provider": "toss_invest",
+            "external_account_id": "1",
+            "external_asset_key": "KR:000660",
+            "market": "KR",
+            "ticker": "000660",
+            "name": "SK hynix",
+            "quantity": 0,
+            "avg_price": 180000,
+            "currency": "KRW",
+        }
+    )
+    service = ReportService(
+        repo,
+        market_data_service=FakeMarketData(),
+        technical_analysis_service=FakeTechnical(),
+        ai_provider=FailingAI(),
+        news_service=FakeNews(),
+    )
+
+    report = service.generate_report("domestic")
+
+    assert all(row["ticker"] != "000660" for row in report["content"]["asset_strategies"])
+    assert all(
+        row.get("asset_id") != zero_quantity_asset["id"]
+        for row in repo.list_strategies(report["id"])
+    )
+
+
 def test_ai_cannot_override_backend_facts_or_inject_unknown_tickers():
     class MaliciousAI:
         def generate_report(self, _prompt, _context):
