@@ -128,6 +128,71 @@ def test_toss_status_does_not_expose_credentials():
     }
 
 
+@pytest.mark.parametrize(
+    "holdings_result",
+    [
+        {},
+        {"items": None},
+        {"items": {}},
+        {"items": "invalid"},
+    ],
+)
+def test_toss_sync_rejects_invalid_holdings_items_without_zeroing_assets(holdings_result):
+    repository = InMemoryRepository()
+    linked = repository.create_asset(
+        {
+            "source": "toss_api",
+            "external_provider": "toss_invest",
+            "external_account_id": "1",
+            "external_asset_key": "US:MSFT",
+            "market": "US",
+            "ticker": "MSFT",
+            "name": "Microsoft",
+            "quantity": 2,
+            "avg_price": 300,
+            "currency": "USD",
+        }
+    )
+
+    def fake_http(_method, path, headers=None, body=None):
+        if path == "/oauth2/token":
+            return {"access_token": "token", "token_type": "Bearer"}
+        if path == "/api/v1/accounts":
+            return {"result": [{"accountSeq": 1, "accountType": "BROKERAGE"}]}
+        return {"result": holdings_result}
+
+    with pytest.raises(TossInvestError, match="items"):
+        TossInvestService(repository, env=_env(), http_request=fake_http).sync_holdings()
+
+    unchanged = repository.get_asset(linked["id"])
+    assert unchanged["quantity"] == 2
+    assert unchanged.get("external_payload", {}).get("missing_from_latest_sync") is not True
+
+
+def test_toss_sync_validates_every_holding_before_persisting_any_asset():
+    repository = InMemoryRepository()
+    valid_holding = {
+        "symbol": "AAPL",
+        "name": "Apple Inc.",
+        "marketCountry": "US",
+        "currency": "USD",
+        "quantity": "10",
+        "averagePurchasePrice": "155.3",
+    }
+
+    def fake_http(_method, path, headers=None, body=None):
+        if path == "/oauth2/token":
+            return {"access_token": "token", "token_type": "Bearer"}
+        if path == "/api/v1/accounts":
+            return {"result": [{"accountSeq": 1, "accountType": "BROKERAGE"}]}
+        return {"result": {"items": [valid_holding, {}]}}
+
+    with pytest.raises(TossInvestError, match="symbol"):
+        TossInvestService(repository, env=_env(), http_request=fake_http).sync_holdings()
+
+    assert repository.list_assets() == []
+
+
 class _FakeResponse:
     def __init__(self, payload: bytes) -> None:
         self.payload = payload

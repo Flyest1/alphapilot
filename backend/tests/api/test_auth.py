@@ -83,6 +83,9 @@ def test_scheduler_endpoint_rejects_wrong_token():
 
 def test_scheduler_report_endpoint_queues_job_with_scheduler_token(monkeypatch):
     execution_order = []
+    monkeypatch.setenv("TOSS_INVEST_CLIENT_ID", "client-id")
+    monkeypatch.setenv("TOSS_INVEST_CLIENT_SECRET", "client-secret")
+    clear_settings_cache()
     monkeypatch.setattr(
         TossInvestService,
         "sync_holdings",
@@ -123,6 +126,9 @@ def test_scheduler_report_endpoint_queues_job_with_scheduler_token(monkeypatch):
 
 def test_scheduler_report_stops_when_toss_sync_fails(monkeypatch):
     report_generated = False
+    monkeypatch.setenv("TOSS_INVEST_CLIENT_ID", "client-id")
+    monkeypatch.setenv("TOSS_INVEST_CLIENT_SECRET", "client-secret")
+    clear_settings_cache()
 
     def fail_sync(_self):
         raise RuntimeError("asset persistence failed")
@@ -151,6 +157,35 @@ def test_scheduler_report_stops_when_toss_sync_fails(monkeypatch):
     assert status_response.json()["error_category"] == "toss_sync_error"
     assert status_response.json()["step_timings"]["toss_sync"]["status"] == "failed"
     assert report_generated is False
+
+
+def test_scheduler_report_runs_when_toss_integration_is_unconfigured(monkeypatch):
+    monkeypatch.setenv("TOSS_INVEST_CLIENT_ID", "")
+    monkeypatch.setenv("TOSS_INVEST_CLIENT_SECRET", "")
+    clear_settings_cache()
+    monkeypatch.setattr(
+        ReportService,
+        "generate_report",
+        lambda _self, report_type, generation_source="manual": {
+            "id": "report-with-manual-assets",
+            "report_type": report_type,
+        },
+    )
+    test_client = client()
+
+    response = test_client.post(
+        "/api/reports/domestic/generate",
+        headers={"Authorization": "Bearer test-scheduler-token"},
+    )
+    body = response.json()
+    status_response = test_client.get(
+        f"/api/reports/manual-jobs/{body['job_id']}",
+        headers={"Authorization": "Bearer test-api-token"},
+    )
+
+    assert response.status_code == 202
+    assert status_response.json()["status"] == "completed"
+    assert "toss_sync" not in status_response.json()["step_timings"]
 
 
 def test_manual_report_endpoint_uses_api_token(monkeypatch):

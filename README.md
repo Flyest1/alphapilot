@@ -443,8 +443,8 @@ sudo bash /opt/alphapilot/deploy/oracle/deploy_backend.sh /opt/alphapilot
 
 Oracle VM 운영 시 OS 보안 업데이트, systemd 프로세스 상태, nginx 설정, TLS 인증서 갱신은 직접 관리해야 합니다.
 
-Toss Invest 연동과 정기 리포트를 쓰지 않으면 `TOSS_INVEST_*` 값은 비워둘 수 있습니다. 정기
-리포트는 생성 전에 Toss 동기화를 수행하므로 운영하려면 client id, client secret, 조회할 계좌
+Toss Invest 연동을 쓰지 않으면 `TOSS_INVEST_*` 값은 비워둘 수 있으며, 정기 리포트는 저장된
+수동 자산을 기준으로 계속 생성됩니다. 연동을 쓰는 경우 client id, client secret, 조회할 계좌
 식별값을 백엔드 서버 환경변수에 설정해야 합니다. 이 값은 프론트엔드 환경변수, GitHub Pages
 secret, Supabase 테이블에는 저장하지 않습니다.
 
@@ -692,7 +692,9 @@ python scripts/recalculate_recommendation_cycles.py --apply
   자동 삭제하지 않으므로 사용자가 확인 후 수동 자산을 삭제해야 합니다.
 - **리포트 연계**: GitHub Actions가 호출하는 정기 리포트는 먼저 Toss 보유주식을 동기화하고,
   성공한 최신 보유 정보로만 리포트를 생성합니다. 동기화가 실패하면 오래된 정보로 리포트를
-  만들지 않고 해당 작업을 실패 처리합니다. 화면에서 요청한 수동 리포트는 동기화를 건너뜁니다.
+  만들지 않고 해당 작업을 실패 처리합니다. Toss 연동이 설정되지 않은 경우에는 동기화를
+  건너뛰고 저장된 수동 자산으로 정기 리포트를 생성합니다. 화면에서 요청한 수동 리포트도
+  동기화를 건너뜁니다.
 - **0수량 처리**: 최신 동기화에서 사라진 Toss 연동 자산은 수량 0과 동기화 이력을 유지하지만,
   보유 종목 분석과 포트폴리오 계산에서는 제외합니다.
 - **보안**: `TOSS_INVEST_CLIENT_ID`, `TOSS_INVEST_CLIENT_SECRET`,

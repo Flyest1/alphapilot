@@ -51,15 +51,15 @@ class TossInvestService:
         accounts = self._get_accounts(token)
         account = self._select_account(accounts)
         holdings = self._get_holdings(token, str(account["account_seq"]))
-        items = list(holdings.get("items") or [])
+        items = holdings["items"]
 
         synced_at = datetime.now(timezone.utc).isoformat()
+        asset_rows = [self._asset_from_holding(item, account, synced_at) for item in items]
         created_count = 0
         updated_count = 0
         synced_assets = []
         seen_keys = set()
-        for item in items:
-            asset_data = self._asset_from_holding(item, account, synced_at)
+        for asset_data in asset_rows:
             seen_keys.add(asset_data["external_asset_key"])
             existing = self.repository.get_asset_by_external_key(
                 TOSS_PROVIDER,
@@ -142,6 +142,9 @@ class TossInvestService:
         result = response.get("result")
         if not isinstance(result, dict):
             raise TossInvestError("Toss Invest holdings response is invalid.")
+        items = result.get("items")
+        if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
+            raise TossInvestError("Toss Invest holdings response items must be a list of objects.")
         return result
 
     def _select_account(self, accounts: list[dict[str, Any]]) -> dict[str, Any]:

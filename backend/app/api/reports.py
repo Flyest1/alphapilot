@@ -20,10 +20,11 @@ def _run_report_job(
     scheduled: bool = False,
 ) -> None:
     app_state.report_jobs.mark_running(job_id)
-    if scheduled:
+    toss_service = TossInvestService(repository) if scheduled else None
+    if toss_service is not None and toss_service.status()["configured"]:
         try:
             with app_state.report_jobs.time_step(job_id, "toss_sync"):
-                TossInvestService(repository).sync_holdings()
+                toss_service.sync_holdings()
         except Exception as exc:
             log_external_failure(
                 "toss_invest",
