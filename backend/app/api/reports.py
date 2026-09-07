@@ -21,7 +21,12 @@ def _run_report_job(
 ) -> None:
     app_state.report_jobs.mark_running(job_id)
     toss_service = TossInvestService(repository) if scheduled else None
-    if toss_service is not None and toss_service.status()["configured"]:
+    toss_status = toss_service.status() if toss_service is not None else None
+    toss_credentials_present = bool(
+        toss_status
+        and (toss_status["client_id_configured"] or toss_status["client_secret_configured"])
+    )
+    if toss_service is not None and toss_credentials_present:
         try:
             with app_state.report_jobs.time_step(job_id, "toss_sync"):
                 toss_service.sync_holdings()
