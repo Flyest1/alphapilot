@@ -34,6 +34,13 @@ class Repository(Protocol):
 
     def upsert_external_asset(self, data: dict[str, Any]) -> dict[str, Any]: ...
 
+    def reconcile_toss_assets(
+        self,
+        account_id: str,
+        synced_at: str,
+        asset_rows: list[dict[str, Any]],
+    ) -> dict[str, Any]: ...
+
     def list_candidate_assets(self) -> list[dict[str, Any]]: ...
 
     def get_candidate_asset(self, candidate_id: str) -> dict[str, Any] | None: ...
@@ -380,6 +387,88 @@ class InMemoryRepository:
         if existing:
             return self.update_asset(existing["id"], data) or existing
         return self.create_asset(data)
+
+    def reconcile_toss_assets(
+        self,
+        account_id: str,
+        synced_at: str,
+        asset_rows: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        prepared_rows = deepcopy(asset_rows)
+        external_keys = [str(row.get("external_asset_key") or "") for row in prepared_rows]
+        if any(not key for key in external_keys) or len(external_keys) != len(set(external_keys)):
+            raise ValueError("Toss asset reconciliation requires unique external asset keys")
+
+        working_assets = deepcopy(self.assets)
+        synced_assets = []
+        created_count = 0
+        updated_count = 0
+        seen_keys = set(external_keys)
+        now = _now_iso()
+
+        for asset_data in prepared_rows:
+            external_key = str(asset_data["external_asset_key"])
+            existing = next(
+                (
+                    row
+                    for row in working_assets.values()
+                    if row.get("external_provider") == "toss_invest"
+                    and row.get("external_account_id") == account_id
+                    and row.get("external_asset_key") == external_key
+                ),
+                None,
+            )
+            normalized = {
+                **asset_data,
+                "source": "toss_api",
+                "external_provider": "toss_invest",
+                "external_account_id": account_id,
+                "synced_at": synced_at,
+            }
+            if existing:
+                existing.update(normalized)
+                existing["updated_at"] = now
+                asset = existing
+                updated_count += 1
+            else:
+                asset = {
+                    **normalized,
+                    "id": str(uuid4()),
+                    "created_at": now,
+                    "updated_at": now,
+                }
+                working_assets[asset["id"]] = asset
+                created_count += 1
+            synced_assets.append(deepcopy(asset))
+
+        stale_count = 0
+        for asset in working_assets.values():
+            if (
+                asset.get("source") != "toss_api"
+                or asset.get("external_provider") != "toss_invest"
+                or asset.get("external_account_id") != account_id
+                or asset.get("external_asset_key") in seen_keys
+            ):
+                continue
+            payload = dict(asset.get("external_payload") or {})
+            payload["missing_from_latest_sync"] = True
+            asset.update(
+                {
+                    "quantity": 0,
+                    "synced_at": synced_at,
+                    "external_payload": payload,
+                    "updated_at": now,
+                }
+            )
+            stale_count += 1
+
+        self.assets = working_assets
+        return {
+            "assets": synced_assets,
+            "created_count": created_count,
+            "updated_count": updated_count,
+            "stale_count": stale_count,
+        }
 
     def list_candidate_assets(self) -> list[dict[str, Any]]:
         return sorted(_copy_rows(self.candidate_assets.values()), key=lambda row: row["created_at"])
@@ -1047,6 +1136,37 @@ class SupabaseRepository:
             updated = self.update_asset(existing["id"], data)
             return updated or existing
         return self.create_asset(data)
+
+    def reconcile_toss_assets(
+        self,
+        account_id: str,
+        synced_at: str,
+        asset_rows: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        builder = self.client.rpc(
+            "reconcile_toss_holdings",
+            {
+                "p_account_id": account_id,
+                "p_synced_at": synced_at,
+                "p_assets": asset_rows,
+            },
+        )
+        context = {
+            "operation": "reconcile_toss_holdings",
+            "account_id": account_id,
+            "asset_count": len(asset_rows),
+        }
+        try:
+            response = self._execute(builder)
+            result = response.data
+        except Exception as exc:
+            log_external_failure("supabase", exc, context)
+            raise
+        if isinstance(result, list) and len(result) == 1:
+            result = result[0]
+        if not isinstance(result, dict):
+            raise RuntimeError("Toss holdings reconciliation returned an invalid response")
+        return dict(result)
 
     def list_candidate_assets(self) -> list[dict[str, Any]]:
         builder = self.client.table("candidate_assets").select("*").order("created_at")

@@ -56,25 +56,10 @@ class TossInvestService:
 
         synced_at = datetime.now(timezone.utc).isoformat()
         asset_rows = [self._asset_from_holding(item, account, synced_at) for item in items]
-        created_count = 0
-        updated_count = 0
-        synced_assets = []
-        seen_keys = set()
-        for asset_data in asset_rows:
-            seen_keys.add(asset_data["external_asset_key"])
-            existing = self.repository.get_asset_by_external_key(
-                TOSS_PROVIDER,
-                asset_data["external_account_id"],
-                asset_data["external_asset_key"],
-            )
-            asset = self.repository.upsert_external_asset(asset_data)
-            if existing:
-                updated_count += 1
-            else:
-                created_count += 1
-            synced_assets.append(asset)
-
-        stale_count = self._zero_missing_assets(account, seen_keys, synced_at)
+        reconciliation = self.repository.reconcile_toss_assets(
+            str(account["account_seq"]), synced_at, asset_rows
+        )
+        synced_assets = reconciliation["assets"]
         duplicate_manual_assets = self._manual_duplicates(synced_assets)
 
         return {
@@ -83,9 +68,9 @@ class TossInvestService:
             "account": account,
             "synced_at": synced_at,
             "synced_count": len(synced_assets),
-            "created_count": created_count,
-            "updated_count": updated_count,
-            "stale_count": stale_count,
+            "created_count": reconciliation["created_count"],
+            "updated_count": reconciliation["updated_count"],
+            "stale_count": reconciliation["stale_count"],
             "duplicate_manual_assets": duplicate_manual_assets,
             "overview": {
                 "total_purchase_amount": holdings.get("totalPurchaseAmount"),
@@ -192,8 +177,10 @@ class TossInvestService:
         symbol = str(item.get("symbol") or "").strip().upper()
         if not symbol:
             raise TossInvestError("Toss Invest holding item is missing symbol.")
-        market_country = str(item.get("marketCountry") or "").upper()
-        market = "KR" if market_country == "KR" else "US"
+        market_country = str(item.get("marketCountry") or "").strip().upper()
+        if market_country not in {"KR", "US"}:
+            raise TossInvestError("Toss Invest holding marketCountry must be KR or US.")
+        market = market_country
         currency = str(item.get("currency") or ("KRW" if market == "KR" else "USD")).upper()
         account_id = str(account["account_seq"])
         external_key = f"{market}:{symbol}"
@@ -214,35 +201,6 @@ class TossInvestService:
             "synced_at": synced_at,
             "external_payload": item,
         }
-
-    def _zero_missing_assets(
-        self,
-        account: dict[str, Any],
-        seen_keys: set[str],
-        synced_at: str,
-    ) -> int:
-        account_id = str(account["account_seq"])
-        stale_count = 0
-        for asset in self.repository.list_assets():
-            if (
-                asset.get("source") != TOSS_ASSET_SOURCE
-                or asset.get("external_provider") != TOSS_PROVIDER
-                or asset.get("external_account_id") != account_id
-                or asset.get("external_asset_key") in seen_keys
-            ):
-                continue
-            payload = dict(asset.get("external_payload") or {})
-            payload["missing_from_latest_sync"] = True
-            self.repository.update_asset(
-                asset["id"],
-                {
-                    "quantity": 0,
-                    "synced_at": synced_at,
-                    "external_payload": payload,
-                },
-            )
-            stale_count += 1
-        return stale_count
 
     def _manual_duplicates(self, synced_assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
         synced_keys = {

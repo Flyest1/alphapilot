@@ -193,6 +193,36 @@ def test_toss_sync_validates_every_holding_before_persisting_any_asset():
     assert repository.list_assets() == []
 
 
+@pytest.mark.parametrize("market_country", [None, "", "JP", "KOREA"])
+def test_toss_sync_rejects_unknown_markets_before_persisting_any_asset(market_country):
+    repository = InMemoryRepository()
+
+    def fake_http(_method, path, headers=None, body=None):
+        if path == "/oauth2/token":
+            return {"access_token": "token", "token_type": "Bearer"}
+        if path == "/api/v1/accounts":
+            return {"result": [{"accountSeq": 1, "accountType": "BROKERAGE"}]}
+        return {
+            "result": {
+                "items": [
+                    {
+                        "symbol": "005930",
+                        "name": "Samsung Electronics",
+                        "marketCountry": market_country,
+                        "currency": "KRW",
+                        "quantity": "10",
+                        "averagePurchasePrice": "70000",
+                    }
+                ]
+            }
+        }
+
+    with pytest.raises(TossInvestError, match="marketCountry"):
+        TossInvestService(repository, env=_env(), http_request=fake_http).sync_holdings()
+
+    assert repository.list_assets() == []
+
+
 @pytest.mark.parametrize(
     "quantity",
     [None, "", "not-a-number", "NaN", "Infinity", "-Infinity", "1e10000", -1, "-0.1"],
