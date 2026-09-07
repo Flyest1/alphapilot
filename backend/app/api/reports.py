@@ -6,7 +6,8 @@ from app.api.dependencies import get_repository
 from app.db.supabase_client import Repository
 from app.services.notification_service import NotificationService
 from app.services.report_service import ReportService
-from app.services.toss_invest_service import TossInvestService
+from app.services.toss_invest_service import TossInvestConfigurationError, TossInvestService
+from app.utils.assets import held_assets
 from app.utils.logging import log_external_failure
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -26,10 +27,25 @@ def _run_report_job(
         toss_status
         and (toss_status["client_id_configured"] or toss_status["client_secret_configured"])
     )
-    if toss_service is not None and toss_credentials_present:
+    if toss_service is not None:
         try:
-            with app_state.report_jobs.time_step(job_id, "toss_sync"):
-                toss_service.sync_holdings()
+            held_toss_assets = (
+                []
+                if toss_credentials_present
+                else [
+                    asset
+                    for asset in held_assets(repository.list_assets())
+                    if asset.get("source") == "toss_api"
+                    and asset.get("external_provider") == "toss_invest"
+                ]
+            )
+            if toss_credentials_present or held_toss_assets:
+                with app_state.report_jobs.time_step(job_id, "toss_sync"):
+                    if held_toss_assets:
+                        raise TossInvestConfigurationError(
+                            "Toss Invest credentials are required while linked holdings remain."
+                        )
+                    toss_service.sync_holdings()
         except Exception as exc:
             log_external_failure(
                 "toss_invest",

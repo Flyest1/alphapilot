@@ -217,7 +217,22 @@ def test_scheduler_report_runs_when_toss_integration_is_unconfigured(monkeypatch
             "report_type": report_type,
         },
     )
-    test_client = client()
+    repository = InMemoryRepository()
+    repository.create_asset(
+        {
+            "source": "toss_api",
+            "external_provider": "toss_invest",
+            "external_account_id": "1",
+            "external_asset_key": "US:OLD",
+            "market": "US",
+            "ticker": "OLD",
+            "name": "Sold holding",
+            "quantity": 0,
+            "avg_price": 10,
+            "currency": "USD",
+        }
+    )
+    test_client = TestClient(create_app(repository=repository))
 
     response = test_client.post(
         "/api/reports/domestic/generate",
@@ -232,6 +247,54 @@ def test_scheduler_report_runs_when_toss_integration_is_unconfigured(monkeypatch
     assert response.status_code == 202
     assert status_response.json()["status"] == "completed"
     assert "toss_sync" not in status_response.json()["step_timings"]
+
+
+def test_scheduler_report_stops_when_credentials_are_removed_with_linked_holdings(monkeypatch):
+    report_generated = False
+    monkeypatch.setenv("TOSS_INVEST_CLIENT_ID", "")
+    monkeypatch.setenv("TOSS_INVEST_CLIENT_SECRET", "")
+    clear_settings_cache()
+    repository = InMemoryRepository()
+    repository.create_asset(
+        {
+            "source": "toss_api",
+            "external_provider": "toss_invest",
+            "external_account_id": "1",
+            "external_asset_key": "KR:005930",
+            "market": "KR",
+            "ticker": "005930",
+            "name": "Samsung Electronics",
+            "quantity": 3,
+            "avg_price": 70000,
+            "currency": "KRW",
+        }
+    )
+
+    def generate_report(_self, report_type, generation_source="manual"):
+        nonlocal report_generated
+        report_generated = True
+        return {"id": "unexpected", "report_type": report_type}
+
+    monkeypatch.setattr(ReportService, "generate_report", generate_report)
+    try:
+        test_client = TestClient(create_app(repository=repository))
+
+        response = test_client.post(
+            "/api/reports/domestic/generate",
+            headers={"Authorization": "Bearer test-scheduler-token"},
+        )
+        body = response.json()
+        status_response = test_client.get(
+            f"/api/reports/manual-jobs/{body['job_id']}",
+            headers={"Authorization": "Bearer test-api-token"},
+        )
+
+        assert response.status_code == 202
+        assert status_response.json()["status"] == "failed"
+        assert status_response.json()["error_category"] == "toss_sync_error"
+        assert report_generated is False
+    finally:
+        clear_settings_cache()
 
 
 @pytest.mark.parametrize(
