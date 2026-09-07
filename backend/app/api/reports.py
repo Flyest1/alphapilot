@@ -20,6 +20,17 @@ def _run_report_job(
     job_id: str,
     scheduled: bool = False,
 ) -> None:
+    with app_state.report_jobs.serialize_generation(report_type):
+        _execute_report_job(app_state, repository, report_type, job_id, scheduled)
+
+
+def _execute_report_job(
+    app_state: Any,
+    repository: Repository,
+    report_type: str,
+    job_id: str,
+    scheduled: bool,
+) -> None:
     app_state.report_jobs.mark_running(job_id)
     toss_service = TossInvestService(repository) if scheduled else None
     toss_status = toss_service.status() if toss_service is not None else None

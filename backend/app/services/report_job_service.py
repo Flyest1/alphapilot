@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
+from threading import Lock
 from time import perf_counter
+from typing import Iterator
 from uuid import uuid4
 
 from app.db.supabase_client import Repository
@@ -56,6 +59,15 @@ class ReportJobStore:
     ) -> None:
         self.repository = repository
         self.active_timeout = active_timeout
+        self._generation_locks: dict[str, Lock] = {}
+        self._generation_locks_guard = Lock()
+
+    @contextmanager
+    def serialize_generation(self, report_type: str) -> Iterator[None]:
+        with self._generation_locks_guard:
+            generation_lock = self._generation_locks.setdefault(report_type, Lock())
+        with generation_lock:
+            yield
 
     def create_or_get_active(
         self,

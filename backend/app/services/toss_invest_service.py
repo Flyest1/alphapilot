@@ -181,7 +181,12 @@ class TossInvestService:
         if market_country not in {"KR", "US"}:
             raise TossInvestError("Toss Invest holding marketCountry must be KR or US.")
         market = market_country
-        currency = str(item.get("currency") or ("KRW" if market == "KR" else "USD")).upper()
+        expected_currency = "KRW" if market == "KR" else "USD"
+        currency = str(item.get("currency") or expected_currency).strip().upper()
+        if currency != expected_currency:
+            raise TossInvestError(
+                f"Toss Invest holding currency must be {expected_currency} for {market}."
+            )
         account_id = str(account["account_seq"])
         external_key = f"{market}:{symbol}"
         return {

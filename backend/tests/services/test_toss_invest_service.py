@@ -275,6 +275,59 @@ def test_toss_sync_rejects_unknown_markets_before_persisting_any_asset(market_co
 
 
 @pytest.mark.parametrize(
+    ("market_country", "ticker", "currency"),
+    [("KR", "005930", "USD"), ("US", "AAPL", "KRW"), ("US", "AAPL", "EUR")],
+)
+def test_toss_sync_rejects_currency_mismatched_with_market_without_overwriting_asset(
+    market_country,
+    ticker,
+    currency,
+):
+    repository = InMemoryRepository()
+    linked = repository.create_asset(
+        {
+            "source": "toss_api",
+            "external_provider": "toss_invest",
+            "external_account_id": "1",
+            "external_asset_key": f"{market_country}:{ticker}",
+            "market": market_country,
+            "ticker": ticker,
+            "name": ticker,
+            "quantity": 3,
+            "avg_price": 100,
+            "currency": "KRW" if market_country == "KR" else "USD",
+        }
+    )
+
+    def fake_http(_method, path, headers=None, body=None):
+        if path == "/oauth2/token":
+            return {"access_token": "token", "token_type": "Bearer"}
+        if path == "/api/v1/accounts":
+            return {"result": [{"accountSeq": 1, "accountType": "BROKERAGE"}]}
+        return {
+            "result": {
+                "items": [
+                    {
+                        "symbol": ticker,
+                        "name": ticker,
+                        "marketCountry": market_country,
+                        "currency": currency,
+                        "quantity": "10",
+                        "averagePurchasePrice": "150",
+                    }
+                ]
+            }
+        }
+
+    with pytest.raises(TossInvestError, match="currency"):
+        TossInvestService(repository, env=_env(), http_request=fake_http).sync_holdings()
+
+    unchanged = repository.get_asset(linked["id"])
+    assert unchanged["quantity"] == 3
+    assert unchanged["currency"] == ("KRW" if market_country == "KR" else "USD")
+
+
+@pytest.mark.parametrize(
     "quantity",
     [None, "", "not-a-number", "NaN", "Infinity", "-Infinity", "1e10000", -1, "-0.1"],
 )
