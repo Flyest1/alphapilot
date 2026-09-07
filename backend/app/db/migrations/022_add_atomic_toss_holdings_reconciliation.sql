@@ -1,4 +1,4 @@
--- 022: atomically reconcile one Toss Invest account's holdings
+-- 022: atomically reconcile the selected Toss Invest account's holdings
 
 create or replace function reconcile_toss_holdings(
   p_account_id text,
@@ -122,11 +122,13 @@ begin
         updated_at = now()
     where existing_asset.source = 'toss_api'
       and existing_asset.external_provider = 'toss_invest'
-      and existing_asset.external_account_id = p_account_id
-      and not exists (
-        select 1
-        from jsonb_to_recordset(p_assets) as input_asset(external_asset_key text)
-        where input_asset.external_asset_key = existing_asset.external_asset_key
+      and (
+        existing_asset.external_account_id is distinct from p_account_id
+        or not exists (
+          select 1
+          from jsonb_to_recordset(p_assets) as input_asset(external_asset_key text)
+          where input_asset.external_asset_key = existing_asset.external_asset_key
+        )
       )
     returning 1
   )

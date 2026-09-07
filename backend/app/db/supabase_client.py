@@ -446,8 +446,10 @@ class InMemoryRepository:
             if (
                 asset.get("source") != "toss_api"
                 or asset.get("external_provider") != "toss_invest"
-                or asset.get("external_account_id") != account_id
-                or asset.get("external_asset_key") in seen_keys
+                or (
+                    asset.get("external_account_id") == account_id
+                    and asset.get("external_asset_key") in seen_keys
+                )
             ):
                 continue
             payload = dict(asset.get("external_payload") or {})

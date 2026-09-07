@@ -113,6 +113,57 @@ def test_toss_sync_upserts_api_assets_and_reports_manual_duplicates():
     assert stale["external_payload"]["missing_from_latest_sync"] is True
 
 
+def test_toss_sync_zeroes_holdings_from_previously_selected_account():
+    repository = InMemoryRepository()
+    previous_account_asset = repository.create_asset(
+        {
+            "source": "toss_api",
+            "external_provider": "toss_invest",
+            "external_account_id": "1",
+            "external_asset_key": "US:MSFT",
+            "market": "US",
+            "ticker": "MSFT",
+            "name": "Microsoft",
+            "quantity": 4,
+            "avg_price": 300,
+            "currency": "USD",
+        }
+    )
+
+    def fake_http(_method, path, headers=None, body=None):
+        if path == "/oauth2/token":
+            return {"access_token": "token", "token_type": "Bearer"}
+        if path == "/api/v1/accounts":
+            return {"result": [{"accountSeq": 2, "accountType": "BROKERAGE"}]}
+        assert headers["X-Tossinvest-Account"] == "2"
+        return {
+            "result": {
+                "items": [
+                    {
+                        "symbol": "AAPL",
+                        "name": "Apple Inc.",
+                        "marketCountry": "US",
+                        "currency": "USD",
+                        "quantity": "3",
+                        "averagePurchasePrice": "175",
+                    }
+                ]
+            }
+        }
+
+    result = TossInvestService(
+        repository,
+        env=_env(account_id="2"),
+        http_request=fake_http,
+    ).sync_holdings()
+
+    assert result["stale_count"] == 1
+    assert repository.get_asset(previous_account_asset["id"])["quantity"] == 0
+    current = repository.get_asset_by_external_key("toss_invest", "2", "US:AAPL")
+    assert current is not None
+    assert current["quantity"] == 3
+
+
 def test_toss_status_does_not_expose_credentials():
     repository = InMemoryRepository()
 
