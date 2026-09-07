@@ -144,13 +144,10 @@ class TossInvestService:
                 }:
                     selected = account
                     break
-            if selected is None and configured.isdigit():
-                return {
-                    "account_seq": configured,
-                    "account_no": None,
-                    "account_type": None,
-                    "source": "env",
-                }
+            if selected is None:
+                raise TossInvestConfigurationError(
+                    "Toss Invest configured account is not available."
+                )
         if selected is None:
             selected = next(
                 (account for account in accounts if account.get("accountType") == "BROKERAGE"),

@@ -15,6 +15,10 @@ ACTIVE_JOB_STATUSES = {"queued", "running"}
 ACTIVE_JOB_TIMEOUT = timedelta(minutes=20)
 
 
+class ReportGenerationLockTimeout(TimeoutError):
+    pass
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -59,15 +63,19 @@ class ReportJobStore:
     ) -> None:
         self.repository = repository
         self.active_timeout = active_timeout
-        self._generation_locks: dict[str, Lock] = {}
-        self._generation_locks_guard = Lock()
+        self._generation_lock = Lock()
 
     @contextmanager
-    def serialize_generation(self, report_type: str) -> Iterator[None]:
-        with self._generation_locks_guard:
-            generation_lock = self._generation_locks.setdefault(report_type, Lock())
-        with generation_lock:
+    def serialize_generation(self) -> Iterator[None]:
+        acquired = self._generation_lock.acquire(
+            timeout=max(self.active_timeout.total_seconds(), 0)
+        )
+        if not acquired:
+            raise ReportGenerationLockTimeout("report generation lock acquisition timed out")
+        try:
             yield
+        finally:
+            self._generation_lock.release()
 
     def create_or_get_active(
         self,

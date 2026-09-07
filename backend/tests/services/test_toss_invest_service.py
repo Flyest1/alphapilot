@@ -6,7 +6,11 @@ import pytest
 import app.services.toss_invest_service as toss_module
 from app.config import EnvironmentSettings
 from app.db.supabase_client import InMemoryRepository
-from app.services.toss_invest_service import TossInvestError, TossInvestService
+from app.services.toss_invest_service import (
+    TossInvestConfigurationError,
+    TossInvestError,
+    TossInvestService,
+)
 
 
 def _env(account_id: str | None = "1") -> EnvironmentSettings:
@@ -162,6 +166,35 @@ def test_toss_sync_zeroes_holdings_from_previously_selected_account():
     current = repository.get_asset_by_external_key("toss_invest", "2", "US:AAPL")
     assert current is not None
     assert current["quantity"] == 3
+
+
+@pytest.mark.parametrize("configured_account_id", ["missing-account", "999"])
+def test_toss_sync_rejects_configured_account_missing_from_account_list(
+    configured_account_id,
+):
+    repository = InMemoryRepository()
+
+    def fake_http(_method, path, headers=None, body=None):
+        if path == "/oauth2/token":
+            return {"access_token": "token", "token_type": "Bearer"}
+        if path == "/api/v1/accounts":
+            return {
+                "result": [
+                    {"accountNo": "12345678901", "accountSeq": 1, "accountType": "BROKERAGE"}
+                ]
+            }
+        pytest.fail("holdings must not be requested for an unknown configured account")
+
+    service = TossInvestService(
+        repository,
+        env=_env(account_id=configured_account_id),
+        http_request=fake_http,
+    )
+
+    with pytest.raises(TossInvestConfigurationError, match="configured account is not available"):
+        service.sync_holdings()
+
+    assert repository.list_assets() == []
 
 
 def test_toss_status_does_not_expose_credentials():

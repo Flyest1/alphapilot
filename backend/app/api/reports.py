@@ -5,6 +5,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from app.api.dependencies import get_repository
 from app.db.supabase_client import Repository
 from app.services.notification_service import NotificationService
+from app.services.report_job_service import ReportGenerationLockTimeout
 from app.services.report_service import ReportService
 from app.services.toss_invest_service import TossInvestConfigurationError, TossInvestService
 from app.utils.assets import held_assets
@@ -20,8 +21,16 @@ def _run_report_job(
     job_id: str,
     scheduled: bool = False,
 ) -> None:
-    with app_state.report_jobs.serialize_generation(report_type):
-        _execute_report_job(app_state, repository, report_type, job_id, scheduled)
+    try:
+        with app_state.report_jobs.serialize_generation():
+            job = app_state.report_jobs.get(job_id)
+            if job is None or job.status not in {"queued", "running"}:
+                return
+            _execute_report_job(app_state, repository, report_type, job_id, scheduled)
+    except ReportGenerationLockTimeout:
+        job = app_state.report_jobs.get(job_id)
+        if job is not None and job.status in {"queued", "running"}:
+            app_state.report_jobs.mark_failed(job_id, error_category="stale_active_job")
 
 
 def _execute_report_job(

@@ -232,7 +232,8 @@ backend/app/db/migrations/023_add_report_job_generation_source.sql
 저장합니다. 모두 새 테이블을 추가하는 방식이라 기존 자산/리포트 데이터는 삭제하지 않습니다.
 023은 활성 작업 중복 제거 시 정기 리포트와 수동 리포트를 구분하는 출처 컬럼과 인덱스를
 추가합니다. 기존 작업은 수동 출처로 유지됩니다. 출처가 다른 동일 유형 작업은 별도 작업으로
-기록하되, 실제 리포트 생성은 앞선 작업이 끝난 뒤 순서대로 실행합니다.
+기록합니다. 국내·글로벌 및 정기·수동 리포트는 공유 자산과 추천 상태의 일관성을 위해 실제
+생성을 한 번에 하나씩 실행하며, 잠금 대기가 활성 작업 제한 시간을 넘으면 실패 처리합니다.
 
 시장 데이터 일중 캐시 영속화(콜드스타트 후 외부 시세 재호출 폭주 방지)를 위해 아래 파일도 실행합니다.
 
@@ -709,6 +710,9 @@ python scripts/recalculate_recommendation_cycles.py --apply
 - **데이터 무결성**: 시장 값이 `KR` 또는 `US`가 아닌 보유 항목과 시장·통화가 `KR`-`KRW` 또는
   `US`-`USD`로 일치하지 않는 항목은 저장하지 않습니다. 선택 계좌의 보유 항목 갱신, 최신
   응답에서 사라진 항목 및 이전 선택 계좌 잔고의 0수량 처리는 모두 성공하거나 모두 취소됩니다.
+- **계좌 선택**: `TOSS_INVEST_ACCOUNT_ID`를 설정하면 `/api/v1/accounts`가 반환한 `accountSeq`
+  또는 `accountNo`와 반드시 일치해야 합니다. 일치하는 계좌가 없으면 다른 계좌로 전환하지 않고
+  동기화를 중단합니다. 값을 비운 경우에만 반환된 위탁계좌를 선택합니다.
 - **보안**: `TOSS_INVEST_CLIENT_ID`, `TOSS_INVEST_CLIENT_SECRET`,
   `TOSS_INVEST_ACCOUNT_ID`는 백엔드 서버 또는 로컬 `backend/.env`에만 저장합니다. 프론트엔드,
   localStorage, Supabase, GitHub Pages 빌드에는 넣지 않습니다.
