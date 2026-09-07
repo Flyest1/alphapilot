@@ -125,6 +125,51 @@ def test_scheduler_report_endpoint_queues_job_with_scheduler_token(monkeypatch):
     assert execution_order == ["toss_sync", "report_generation"]
 
 
+def test_scheduler_report_does_not_reuse_an_active_manual_job(monkeypatch):
+    execution_order = []
+    generated_sources = []
+    monkeypatch.setenv("TOSS_INVEST_CLIENT_ID", "client-id")
+    monkeypatch.setenv("TOSS_INVEST_CLIENT_SECRET", "client-secret")
+    clear_settings_cache()
+    repository = InMemoryRepository()
+    manual_job = repository.create_report_job(
+        {
+            "report_type": "domestic",
+            "generation_source": "manual",
+            "status": "running",
+        }
+    )
+
+    def generate_report(_self, report_type, generation_source="manual"):
+        generated_sources.append(generation_source)
+        execution_order.append("report_generation")
+        return {"id": "scheduled-report", "report_type": report_type}
+
+    monkeypatch.setattr(
+        TossInvestService,
+        "sync_holdings",
+        lambda _self: execution_order.append("toss_sync"),
+    )
+    monkeypatch.setattr(ReportService, "generate_report", generate_report)
+    try:
+        test_client = TestClient(create_app(repository=repository))
+
+        response = test_client.post(
+            "/api/reports/domestic/generate",
+            headers={"Authorization": "Bearer test-scheduler-token"},
+        )
+        body = response.json()
+
+        assert response.status_code == 202
+        assert body["job_id"] != manual_job["job_id"]
+        assert body["generation_source"] == "scheduled"
+        assert execution_order == ["toss_sync", "report_generation"]
+        assert generated_sources == ["scheduled"]
+        assert repository.get_report_job(manual_job["job_id"])["status"] == "running"
+    finally:
+        clear_settings_cache()
+
+
 def test_scheduler_report_stops_when_toss_sync_fails(monkeypatch):
     report_generated = False
     monkeypatch.setenv("TOSS_INVEST_CLIENT_ID", "client-id")

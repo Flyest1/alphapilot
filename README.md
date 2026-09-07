@@ -225,9 +225,13 @@ Post-MVP Phase 1~3 기능을 사용하려면 아래 파일도 순서대로 실�
 backend/app/db/migrations/005_create_report_jobs.sql
 backend/app/db/migrations/006_create_portfolio_snapshots.sql
 backend/app/db/migrations/007_create_recommendation_cycles.sql
+backend/app/db/migrations/023_add_report_job_generation_source.sql
 ```
 
-이 세 마이그레이션은 각각 수동 리포트 생성 작업 상태, 포트폴리오 일별 스냅샷, 추천 생애주기 추적을 저장합니다. 모두 새 테이블을 추가하는 방식이라 기존 자산/리포트 데이터는 삭제하지 않습니다.
+005~007은 각각 수동 리포트 생성 작업 상태, 포트폴리오 일별 스냅샷, 추천 생애주기 추적을
+저장합니다. 모두 새 테이블을 추가하는 방식이라 기존 자산/리포트 데이터는 삭제하지 않습니다.
+023은 활성 작업 중복 제거 시 정기 리포트와 수동 리포트를 구분하는 출처 컬럼과 인덱스를
+추가합니다. 기존 작업은 수동 출처로 유지됩니다.
 
 시장 데이터 일중 캐시 영속화(콜드스타트 후 외부 시세 재호출 폭주 방지)를 위해 아래 파일도 실행합니다.
 

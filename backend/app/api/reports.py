@@ -87,7 +87,11 @@ def _start_report_job(
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded"
         )
-    job, created = request.app.state.report_jobs.create_or_get_active(report_type)
+    generation_source = "scheduled" if scheduled else "manual"
+    job, created = request.app.state.report_jobs.create_or_get_active(
+        report_type,
+        generation_source=generation_source,
+    )
     if created:
         background_tasks.add_task(
             _run_report_job,
