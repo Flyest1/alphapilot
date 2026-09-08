@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from app.db.supabase_client import InMemoryRepository
 from app.main import create_app
 from app.services.report_service import ReportService
+from app.services.toss_invest_service import TossInvestService
 
 AUTH = {"Authorization": "Bearer test-api-token"}
 SCHEDULER_AUTH = {"Authorization": "Bearer test-scheduler-token"}
@@ -51,6 +52,7 @@ def test_notification_read_all_and_missing_notification():
 
 
 def test_only_scheduled_report_generation_creates_notifications(monkeypatch):
+    monkeypatch.setattr(TossInvestService, "sync_holdings", lambda _self: None)
     monkeypatch.setattr(
         ReportService,
         "generate_report",

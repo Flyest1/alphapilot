@@ -95,6 +95,29 @@ def test_portfolio_summary_calculates_values_and_returns():
     assert summary.value_history[-1]["daily_profit_loss"] == summary.daily_profit_loss
 
 
+def test_portfolio_summary_excludes_zero_quantity_assets():
+    repo = InMemoryRepository()
+    repo.create_asset(
+        {
+            "source": "toss_api",
+            "external_provider": "toss_invest",
+            "external_account_id": "1",
+            "external_asset_key": "US:MSFT",
+            "market": "US",
+            "ticker": "MSFT",
+            "name": "Microsoft",
+            "quantity": 0,
+            "avg_price": 300,
+            "currency": "USD",
+        }
+    )
+
+    summary = PortfolioService(repo, FakeMarketData()).get_summary()
+
+    assert summary.asset_allocation == []
+    assert summary.asset_returns == []
+
+
 def test_portfolio_summary_prefers_saved_snapshots_for_value_history():
     repo = InMemoryRepository()
     repo.create_asset(

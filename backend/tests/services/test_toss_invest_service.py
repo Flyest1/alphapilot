@@ -6,7 +6,11 @@ import pytest
 import app.services.toss_invest_service as toss_module
 from app.config import EnvironmentSettings
 from app.db.supabase_client import InMemoryRepository
-from app.services.toss_invest_service import TossInvestError, TossInvestService
+from app.services.toss_invest_service import (
+    TossInvestConfigurationError,
+    TossInvestError,
+    TossInvestService,
+)
 
 
 def _env(account_id: str | None = "1") -> EnvironmentSettings:
@@ -113,6 +117,86 @@ def test_toss_sync_upserts_api_assets_and_reports_manual_duplicates():
     assert stale["external_payload"]["missing_from_latest_sync"] is True
 
 
+def test_toss_sync_zeroes_holdings_from_previously_selected_account():
+    repository = InMemoryRepository()
+    previous_account_asset = repository.create_asset(
+        {
+            "source": "toss_api",
+            "external_provider": "toss_invest",
+            "external_account_id": "1",
+            "external_asset_key": "US:MSFT",
+            "market": "US",
+            "ticker": "MSFT",
+            "name": "Microsoft",
+            "quantity": 4,
+            "avg_price": 300,
+            "currency": "USD",
+        }
+    )
+
+    def fake_http(_method, path, headers=None, body=None):
+        if path == "/oauth2/token":
+            return {"access_token": "token", "token_type": "Bearer"}
+        if path == "/api/v1/accounts":
+            return {"result": [{"accountSeq": 2, "accountType": "BROKERAGE"}]}
+        assert headers["X-Tossinvest-Account"] == "2"
+        return {
+            "result": {
+                "items": [
+                    {
+                        "symbol": "AAPL",
+                        "name": "Apple Inc.",
+                        "marketCountry": "US",
+                        "currency": "USD",
+                        "quantity": "3",
+                        "averagePurchasePrice": "175",
+                    }
+                ]
+            }
+        }
+
+    result = TossInvestService(
+        repository,
+        env=_env(account_id="2"),
+        http_request=fake_http,
+    ).sync_holdings()
+
+    assert result["stale_count"] == 1
+    assert repository.get_asset(previous_account_asset["id"])["quantity"] == 0
+    current = repository.get_asset_by_external_key("toss_invest", "2", "US:AAPL")
+    assert current is not None
+    assert current["quantity"] == 3
+
+
+@pytest.mark.parametrize("configured_account_id", ["missing-account", "999"])
+def test_toss_sync_rejects_configured_account_missing_from_account_list(
+    configured_account_id,
+):
+    repository = InMemoryRepository()
+
+    def fake_http(_method, path, headers=None, body=None):
+        if path == "/oauth2/token":
+            return {"access_token": "token", "token_type": "Bearer"}
+        if path == "/api/v1/accounts":
+            return {
+                "result": [
+                    {"accountNo": "12345678901", "accountSeq": 1, "accountType": "BROKERAGE"}
+                ]
+            }
+        pytest.fail("holdings must not be requested for an unknown configured account")
+
+    service = TossInvestService(
+        repository,
+        env=_env(account_id=configured_account_id),
+        http_request=fake_http,
+    )
+
+    with pytest.raises(TossInvestConfigurationError, match="configured account is not available"):
+        service.sync_holdings()
+
+    assert repository.list_assets() == []
+
+
 def test_toss_status_does_not_expose_credentials():
     repository = InMemoryRepository()
 
@@ -126,6 +210,310 @@ def test_toss_status_does_not_expose_credentials():
         "provider": "toss_invest",
         "mode": "read_only",
     }
+
+
+@pytest.mark.parametrize(
+    "holdings_result",
+    [
+        {},
+        {"items": None},
+        {"items": {}},
+        {"items": "invalid"},
+    ],
+)
+def test_toss_sync_rejects_invalid_holdings_items_without_zeroing_assets(holdings_result):
+    repository = InMemoryRepository()
+    linked = repository.create_asset(
+        {
+            "source": "toss_api",
+            "external_provider": "toss_invest",
+            "external_account_id": "1",
+            "external_asset_key": "US:MSFT",
+            "market": "US",
+            "ticker": "MSFT",
+            "name": "Microsoft",
+            "quantity": 2,
+            "avg_price": 300,
+            "currency": "USD",
+        }
+    )
+
+    def fake_http(_method, path, headers=None, body=None):
+        if path == "/oauth2/token":
+            return {"access_token": "token", "token_type": "Bearer"}
+        if path == "/api/v1/accounts":
+            return {"result": [{"accountSeq": 1, "accountType": "BROKERAGE"}]}
+        return {"result": holdings_result}
+
+    with pytest.raises(TossInvestError, match="items"):
+        TossInvestService(repository, env=_env(), http_request=fake_http).sync_holdings()
+
+    unchanged = repository.get_asset(linked["id"])
+    assert unchanged["quantity"] == 2
+    assert unchanged.get("external_payload", {}).get("missing_from_latest_sync") is not True
+
+
+def test_toss_sync_validates_every_holding_before_persisting_any_asset():
+    repository = InMemoryRepository()
+    valid_holding = {
+        "symbol": "AAPL",
+        "name": "Apple Inc.",
+        "marketCountry": "US",
+        "currency": "USD",
+        "quantity": "10",
+        "averagePurchasePrice": "155.3",
+    }
+
+    def fake_http(_method, path, headers=None, body=None):
+        if path == "/oauth2/token":
+            return {"access_token": "token", "token_type": "Bearer"}
+        if path == "/api/v1/accounts":
+            return {"result": [{"accountSeq": 1, "accountType": "BROKERAGE"}]}
+        return {"result": {"items": [valid_holding, {}]}}
+
+    with pytest.raises(TossInvestError, match="symbol"):
+        TossInvestService(repository, env=_env(), http_request=fake_http).sync_holdings()
+
+    assert repository.list_assets() == []
+
+
+@pytest.mark.parametrize("market_country", [None, "", "JP", "KOREA"])
+def test_toss_sync_rejects_unknown_markets_before_persisting_any_asset(market_country):
+    repository = InMemoryRepository()
+
+    def fake_http(_method, path, headers=None, body=None):
+        if path == "/oauth2/token":
+            return {"access_token": "token", "token_type": "Bearer"}
+        if path == "/api/v1/accounts":
+            return {"result": [{"accountSeq": 1, "accountType": "BROKERAGE"}]}
+        return {
+            "result": {
+                "items": [
+                    {
+                        "symbol": "005930",
+                        "name": "Samsung Electronics",
+                        "marketCountry": market_country,
+                        "currency": "KRW",
+                        "quantity": "10",
+                        "averagePurchasePrice": "70000",
+                    }
+                ]
+            }
+        }
+
+    with pytest.raises(TossInvestError, match="marketCountry"):
+        TossInvestService(repository, env=_env(), http_request=fake_http).sync_holdings()
+
+    assert repository.list_assets() == []
+
+
+@pytest.mark.parametrize(
+    ("market_country", "ticker", "currency"),
+    [("KR", "005930", "USD"), ("US", "AAPL", "KRW"), ("US", "AAPL", "EUR")],
+)
+def test_toss_sync_rejects_currency_mismatched_with_market_without_overwriting_asset(
+    market_country,
+    ticker,
+    currency,
+):
+    repository = InMemoryRepository()
+    linked = repository.create_asset(
+        {
+            "source": "toss_api",
+            "external_provider": "toss_invest",
+            "external_account_id": "1",
+            "external_asset_key": f"{market_country}:{ticker}",
+            "market": market_country,
+            "ticker": ticker,
+            "name": ticker,
+            "quantity": 3,
+            "avg_price": 100,
+            "currency": "KRW" if market_country == "KR" else "USD",
+        }
+    )
+
+    def fake_http(_method, path, headers=None, body=None):
+        if path == "/oauth2/token":
+            return {"access_token": "token", "token_type": "Bearer"}
+        if path == "/api/v1/accounts":
+            return {"result": [{"accountSeq": 1, "accountType": "BROKERAGE"}]}
+        return {
+            "result": {
+                "items": [
+                    {
+                        "symbol": ticker,
+                        "name": ticker,
+                        "marketCountry": market_country,
+                        "currency": currency,
+                        "quantity": "10",
+                        "averagePurchasePrice": "150",
+                    }
+                ]
+            }
+        }
+
+    with pytest.raises(TossInvestError, match="currency"):
+        TossInvestService(repository, env=_env(), http_request=fake_http).sync_holdings()
+
+    unchanged = repository.get_asset(linked["id"])
+    assert unchanged["quantity"] == 3
+    assert unchanged["currency"] == ("KRW" if market_country == "KR" else "USD")
+
+
+@pytest.mark.parametrize(
+    "quantity",
+    [None, "", "not-a-number", "NaN", "Infinity", "-Infinity", "1e10000", -1, "-0.1"],
+)
+def test_toss_sync_rejects_invalid_quantity_without_overwriting_asset(quantity):
+    repository = InMemoryRepository()
+    linked = repository.create_asset(
+        {
+            "source": "toss_api",
+            "external_provider": "toss_invest",
+            "external_account_id": "1",
+            "external_asset_key": "US:AAPL",
+            "market": "US",
+            "ticker": "AAPL",
+            "name": "Apple Inc.",
+            "quantity": 3,
+            "avg_price": 150,
+            "currency": "USD",
+        }
+    )
+
+    def fake_http(_method, path, headers=None, body=None):
+        if path == "/oauth2/token":
+            return {"access_token": "token", "token_type": "Bearer"}
+        if path == "/api/v1/accounts":
+            return {"result": [{"accountSeq": 1, "accountType": "BROKERAGE"}]}
+        return {
+            "result": {
+                "items": [
+                    {
+                        "symbol": "AAPL",
+                        "name": "Apple Inc.",
+                        "marketCountry": "US",
+                        "currency": "USD",
+                        "quantity": quantity,
+                        "averagePurchasePrice": "155.3",
+                    }
+                ]
+            }
+        }
+
+    with pytest.raises(TossInvestError, match="quantity"):
+        TossInvestService(repository, env=_env(), http_request=fake_http).sync_holdings()
+
+    assert repository.get_asset(linked["id"])["quantity"] == 3
+
+
+def test_toss_sync_accepts_zero_quantity_as_nonnegative():
+    repository = InMemoryRepository()
+
+    def fake_http(_method, path, headers=None, body=None):
+        if path == "/oauth2/token":
+            return {"access_token": "token", "token_type": "Bearer"}
+        if path == "/api/v1/accounts":
+            return {"result": [{"accountSeq": 1, "accountType": "BROKERAGE"}]}
+        return {
+            "result": {
+                "items": [
+                    {
+                        "symbol": "AAPL",
+                        "name": "Apple Inc.",
+                        "marketCountry": "US",
+                        "currency": "USD",
+                        "quantity": "0",
+                        "averagePurchasePrice": "155.3",
+                    }
+                ]
+            }
+        }
+
+    TossInvestService(repository, env=_env(), http_request=fake_http).sync_holdings()
+
+    linked = repository.get_asset_by_external_key("toss_invest", "1", "US:AAPL")
+    assert linked["quantity"] == 0
+
+
+@pytest.mark.parametrize(
+    "average_purchase_price",
+    [None, "", "not-a-number", "NaN", "Infinity", "-Infinity", "1e10000", -1, "-0.1"],
+)
+def test_toss_sync_rejects_invalid_average_price_without_overwriting_asset(
+    average_purchase_price,
+):
+    repository = InMemoryRepository()
+    linked = repository.create_asset(
+        {
+            "source": "toss_api",
+            "external_provider": "toss_invest",
+            "external_account_id": "1",
+            "external_asset_key": "US:AAPL",
+            "market": "US",
+            "ticker": "AAPL",
+            "name": "Apple Inc.",
+            "quantity": 3,
+            "avg_price": 150,
+            "currency": "USD",
+        }
+    )
+
+    def fake_http(_method, path, headers=None, body=None):
+        if path == "/oauth2/token":
+            return {"access_token": "token", "token_type": "Bearer"}
+        if path == "/api/v1/accounts":
+            return {"result": [{"accountSeq": 1, "accountType": "BROKERAGE"}]}
+        return {
+            "result": {
+                "items": [
+                    {
+                        "symbol": "AAPL",
+                        "name": "Apple Inc.",
+                        "marketCountry": "US",
+                        "currency": "USD",
+                        "quantity": "10",
+                        "averagePurchasePrice": average_purchase_price,
+                    }
+                ]
+            }
+        }
+
+    with pytest.raises(TossInvestError, match="average purchase price"):
+        TossInvestService(repository, env=_env(), http_request=fake_http).sync_holdings()
+
+    unchanged = repository.get_asset(linked["id"])
+    assert unchanged["quantity"] == 3
+    assert unchanged["avg_price"] == 150
+
+
+def test_toss_sync_accepts_zero_average_price_as_nonnegative():
+    repository = InMemoryRepository()
+
+    def fake_http(_method, path, headers=None, body=None):
+        if path == "/oauth2/token":
+            return {"access_token": "token", "token_type": "Bearer"}
+        if path == "/api/v1/accounts":
+            return {"result": [{"accountSeq": 1, "accountType": "BROKERAGE"}]}
+        return {
+            "result": {
+                "items": [
+                    {
+                        "symbol": "AAPL",
+                        "name": "Apple Inc.",
+                        "marketCountry": "US",
+                        "currency": "USD",
+                        "quantity": "0",
+                        "averagePurchasePrice": "0",
+                    }
+                ]
+            }
+        }
+
+    TossInvestService(repository, env=_env(), http_request=fake_http).sync_holdings()
+
+    linked = repository.get_asset_by_external_key("toss_invest", "1", "US:AAPL")
+    assert linked["avg_price"] == 0
 
 
 class _FakeResponse:

@@ -5,23 +5,82 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from app.api.dependencies import get_repository
 from app.db.supabase_client import Repository
 from app.services.notification_service import NotificationService
+from app.services.report_job_service import ReportGenerationLockTimeout
 from app.services.report_service import ReportService
+from app.services.toss_invest_service import TossInvestConfigurationError, TossInvestService
+from app.utils.assets import held_assets
 from app.utils.logging import log_external_failure
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
 
-def _run_manual_report_job(
+def _run_report_job(
     app_state: Any,
     repository: Repository,
     report_type: str,
     job_id: str,
     scheduled: bool = False,
 ) -> None:
-    app_state.report_jobs.mark_running(job_id)
-    notification_service = NotificationService(repository, app_state.market_data_service)
-    previous_cycle_states = notification_service.capture_cycle_states() if scheduled else {}
     try:
+        with app_state.report_jobs.serialize_generation():
+            job = app_state.report_jobs.get(job_id)
+            if job is None or job.status not in {"queued", "running"}:
+                return
+            _execute_report_job(app_state, repository, report_type, job_id, scheduled)
+    except ReportGenerationLockTimeout:
+        job = app_state.report_jobs.get(job_id)
+        if job is not None and job.status in {"queued", "running"}:
+            app_state.report_jobs.mark_failed(job_id, error_category="stale_active_job")
+
+
+def _execute_report_job(
+    app_state: Any,
+    repository: Repository,
+    report_type: str,
+    job_id: str,
+    scheduled: bool,
+) -> None:
+    app_state.report_jobs.mark_running(job_id)
+    toss_service = TossInvestService(repository) if scheduled else None
+    toss_status = toss_service.status() if toss_service is not None else None
+    toss_credentials_present = bool(
+        toss_status
+        and (toss_status["client_id_configured"] or toss_status["client_secret_configured"])
+    )
+    if toss_service is not None:
+        try:
+            held_toss_assets = (
+                []
+                if toss_credentials_present
+                else [
+                    asset
+                    for asset in held_assets(repository.list_assets())
+                    if asset.get("source") == "toss_api"
+                    and asset.get("external_provider") == "toss_invest"
+                ]
+            )
+            if toss_credentials_present or held_toss_assets:
+                with app_state.report_jobs.time_step(job_id, "toss_sync"):
+                    if held_toss_assets:
+                        raise TossInvestConfigurationError(
+                            "Toss Invest credentials are required while linked holdings remain."
+                        )
+                    toss_service.sync_holdings()
+        except Exception as exc:
+            log_external_failure(
+                "toss_invest",
+                exc,
+                {
+                    "operation": "scheduled_report_sync",
+                    "report_type": report_type,
+                    "job_id": job_id,
+                },
+            )
+            app_state.report_jobs.mark_failed(job_id, error_category="toss_sync_error")
+            return
+    try:
+        notification_service = NotificationService(repository, app_state.market_data_service)
+        previous_cycle_states = notification_service.capture_cycle_states() if scheduled else {}
         report = ReportService(
             repository=repository,
             market_data_service=app_state.market_data_service,
@@ -46,14 +105,14 @@ def _run_manual_report_job(
                 )
     except Exception as exc:
         log_external_failure(
-            "manual_report_job",
+            "report_job",
             exc,
             {"operation": "generate_report", "report_type": report_type, "job_id": job_id},
         )
         app_state.report_jobs.mark_failed(job_id, error_category="internal_error")
 
 
-def _start_manual_report_job(
+def _start_report_job(
     report_type: str,
     endpoint_key: str,
     request: Request,
@@ -64,10 +123,14 @@ def _start_manual_report_job(
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded"
         )
-    job, created = request.app.state.report_jobs.create_or_get_active(report_type)
+    generation_source = "scheduled" if scheduled else "manual"
+    job, created = request.app.state.report_jobs.create_or_get_active(
+        report_type,
+        generation_source=generation_source,
+    )
     if created:
         background_tasks.add_task(
-            _run_manual_report_job,
+            _run_report_job,
             request.app.state,
             request.app.state.repository,
             report_type,
@@ -82,7 +145,7 @@ def generate_domestic_report(
     background_tasks: BackgroundTasks,
     request: Request,
 ) -> dict:
-    return _start_manual_report_job(
+    return _start_report_job(
         "domestic",
         "/api/reports/domestic/generate",
         request,
@@ -96,7 +159,7 @@ def generate_global_report(
     background_tasks: BackgroundTasks,
     request: Request,
 ) -> dict:
-    return _start_manual_report_job(
+    return _start_report_job(
         "global",
         "/api/reports/global/generate",
         request,
@@ -110,7 +173,7 @@ def manually_generate_domestic_report(
     background_tasks: BackgroundTasks,
     request: Request,
 ) -> dict:
-    return _start_manual_report_job(
+    return _start_report_job(
         "domestic",
         "/api/reports/domestic/manual-generate",
         request,
@@ -123,7 +186,7 @@ def manually_generate_global_report(
     background_tasks: BackgroundTasks,
     request: Request,
 ) -> dict:
-    return _start_manual_report_job(
+    return _start_report_job(
         "global",
         "/api/reports/global/manual-generate",
         request,

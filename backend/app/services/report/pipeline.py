@@ -43,6 +43,7 @@ from app.services.technical_analysis_service import (
     TechnicalAnalysisResult,
     TechnicalAnalysisService,
 )
+from app.utils.assets import held_assets
 from app.utils.labels import action_label, report_type_label, trend_label
 from app.utils.logging import log_external_failure, log_structured_event
 from app.utils.tickers import infer_market, normalize_ticker
@@ -83,7 +84,7 @@ class ReportService:
                 get_env_application_defaults(),
             )
             app_settings = self._refresh_usd_krw_rate(app_settings)
-            all_assets = self.repository.list_assets()
+            all_assets = held_assets(self.repository.list_assets())
             assets = self._assets_for_report(all_assets, report_type)
         with self._timed_step("sector_backfill"):
             self._backfill_sectors(assets)
@@ -164,6 +165,7 @@ class ReportService:
                 news_context=news_context,
                 asset_events=asset_events,
                 advisory_context=advisory_context,
+                owned_tickers=[normalize_ticker(asset.get("ticker", "")) for asset in all_assets],
                 generated_at=generated_at,
             )
         if content is None:
@@ -368,6 +370,7 @@ class ReportService:
         news_context: dict[str, Any],
         asset_events: dict[str, Any],
         advisory_context: dict[str, Any],
+        owned_tickers: list[str],
         generated_at: str,
     ) -> tuple[ReportContent | None, dict[str, Any]]:
         diagnostics = {
@@ -395,9 +398,7 @@ class ReportService:
             analysis_rows=analysis_rows,
             index_rows=index_rows,
             technical_strategies=technical_strategies,
-            owned_tickers=[
-                normalize_ticker(asset.get("ticker", "")) for asset in self.repository.list_assets()
-            ],
+            owned_tickers=owned_tickers,
             stale_tickers=stale_tickers,
             news_context=news_context,
             asset_events=asset_events,

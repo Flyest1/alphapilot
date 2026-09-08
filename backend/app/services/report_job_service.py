@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
+from threading import Lock
 from time import perf_counter
+from typing import Iterator
 from uuid import uuid4
 
 from app.db.supabase_client import Repository
@@ -10,6 +13,10 @@ from app.utils.datetime import parse_iso_datetime
 
 ACTIVE_JOB_STATUSES = {"queued", "running"}
 ACTIVE_JOB_TIMEOUT = timedelta(minutes=20)
+
+
+class ReportGenerationLockTimeout(TimeoutError):
+    pass
 
 
 def _now_iso() -> str:
@@ -20,6 +27,7 @@ def _now_iso() -> str:
 class ReportGenerationJob:
     job_id: str
     report_type: str
+    generation_source: str
     status: str
     created_at: str
     updated_at: str
@@ -33,6 +41,7 @@ class ReportGenerationJob:
         return cls(
             job_id=str(row.get("job_id")),
             report_type=str(row.get("report_type")),
+            generation_source=str(row.get("generation_source") or "manual"),
             status=str(row.get("status") or "queued"),
             report_id=row.get("report_id"),
             message=row.get("message"),
@@ -54,11 +63,34 @@ class ReportJobStore:
     ) -> None:
         self.repository = repository
         self.active_timeout = active_timeout
+        self._generation_lock = Lock()
 
-    def create_or_get_active(self, report_type: str) -> tuple[ReportGenerationJob, bool]:
+    @contextmanager
+    def serialize_generation(self, wait_timeout_seconds: float | None = None) -> Iterator[None]:
+        timeout_seconds = (
+            self.active_timeout.total_seconds()
+            if wait_timeout_seconds is None
+            else wait_timeout_seconds
+        )
+        acquired = self._generation_lock.acquire(timeout=max(timeout_seconds, 0))
+        if not acquired:
+            raise ReportGenerationLockTimeout("report generation lock acquisition timed out")
+        try:
+            yield
+        finally:
+            self._generation_lock.release()
+
+    def create_or_get_active(
+        self,
+        report_type: str,
+        generation_source: str = "manual",
+    ) -> tuple[ReportGenerationJob, bool]:
+        if generation_source not in {"scheduled", "manual"}:
+            raise ValueError("generation_source must be scheduled or manual")
         for row in self.repository.list_report_jobs(limit=20):
             if (
                 row.get("report_type") != report_type
+                or (row.get("generation_source") or "manual") != generation_source
                 or row.get("status") not in ACTIVE_JOB_STATUSES
             ):
                 continue
@@ -71,6 +103,7 @@ class ReportJobStore:
             {
                 "job_id": str(uuid4()),
                 "report_type": report_type,
+                "generation_source": generation_source,
                 "status": "queued",
                 "message": "리포트 생성 요청을 접수했습니다.",
                 "step_timings": {},

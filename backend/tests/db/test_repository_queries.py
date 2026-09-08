@@ -68,6 +68,24 @@ class _CaptureClient:
         return self.builder
 
 
+class _CaptureRpcBuilder:
+    def __init__(self, data):
+        self.data = data
+
+    def execute(self):
+        return _CaptureResponse(self.data)
+
+
+class _CaptureRpcClient:
+    def __init__(self, data):
+        self.data = data
+        self.calls = []
+
+    def rpc(self, function_name, params):
+        self.calls.append((function_name, params))
+        return _CaptureRpcBuilder(self.data)
+
+
 def test_supabase_repository_retries_httpx_transport_errors(monkeypatch):
     repository = SupabaseRepository(client=object())
     builder = _RetryBuilder()
@@ -117,6 +135,44 @@ def test_recommendation_cycle_update_preserves_explicit_nulls():
     )
 
     assert updated["closed_at"] is None
+
+
+def test_supabase_toss_reconciliation_uses_one_atomic_rpc():
+    result = {
+        "assets": [{"id": "asset-1", "external_asset_key": "US:AAPL"}],
+        "created_count": 1,
+        "updated_count": 0,
+        "stale_count": 2,
+    }
+    client = _CaptureRpcClient(result)
+    repository = SupabaseRepository(client=client)
+    asset_rows = [
+        {
+            "market": "US",
+            "ticker": "AAPL",
+            "name": "Apple Inc.",
+            "quantity": 10,
+            "avg_price": 155.3,
+            "currency": "USD",
+            "memo": "Toss Invest Open API read-only sync",
+            "external_asset_key": "US:AAPL",
+            "external_payload": {"symbol": "AAPL"},
+        }
+    ]
+
+    reconciled = repository.reconcile_toss_assets("1", "2026-09-07T00:00:00+00:00", asset_rows)
+
+    assert reconciled == result
+    assert client.calls == [
+        (
+            "reconcile_toss_holdings",
+            {
+                "p_account_id": "1",
+                "p_synced_at": "2026-09-07T00:00:00+00:00",
+                "p_assets": asset_rows,
+            },
+        )
+    ]
 
 
 def test_list_unevaluated_performance_logs_excludes_completed_rows():

@@ -1,5 +1,15 @@
+from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
+from threading import Event, Lock
+from types import SimpleNamespace
+
+import app.api.reports as reports_api
+from app.api.reports import _run_report_job
 from app.db.supabase_client import InMemoryRepository
+from app.services.notification_service import NotificationService
 from app.services.report_job_service import ReportJobStore
+from app.services.report_service import ReportService
+from app.services.toss_invest_service import TossInvestService
 
 
 def test_report_job_store_reuses_active_job_for_same_report_type():
@@ -11,6 +21,138 @@ def test_report_job_store_reuses_active_job_for_same_report_type():
     assert first_created is True
     assert second_created is False
     assert second.job_id == first.job_id
+
+
+def test_report_jobs_share_one_serialization_lock_across_report_types(monkeypatch):
+    repository = InMemoryRepository()
+    store = ReportJobStore(repository)
+    manual_job, _created = store.create_or_get_active("domestic", "manual")
+    scheduled_job, _created = store.create_or_get_active("global", "scheduled")
+    first_entered = Event()
+    release_first = Event()
+    second_entered = Event()
+    state_lock = Lock()
+    active_count = 0
+    max_active_count = 0
+
+    def generate_report(_self, report_type, generation_source="manual"):
+        nonlocal active_count, max_active_count
+        with state_lock:
+            active_count += 1
+            max_active_count = max(max_active_count, active_count)
+        try:
+            if generation_source == "manual":
+                first_entered.set()
+                assert release_first.wait(timeout=2)
+            else:
+                second_entered.set()
+            return {"id": f"{generation_source}-report", "report_type": report_type}
+        finally:
+            with state_lock:
+                active_count -= 1
+
+    monkeypatch.setattr(
+        TossInvestService,
+        "status",
+        lambda _self: {
+            "configured": False,
+            "client_id_configured": False,
+            "client_secret_configured": False,
+            "account_id_configured": False,
+            "provider": "toss_invest",
+            "mode": "read_only",
+        },
+    )
+    monkeypatch.setattr(ReportService, "generate_report", generate_report)
+    monkeypatch.setattr(
+        NotificationService,
+        "create_scheduled_report_notifications",
+        lambda _self, _report, _previous_cycle_states: [],
+    )
+    app_state = SimpleNamespace(report_jobs=store, market_data_service=object())
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        manual_future = executor.submit(
+            _run_report_job,
+            app_state,
+            repository,
+            "domestic",
+            manual_job.job_id,
+            False,
+        )
+        assert first_entered.wait(timeout=2)
+        scheduled_future = executor.submit(
+            _run_report_job,
+            app_state,
+            repository,
+            "global",
+            scheduled_job.job_id,
+            True,
+        )
+        try:
+            assert not second_entered.wait(timeout=0.2)
+        finally:
+            release_first.set()
+        manual_future.result(timeout=2)
+        scheduled_future.result(timeout=2)
+
+    assert second_entered.is_set()
+    assert max_active_count == 1
+
+
+def test_report_job_waiting_for_generation_lock_expires_without_running(monkeypatch):
+    repository = InMemoryRepository()
+    store = ReportJobStore(repository, active_timeout=timedelta(milliseconds=50))
+    first_job, _created = store.create_or_get_active("domestic", "manual")
+    waiting_job, _created = store.create_or_get_active("global", "scheduled")
+    first_entered = Event()
+    release_first = Event()
+    waiting_job_executed = Event()
+
+    def execute_report_job(
+        _app_state,
+        _repository,
+        _report_type,
+        job_id,
+        _scheduled,
+    ):
+        if job_id == first_job.job_id:
+            first_entered.set()
+            assert release_first.wait(timeout=2)
+            return
+        waiting_job_executed.set()
+
+    monkeypatch.setattr(reports_api, "_execute_report_job", execute_report_job)
+    app_state = SimpleNamespace(report_jobs=store)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first_future = executor.submit(
+            _run_report_job,
+            app_state,
+            repository,
+            "domestic",
+            first_job.job_id,
+            False,
+        )
+        assert first_entered.wait(timeout=2)
+        waiting_future = executor.submit(
+            _run_report_job,
+            app_state,
+            repository,
+            "global",
+            waiting_job.job_id,
+            True,
+        )
+        try:
+            waiting_future.result(timeout=1)
+        finally:
+            release_first.set()
+        first_future.result(timeout=2)
+
+    waiting = repository.get_report_job(waiting_job.job_id)
+    assert waiting_job_executed.is_set() is False
+    assert waiting["status"] == "failed"
+    assert waiting["error_category"] == "stale_active_job"
 
 
 def test_report_job_store_allows_new_job_after_completion():

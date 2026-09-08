@@ -4,6 +4,7 @@ from typing import Any
 from app.config import get_env_application_defaults, resolve_application_settings
 from app.db.supabase_client import Repository
 from app.models.portfolio import PortfolioSummaryResponse
+from app.utils.assets import held_assets
 from app.utils.logging import log_external_failure
 
 # 집중도 경고 임계치 (Phase 4-3). 단일 종목 임계치는 설정 target_max_asset_pct를 따른다.
@@ -20,7 +21,7 @@ class PortfolioService:
         self.market_data_service = market_data_service
 
     def get_summary(self) -> PortfolioSummaryResponse:
-        assets = self.repository.list_assets()
+        assets = held_assets(self.repository.list_assets())
         latest_report = self.repository.get_latest_report()
         app_settings = resolve_application_settings(
             self.repository.get_settings(),

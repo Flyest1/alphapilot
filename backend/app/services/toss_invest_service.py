@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
+from math import isfinite
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -51,29 +52,14 @@ class TossInvestService:
         accounts = self._get_accounts(token)
         account = self._select_account(accounts)
         holdings = self._get_holdings(token, str(account["account_seq"]))
-        items = list(holdings.get("items") or [])
+        items = holdings["items"]
 
         synced_at = datetime.now(timezone.utc).isoformat()
-        created_count = 0
-        updated_count = 0
-        synced_assets = []
-        seen_keys = set()
-        for item in items:
-            asset_data = self._asset_from_holding(item, account, synced_at)
-            seen_keys.add(asset_data["external_asset_key"])
-            existing = self.repository.get_asset_by_external_key(
-                TOSS_PROVIDER,
-                asset_data["external_account_id"],
-                asset_data["external_asset_key"],
-            )
-            asset = self.repository.upsert_external_asset(asset_data)
-            if existing:
-                updated_count += 1
-            else:
-                created_count += 1
-            synced_assets.append(asset)
-
-        stale_count = self._zero_missing_assets(account, seen_keys, synced_at)
+        asset_rows = [self._asset_from_holding(item, account, synced_at) for item in items]
+        reconciliation = self.repository.reconcile_toss_assets(
+            str(account["account_seq"]), synced_at, asset_rows
+        )
+        synced_assets = reconciliation["assets"]
         duplicate_manual_assets = self._manual_duplicates(synced_assets)
 
         return {
@@ -82,9 +68,9 @@ class TossInvestService:
             "account": account,
             "synced_at": synced_at,
             "synced_count": len(synced_assets),
-            "created_count": created_count,
-            "updated_count": updated_count,
-            "stale_count": stale_count,
+            "created_count": reconciliation["created_count"],
+            "updated_count": reconciliation["updated_count"],
+            "stale_count": reconciliation["stale_count"],
             "duplicate_manual_assets": duplicate_manual_assets,
             "overview": {
                 "total_purchase_amount": holdings.get("totalPurchaseAmount"),
@@ -142,6 +128,9 @@ class TossInvestService:
         result = response.get("result")
         if not isinstance(result, dict):
             raise TossInvestError("Toss Invest holdings response is invalid.")
+        items = result.get("items")
+        if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
+            raise TossInvestError("Toss Invest holdings response items must be a list of objects.")
         return result
 
     def _select_account(self, accounts: list[dict[str, Any]]) -> dict[str, Any]:
@@ -155,13 +144,10 @@ class TossInvestService:
                 }:
                     selected = account
                     break
-            if selected is None and configured.isdigit():
-                return {
-                    "account_seq": configured,
-                    "account_no": None,
-                    "account_type": None,
-                    "source": "env",
-                }
+            if selected is None:
+                raise TossInvestConfigurationError(
+                    "Toss Invest configured account is not available."
+                )
         if selected is None:
             selected = next(
                 (account for account in accounts if account.get("accountType") == "BROKERAGE"),
@@ -188,9 +174,16 @@ class TossInvestService:
         symbol = str(item.get("symbol") or "").strip().upper()
         if not symbol:
             raise TossInvestError("Toss Invest holding item is missing symbol.")
-        market_country = str(item.get("marketCountry") or "").upper()
-        market = "KR" if market_country == "KR" else "US"
-        currency = str(item.get("currency") or ("KRW" if market == "KR" else "USD")).upper()
+        market_country = str(item.get("marketCountry") or "").strip().upper()
+        if market_country not in {"KR", "US"}:
+            raise TossInvestError("Toss Invest holding marketCountry must be KR or US.")
+        market = market_country
+        expected_currency = "KRW" if market == "KR" else "USD"
+        currency = str(item.get("currency") or expected_currency).strip().upper()
+        if currency != expected_currency:
+            raise TossInvestError(
+                f"Toss Invest holding currency must be {expected_currency} for {market}."
+            )
         account_id = str(account["account_seq"])
         external_key = f"{market}:{symbol}"
         return {
@@ -201,42 +194,15 @@ class TossInvestService:
             "market": market,
             "ticker": symbol,
             "name": str(item.get("name") or symbol),
-            "quantity": _to_float(item.get("quantity")),
-            "avg_price": _to_float(item.get("averagePurchasePrice")),
+            "quantity": _to_nonnegative_number(item.get("quantity"), "quantity"),
+            "avg_price": _to_nonnegative_number(
+                item.get("averagePurchasePrice"), "average purchase price"
+            ),
             "currency": currency,
             "memo": "Toss Invest Open API read-only sync",
             "synced_at": synced_at,
             "external_payload": item,
         }
-
-    def _zero_missing_assets(
-        self,
-        account: dict[str, Any],
-        seen_keys: set[str],
-        synced_at: str,
-    ) -> int:
-        account_id = str(account["account_seq"])
-        stale_count = 0
-        for asset in self.repository.list_assets():
-            if (
-                asset.get("source") != TOSS_ASSET_SOURCE
-                or asset.get("external_provider") != TOSS_PROVIDER
-                or asset.get("external_account_id") != account_id
-                or asset.get("external_asset_key") in seen_keys
-            ):
-                continue
-            payload = dict(asset.get("external_payload") or {})
-            payload["missing_from_latest_sync"] = True
-            self.repository.update_asset(
-                asset["id"],
-                {
-                    "quantity": 0,
-                    "synced_at": synced_at,
-                    "external_payload": payload,
-                },
-            )
-            stale_count += 1
-        return stale_count
 
     def _manual_duplicates(self, synced_assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
         synced_keys = {
@@ -288,11 +254,19 @@ class TossInvestService:
         return json.loads(raw or "{}")
 
 
-def _to_float(value: Any) -> float:
+def _to_nonnegative_number(value: Any, field_name: str) -> float:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        raise TossInvestError(f"Toss Invest holding {field_name} is missing or invalid.")
     try:
-        return float(Decimal(str(value or "0")))
+        parsed = Decimal(str(value))
     except (InvalidOperation, ValueError):
-        return 0.0
+        raise TossInvestError(f"Toss Invest holding {field_name} is missing or invalid.") from None
+    if not parsed.is_finite() or parsed < 0:
+        raise TossInvestError(f"Toss Invest holding {field_name} must be finite and nonnegative.")
+    converted = float(parsed)
+    if not isfinite(converted):
+        raise TossInvestError(f"Toss Invest holding {field_name} must be finite and nonnegative.")
+    return converted
 
 
 def _safe_error_detail(exc: HTTPError) -> str:

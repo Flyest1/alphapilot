@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from app.db.supabase_client import InMemoryRepository
 from app.main import create_app
 from app.services.report_service import ReportService
+from app.services.toss_invest_service import TossInvestService
 
 AUTH = {"Authorization": "Bearer test-api-token"}
 
@@ -114,6 +115,7 @@ def test_report_routes_pass_scheduled_or_manual_generation_source(monkeypatch):
         captured_sources.append(generation_source)
         return {"id": "report-id"}
 
+    monkeypatch.setattr(TossInvestService, "sync_holdings", lambda _self: None)
     monkeypatch.setattr(ReportService, "generate_report", fake_generate_report)
     client = TestClient(create_app(repository=InMemoryRepository()))
 
