@@ -53,3 +53,23 @@ def test_toss_sync_endpoint_returns_service_result(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["synced_count"] == 1
+
+
+def test_toss_sync_returns_conflict_while_report_generation_holds_shared_lock(monkeypatch):
+    sync_started = False
+
+    def fake_sync(_self):
+        nonlocal sync_started
+        sync_started = True
+        return {"synced_count": 1}
+
+    monkeypatch.setattr(TossInvestService, "sync_holdings", fake_sync)
+    app = create_app(repository=InMemoryRepository())
+    client = TestClient(app)
+
+    with app.state.report_jobs.serialize_generation():
+        response = client.post("/api/toss/sync", headers=AUTH)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "report generation or Toss sync is already in progress"
+    assert sync_started is False

@@ -66,10 +66,13 @@ class ReportJobStore:
         self._generation_lock = Lock()
 
     @contextmanager
-    def serialize_generation(self) -> Iterator[None]:
-        acquired = self._generation_lock.acquire(
-            timeout=max(self.active_timeout.total_seconds(), 0)
+    def serialize_generation(self, wait_timeout_seconds: float | None = None) -> Iterator[None]:
+        timeout_seconds = (
+            self.active_timeout.total_seconds()
+            if wait_timeout_seconds is None
+            else wait_timeout_seconds
         )
+        acquired = self._generation_lock.acquire(timeout=max(timeout_seconds, 0))
         if not acquired:
             raise ReportGenerationLockTimeout("report generation lock acquisition timed out")
         try:
