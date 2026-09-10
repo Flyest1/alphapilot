@@ -6,6 +6,18 @@ import pytest
 from app.services.challenger_research import run_challenger_research
 
 
+def test_challenger_uncertainty_uses_heldout_cohorts_only():
+    result = run_challenger_research(payload())
+    for experiment in result["experiments"]:
+        if experiment["model"] in {"trend_regime_filter", "entry_hold_hysteresis"}:
+            uncertainty = experiment["uncertainty_vs_champion"]
+            assert (
+                uncertainty["cohort_count"] == experiment["paired_test_vs_champion"]["cohort_count"]
+            )
+            assert uncertainty["status"] == "insufficient_data"
+            assert uncertainty["interval_pct"] is None
+
+
 def payload():
     dates = pd.bdate_range("2020-01-01", periods=410)
     return {

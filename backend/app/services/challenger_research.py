@@ -16,6 +16,7 @@ import pandas as pd
 from app.services.backtest_metrics import estimate_round_trip_cost_pct
 from app.services.backtest_validation import classify_market_regime, create_walk_forward_folds
 from app.services.report.tracking import evaluate_barriers
+from app.services.paired_research_statistics import paired_research_statistics
 from app.services.strategy_service import StrategyService
 from app.services.technical_analysis_service import TechnicalAnalysisService
 
@@ -60,6 +61,7 @@ def _code_hashes() -> dict[str, str]:
         "challenger_research.py",
         "backtest_metrics.py",
         "backtest_validation.py",
+        "paired_research_statistics.py",
         "report/tracking.py",
     ]
     return {
@@ -347,6 +349,11 @@ def run_challenger_research(payload: dict[str, Any]) -> dict[str, Any]:
             [row for row in experiment["observations"] if row["date"] in test_dates],
             [row for row in champion["observations"] if row["date"] in test_dates],
         )
+        if experiment["model"] in {"trend_regime_filter", "entry_hold_hysteresis"}:
+            experiment["uncertainty_vs_champion"] = paired_research_statistics(
+                [row for row in experiment["observations"] if row["date"] in test_dates],
+                [row for row in champion["observations"] if row["date"] in test_dates],
+            )
     minimum_paired = min(row["paired_test_vs_champion"]["cohort_count"] for row in experiments)
     return {
         "research_only": True,
