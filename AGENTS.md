@@ -213,6 +213,11 @@ Toss Invest Open API exception (approved 2026-06):
 
 - Allowed only for read-only account and holdings synchronization.
 - API-linked assets must be visibly marked separately from manually entered assets.
+- Approved 2026-09-10: after a valid full holdings sync, delete absent or zero-quantity Toss-linked
+  assets only for the synchronized account. Preserve manual assets, other accounts, historical
+  reports, strategies, performance logs, recommendation cycles, and portfolio snapshots. Migration
+  024 replaces the reconciliation function; existing strategy asset links use ON DELETE SET NULL.
+  Failed or invalid sync responses must not delete assets.
 - Manual assets must remain supported so the user can delete duplicates after sync review.
 - Toss credentials must live only in backend environment variables or `.env`, never in frontend code, localStorage, Supabase, GitHub Pages, or committed files.
 - Do not implement or call order create, order modify, order cancel, broker execution, automatic trading, order preview, buying-power checks for execution, sellable-quantity checks for execution, or any route/button/stub that could become a trading workflow.

@@ -399,11 +399,12 @@ class InMemoryRepository:
         if any(not key for key in external_keys) or len(external_keys) != len(set(external_keys)):
             raise ValueError("Toss asset reconciliation requires unique external asset keys")
 
+        prepared_rows = [row for row in prepared_rows if row["quantity"] > 0]
         working_assets = deepcopy(self.assets)
         synced_assets = []
         created_count = 0
         updated_count = 0
-        seen_keys = set(external_keys)
+        seen_keys = {row["external_asset_key"] for row in prepared_rows}
         now = _now_iso()
 
         for asset_data in prepared_rows:
@@ -441,30 +442,23 @@ class InMemoryRepository:
                 created_count += 1
             synced_assets.append(deepcopy(asset))
 
-        stale_count = 0
-        for asset in working_assets.values():
-            if (
-                asset.get("source") != "toss_api"
-                or asset.get("external_provider") != "toss_invest"
-                or (
-                    asset.get("external_account_id") == account_id
-                    and asset.get("external_asset_key") in seen_keys
-                )
-            ):
-                continue
-            payload = dict(asset.get("external_payload") or {})
-            payload["missing_from_latest_sync"] = True
-            asset.update(
-                {
-                    "quantity": 0,
-                    "synced_at": synced_at,
-                    "external_payload": payload,
-                    "updated_at": now,
-                }
-            )
-            stale_count += 1
+        deleted_ids = {
+            asset_id
+            for asset_id, asset in working_assets.items()
+            if asset.get("source") == "toss_api"
+            and asset.get("external_provider") == "toss_invest"
+            and asset.get("external_account_id") == account_id
+            and asset.get("external_asset_key") not in seen_keys
+        }
+        for asset_id in deleted_ids:
+            del working_assets[asset_id]
 
         self.assets = working_assets
+        # Match strategies.asset_id ON DELETE SET NULL; historical rows survive.
+        for strategy in self.strategies.values():
+            if strategy.get("asset_id") in deleted_ids:
+                strategy["asset_id"] = None
+        stale_count = len(deleted_ids)
         return {
             "assets": synced_assets,
             "created_count": created_count,
