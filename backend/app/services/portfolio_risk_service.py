@@ -19,6 +19,7 @@ CORRELATION_THRESHOLD = 0.7
 SECTOR_EXPOSURE_LIMIT = 0.4
 LIQUIDITY_CAP_RATIO = 0.01
 CONSTRAINT_LABELS = {
+    "valuation": "포트폴리오 평가자료 부족",
     "fixed_risk": "개별 손실 예산",
     "remaining_portfolio_loss": "남은 포트폴리오 손실 예산",
     "remaining_cash": "남은 현금 예산",
@@ -61,6 +62,30 @@ def _returns(frame: pd.DataFrame) -> pd.Series:
         return pd.Series(dtype=float)
     close = frame["close"].where(np.isfinite(frame["close"]))
     return close.pct_change(fill_method=None).replace([np.inf, -np.inf], np.nan).dropna()
+
+
+def _session_returns(frame: Any, market: str) -> pd.Series:
+    """Align completed daily sessions conservatively, without filling missing prices.
+
+    Provider bar timestamps label sessions, not their closing instant. A session's
+    return becomes comparable at the following UTC midnight, after both KR and US
+    regular sessions close. This is retrospective co-movement, never a predictor
+    available at the earlier Korean close. Missing weekdays break return pairs.
+    """
+    normalized = _frame_columns(frame)
+    if normalized.empty:
+        return pd.Series(dtype=float)
+    index = normalized.index
+    if index.tz is not None:
+        index = index.tz_convert("Asia/Seoul" if market == "KR" else "America/New_York")
+        index = index.tz_localize(None)
+    normalized.index = index.normalize()
+    if normalized.index.has_duplicates:
+        return pd.Series(dtype=float)
+    normalized = normalized.reindex(pd.bdate_range(normalized.index.min(), normalized.index.max()))
+    returns = _returns(normalized)
+    returns.index = (returns.index + pd.Timedelta(days=1)).tz_localize("UTC")
+    return returns.loc[returns.index <= pd.Timestamp.now(tz="UTC")]
 
 
 def _aligned_correlation(first: pd.Series, second: pd.Series) -> tuple[float | None, int]:
@@ -260,8 +285,8 @@ class PortfolioRiskService:
             and not bool(getattr(row.get("market_data"), "is_stale", True))
         ]
         held_returns = {
-            _asset_key(row["asset"]): _returns(
-                _frame_columns(getattr(row["market_data"], "dataframe", None))
+            _asset_key(row["asset"]): _session_returns(
+                getattr(row["market_data"], "dataframe", None), _cost_market(row["asset"])
             )
             for row in held_rows
         }
@@ -273,10 +298,13 @@ class PortfolioRiskService:
             key for key, returns in held_returns.items() if len(returns) >= MIN_RETURN_OBSERVATIONS
         }
         missing_held_keys = sorted(expected_held_keys - usable_held_keys)
-        risk_context_complete = not missing_held_keys
-        proxy = self._equal_weight_proxy(
-            [returns for key, returns in held_returns.items() if key in usable_held_keys]
+        risk_context_complete = (
+            not missing_held_keys
+            and portfolio_summary.get("valuation_status", "complete") == "complete"
         )
+        proxy = self._weighted_proxy(held_returns, allocation_values)
+        if expected_held_keys and proxy.empty:
+            risk_context_complete = False
         sector_values = _exposure_values(portfolio_summary, "sector_exposure")
         currency_values = _exposure_values(portfolio_summary, "currency_exposure")
         cash_values = _cash_values_by_currency(portfolio_summary)
@@ -315,6 +343,9 @@ class PortfolioRiskService:
                 currency,
                 usd_krw_rate,
             )
+            candidate_returns = _session_returns(
+                getattr(market_data, "dataframe", None), _cost_market(asset)
+            )
             effective_downside = float(metrics["effective_downside_pct"]) / 100
             fixed_risk_cap = risk_budget / effective_downside if effective_downside > 0 else 0.0
             remaining_loss_cap = (
@@ -341,6 +372,8 @@ class PortfolioRiskService:
                 strategy=strategy,
             )
             cost_breakdown = constraints.pop("cost_breakdown")
+            if portfolio_summary.get("valuation_status", "complete") != "complete":
+                constraints["valuation"] = _constraint(0.0)
             correlation_metrics = constraints.pop("correlation_metrics")
             correlations = [
                 item["correlation"]
@@ -407,7 +440,10 @@ class PortfolioRiskService:
             )
 
         snapshot = {
-            "model_version": "portfolio-risk-v1",
+            "model_version": "portfolio-risk-v2",
+            "return_alignment": "completed_session_next_utc_day_no_fill",
+            "proxy_method": "current_non_cash_value_weighted_local_currency",
+            "proxy_limitations": "static_current_weights_no_historical_holdings_or_fx_returns",
             "allocation_policy": "report_order_sequential",
             "candidate_order": [row["ticker"] for row in candidate_evaluations],
             "candidate_evaluations": candidate_evaluations,
@@ -498,11 +534,18 @@ class PortfolioRiskService:
             if remaining <= 0:
                 break
 
-    def _equal_weight_proxy(self, returns: Sequence[pd.Series]) -> pd.Series:
-        usable = [series.rename(index) for index, series in enumerate(returns) if not series.empty]
-        if not usable:
+    def _weighted_proxy(
+        self,
+        returns: Mapping[tuple[str, str], pd.Series],
+        allocation: Mapping[tuple[str, str], float],
+    ) -> pd.Series:
+        weights = {
+            key: value for key, value in allocation.items() if key[0] != "CASH" and value > 0
+        }
+        if not weights or set(returns) != set(weights):
             return pd.Series(dtype=float)
-        return pd.concat(usable, axis=1).mean(axis=1, skipna=True).dropna()
+        paired = pd.concat([returns[key].rename(str(key)) for key in weights], axis=1).dropna()
+        return paired.mul(np.array(list(weights.values())) / sum(weights.values())).sum(axis=1)
 
     def _constraints(
         self,
@@ -605,7 +648,7 @@ class PortfolioRiskService:
         correlation_available = (
             risk_context_complete
             and bool(held_returns)
-            and any(row["correlation"] is not None for row in correlations)
+            and all(row["correlation"] is not None for row in correlations)
         )
         constraints["correlated_factor"] = _constraint(
             total_value * SECTOR_EXPOSURE_LIMIT - correlated_exposure,
@@ -621,6 +664,8 @@ class PortfolioRiskService:
         )
         constraints["cost_breakdown"] = cost
         constraints["correlation_metrics"] = {
+            "alignment": "completed_session_next_utc_day_no_fill",
+            "proxy_method": "current_non_cash_value_weighted_local_currency",
             "status": (
                 "available"
                 if correlation_available

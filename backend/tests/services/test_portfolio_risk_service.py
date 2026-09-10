@@ -7,6 +7,80 @@ from app.models.settings import Settings
 from app.services.portfolio_risk_service import PortfolioRiskService
 
 
+def test_session_returns_align_exchange_dates_after_both_closes_without_filling_gaps():
+    from app.services.portfolio_risk_service import _session_returns
+
+    kr = market_frame()
+    us = kr.copy()
+    kr.index = kr.index.tz_localize("Asia/Seoul")
+    us.index = us.index.tz_localize("America/New_York")
+    first = _session_returns(kr, "KR")
+    second = _session_returns(us, "US")
+    pd.testing.assert_series_equal(first, second)
+    assert first.index[0] == pd.Timestamp("2026-01-03", tz="UTC")
+    missing = _session_returns(us.drop(us.index[5]), "US")
+    assert pd.Timestamp("2026-01-09", tz="UTC") not in missing.index
+    assert pd.Timestamp("2026-01-10", tz="UTC") not in missing.index
+
+
+def test_proxy_uses_actual_allocations_and_requires_every_holding_on_each_date():
+    service = PortfolioRiskService()
+    dates = pd.date_range("2026-01-01", periods=3)
+    held = {
+        ("KR", "A"): pd.Series([0.1, 0.2, 0.3], index=dates),
+        ("US", "B"): pd.Series([-0.1, 0.0], index=dates[:2]),
+    }
+    proxy = service._weighted_proxy(held, {("KR", "A"): 900, ("US", "B"): 100})
+    np.testing.assert_allclose(proxy.to_numpy(), [0.08, 0.18])
+    assert len(proxy) == 2
+    assert service._weighted_proxy(held, {("KR", "A"): 900}).empty
+
+
+def test_session_alignment_excludes_not_yet_completed_comparison_days():
+    from app.services.portfolio_risk_service import _session_returns
+
+    frame = market_frame()
+    frame.index = pd.bdate_range("2099-01-01", periods=len(frame))
+    assert _session_returns(frame, "KR").empty
+
+
+def test_cross_market_risk_uses_common_completed_sessions_and_records_proxy_basis():
+    kr = market_frame()
+    us = kr.copy()
+    kr.index = kr.index.tz_localize("Asia/Seoul").tz_convert("UTC")
+    us.index = us.index.tz_localize("America/New_York").tz_convert("UTC")
+    results, snapshot = PortfolioRiskService().calculate_position_sizing(
+        strategies=[strategy("CANDIDATE")],
+        analysis_rows=[row("HELD", frame=kr), row("CANDIDATE", market="US", frame=us)],
+        portfolio_summary=portfolio(
+            allocation=[{"ticker": "HELD", "market": "KR", "market_value": 300_000}]
+        ),
+        app_settings=Settings(),
+        owned_tickers={"HELD"},
+    )
+    metrics = results["CANDIDATE"]["correlation_metrics"]
+    assert metrics["status"] == "available"
+    assert metrics["beta"] == 1
+    assert metrics["beta_observations"] == 44
+    assert snapshot["proxy_method"] == "current_non_cash_value_weighted_local_currency"
+
+
+def test_partial_valuation_disables_portfolio_risk_constraints():
+    summary = portfolio(allocation=[{"ticker": "HELD", "market": "KR", "market_value": 300_000}])
+    summary["valuation_status"] = "partial"
+    results, snapshot = PortfolioRiskService().calculate_position_sizing(
+        strategies=[strategy("CANDIDATE")],
+        analysis_rows=[row("HELD"), row("CANDIDATE")],
+        portfolio_summary=summary,
+        app_settings=Settings(),
+        owned_tickers={"HELD"},
+    )
+    assert snapshot["risk_context_status"] == "partial"
+    assert results["CANDIDATE"]["suggested_max_amount"] == 0
+    assert results["CANDIDATE"]["constraints"]["beta"]["status"] == "unavailable"
+    assert results["CANDIDATE"]["constraints"]["correlated_factor"]["status"] == "unavailable"
+
+
 def market_frame(periods=45, volume=1_000_000, multiplier=1.0):
     index = pd.date_range("2026-01-01", periods=periods, freq="B")
     close = (100 + np.arange(periods, dtype=float)) * multiplier
