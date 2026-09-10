@@ -146,7 +146,7 @@ export default function Comparison() {
       <header className="page-header">
         <div>
           <h1>수익률 비교</h1>
-          <p>시장 지수, AlphaPilot 추천 성과, 실제 포트폴리오 수익률을 비교합니다.</p>
+          <p>시장 지수, 추천 이후 평균 가격 변화, 보유자산 평가액 변화를 비교합니다.</p>
         </div>
       </header>
 

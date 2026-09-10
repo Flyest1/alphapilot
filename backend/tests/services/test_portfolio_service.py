@@ -333,3 +333,11 @@ def test_missing_price_history_does_not_draw_purchase_cost_as_market_value():
     summary = PortfolioService(repo, NoHistoryMarket()).get_summary()
     assert summary.total_market_value == 120
     assert summary.value_history == []
+
+
+def test_report_prompt_explicitly_preserves_unavailable_portfolio_values():
+    from app.services.report.prompt_builder import build_prompt
+
+    prompt = build_prompt("global")
+    assert "Preserve null portfolio values" in prompt
+    assert "never replace them with zero or purchase cost" in prompt
