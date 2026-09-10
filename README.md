@@ -10,6 +10,11 @@ AlphaPilot은 개인 자산을 등록하고, 국내/글로벌 시장 데이터�
 
 자동 매매와 주문 실행은 포함하지 않습니다. 브로커 API는 Toss Invest Open API의 조회 전용 계좌/보유주식 동기화만 지원합니다. 모든 리포트는 투자 의사결정 지원용이며 수익을 보장하지 않습니다.
 
+2026-09-10 Toss 기반 단계적 자율 운용 **개발**이 승인되어, 성과 측정 오류 수정부터
+착수했습니다. 실주문 기능은 아직 활성화되지 않았습니다. 개발 범위와 활성화 조건은
+[AGENTS.md](AGENTS.md), 분석 근거와 남은 작업은
+[수익성 개선 계획](docs/profitability_research_plan_2026_09_10.md)의 15절을 참고하세요.
+
 ## 구성
 
 ```text
@@ -728,8 +733,9 @@ python scripts/recalculate_recommendation_cycles.py --apply
 - **보안**: `TOSS_INVEST_CLIENT_ID`, `TOSS_INVEST_CLIENT_SECRET`,
   `TOSS_INVEST_ACCOUNT_ID`는 백엔드 서버 또는 로컬 `backend/.env`에만 저장합니다. 프론트엔드,
   localStorage, Supabase, GitHub Pages 빌드에는 넣지 않습니다.
-- **금지 범위**: 주문 생성/정정/취소, 주문 내역, 매수 가능금액, 매도 가능수량, 주문 미리보기,
-  자동 리밸런스, 자동 매매는 구현하지 않습니다.
+- **현재 동기화 범위 밖**: 주문 생성/정정/취소, 주문 내역, 매수 가능금액, 매도 가능수량,
+  주문 미리보기, 자동 리밸런스, 자동 매매. 별도 승인된 단계적 개발은 AGENTS.md를 따르며,
+  보유주식 동기화에 주문 기능을 연결하지 않습니다.
 
 ## Phase 10 설계 상태
 
