@@ -1,4 +1,5 @@
 from io import BytesIO
+from copy import deepcopy
 from urllib.error import HTTPError
 
 import pytest
@@ -6,11 +7,135 @@ import pytest
 import app.services.toss_invest_service as toss_module
 from app.config import EnvironmentSettings
 from app.db.supabase_client import InMemoryRepository
+from app.services.portfolio_service import PortfolioService
 from app.services.toss_invest_service import (
     TossInvestConfigurationError,
     TossInvestError,
     TossInvestService,
 )
+
+
+def cash_http(balances):
+    def request(method, path, headers=None, body=None):
+        if path == "/oauth2/token":
+            return {"access_token": "token", "token_type": "Bearer"}
+        assert method == "GET"
+        assert headers["Authorization"] == "Bearer token"
+        if path == "/api/v1/accounts":
+            return {"result": [{"accountSeq": 1, "accountType": "BROKERAGE"}]}
+        assert headers["X-Tossinvest-Account"] == "1"
+        if path == "/api/v1/holdings":
+            return {"result": {"items": []}}
+        assert path in {
+            "/api/v1/buying-power?currency=KRW",
+            "/api/v1/buying-power?currency=USD",
+        }
+        value = balances[path.split("=")[1]]
+        if isinstance(value, Exception):
+            raise value
+        return {"result": value}
+
+    return request
+
+
+def test_cash_sync_updates_both_currencies_and_removes_zero_balance():
+    repository = InMemoryRepository()
+    balances = {
+        "KRW": {"currency": "KRW", "cashBuyingPower": "1250000"},
+        "USD": {"currency": "USD", "cashBuyingPower": "123.45"},
+    }
+    service = TossInvestService(repository, env=_env(), http_request=cash_http(balances))
+    result = service.sync_holdings()
+    assert result["created_count"] == 2
+    repository.upsert_settings({"usd_krw_rate": 1400})
+    summary = PortfolioService(repository).get_summary()
+    assert summary.cash_value == 1250000 + 123.45 * 1400
+    assert summary.total_profit_loss == 0
+    krw = repository.get_asset_by_external_key("toss_invest", "1", "CASH:KRW")
+    usd = repository.get_asset_by_external_key("toss_invest", "1", "CASH:USD")
+    for asset, currency, amount in [(krw, "KRW", 1250000), (usd, "USD", 123.45)]:
+        assert asset["market"] == "CASH"
+        assert asset["currency"] == currency
+        assert asset["quantity"] * asset["avg_price"] == amount
+        assert "토스 가용 현금" in asset["name"]
+        assert "매수 가능 금액" in asset["memo"]
+    assert service.sync_holdings()["updated_count"] == 2
+    assert repository.get_asset_by_external_key("toss_invest", "1", "CASH:USD")["id"] == usd["id"]
+    balances["KRW"]["cashBuyingPower"] = "0"
+    balances["USD"]["cashBuyingPower"] = "50.25"
+    assert service.sync_holdings()["stale_count"] == 1
+    assert repository.get_asset(krw["id"]) is None
+    updated = repository.get_asset(usd["id"])
+    assert updated["quantity"] * updated["avg_price"] == 50.25
+
+
+def test_cash_sync_preserves_manual_cash_and_other_accounts_and_flags_duplicates():
+    repository = InMemoryRepository()
+    manual = repository.create_asset(
+        {
+            "market": "CASH",
+            "ticker": "MY-USD",
+            "name": "Manual cash",
+            "currency": "USD",
+            "quantity": 20,
+            "avg_price": 1,
+        }
+    )
+    other = repository.create_asset(
+        {
+            "market": "CASH",
+            "ticker": "USD",
+            "name": "Other account",
+            "currency": "USD",
+            "quantity": 30,
+            "avg_price": 1,
+            "source": "toss_api",
+            "external_provider": "toss_invest",
+            "external_account_id": "2",
+            "external_asset_key": "CASH:USD",
+        }
+    )
+    balances = {
+        "KRW": {"currency": "KRW", "cashBuyingPower": "0"},
+        "USD": {"currency": "USD", "cashBuyingPower": "100"},
+    }
+    service = TossInvestService(repository, env=_env(), http_request=cash_http(balances))
+    result = service.sync_holdings()
+    assert [item["id"] for item in result["duplicate_manual_assets"]] == [manual["id"]]
+    balances["USD"]["cashBuyingPower"] = "0"
+    service.sync_holdings()
+    assert repository.get_asset(manual["id"]) == manual
+    assert repository.get_asset(other["id"]) == other
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        None,
+        [],
+        {},
+        {"currency": "KRW", "cashBuyingPower": "1"},
+        *[
+            {"currency": "USD", "cashBuyingPower": value}
+            for value in [None, "", "NaN", "Infinity", "-1", True]
+        ],
+        TossInvestError("unavailable"),
+    ],
+)
+def test_cash_sync_failure_preserves_all_assets(invalid):
+    repository = InMemoryRepository()
+    balances = {
+        "KRW": {"currency": "KRW", "cashBuyingPower": "1000"},
+        "USD": {"currency": "USD", "cashBuyingPower": "10"},
+    }
+    service = TossInvestService(repository, env=_env(), http_request=cash_http(balances))
+    service.sync_holdings()
+    before = deepcopy(repository.assets)
+    balances["KRW"]["cashBuyingPower"] = "0"
+    balances["USD"] = invalid
+    with pytest.raises(TossInvestError):
+        service.sync_holdings()
+    assert repository.assets == before
 
 
 def _env(account_id: str | None = "1") -> EnvironmentSettings:
@@ -61,7 +186,16 @@ def test_toss_sync_upserts_api_assets_and_reports_manual_duplicates():
     )
 
     def fake_http(method, path, headers=None, body=None):
-        assert path in {"/oauth2/token", "/api/v1/accounts", "/api/v1/holdings"}
+        assert path in {
+            "/oauth2/token",
+            "/api/v1/accounts",
+            "/api/v1/holdings",
+            "/api/v1/buying-power?currency=KRW",
+            "/api/v1/buying-power?currency=USD",
+        }
+        if path.startswith("/api/v1/buying-power?"):
+            cash_currency = path.split("=")[1]
+            return {"result": {"currency": cash_currency, "cashBuyingPower": "0"}}
         if path == "/oauth2/token":
             assert method == "POST"
             assert b"client_secret=client-secret" in body
@@ -134,6 +268,9 @@ def test_toss_sync_preserves_holdings_from_other_accounts():
     )
 
     def fake_http(_method, path, headers=None, body=None):
+        if path.startswith("/api/v1/buying-power?"):
+            cash_currency = path.split("=")[1]
+            return {"result": {"currency": cash_currency, "cashBuyingPower": "0"}}
         if path == "/oauth2/token":
             return {"access_token": "token", "token_type": "Bearer"}
         if path == "/api/v1/accounts":
@@ -174,6 +311,9 @@ def test_toss_sync_rejects_configured_account_missing_from_account_list(
     repository = InMemoryRepository()
 
     def fake_http(_method, path, headers=None, body=None):
+        if path.startswith("/api/v1/buying-power?"):
+            cash_currency = path.split("=")[1]
+            return {"result": {"currency": cash_currency, "cashBuyingPower": "0"}}
         if path == "/oauth2/token":
             return {"access_token": "token", "token_type": "Bearer"}
         if path == "/api/v1/accounts":
@@ -238,6 +378,9 @@ def test_toss_sync_rejects_invalid_holdings_items_without_zeroing_assets(holding
     )
 
     def fake_http(_method, path, headers=None, body=None):
+        if path.startswith("/api/v1/buying-power?"):
+            cash_currency = path.split("=")[1]
+            return {"result": {"currency": cash_currency, "cashBuyingPower": "0"}}
         if path == "/oauth2/token":
             return {"access_token": "token", "token_type": "Bearer"}
         if path == "/api/v1/accounts":
@@ -264,6 +407,9 @@ def test_toss_sync_validates_every_holding_before_persisting_any_asset():
     }
 
     def fake_http(_method, path, headers=None, body=None):
+        if path.startswith("/api/v1/buying-power?"):
+            cash_currency = path.split("=")[1]
+            return {"result": {"currency": cash_currency, "cashBuyingPower": "0"}}
         if path == "/oauth2/token":
             return {"access_token": "token", "token_type": "Bearer"}
         if path == "/api/v1/accounts":
@@ -281,6 +427,9 @@ def test_toss_sync_rejects_unknown_markets_before_persisting_any_asset(market_co
     repository = InMemoryRepository()
 
     def fake_http(_method, path, headers=None, body=None):
+        if path.startswith("/api/v1/buying-power?"):
+            cash_currency = path.split("=")[1]
+            return {"result": {"currency": cash_currency, "cashBuyingPower": "0"}}
         if path == "/oauth2/token":
             return {"access_token": "token", "token_type": "Bearer"}
         if path == "/api/v1/accounts":
@@ -332,6 +481,9 @@ def test_toss_sync_rejects_currency_mismatched_with_market_without_overwriting_a
     )
 
     def fake_http(_method, path, headers=None, body=None):
+        if path.startswith("/api/v1/buying-power?"):
+            cash_currency = path.split("=")[1]
+            return {"result": {"currency": cash_currency, "cashBuyingPower": "0"}}
         if path == "/oauth2/token":
             return {"access_token": "token", "token_type": "Bearer"}
         if path == "/api/v1/accounts":
@@ -381,6 +533,9 @@ def test_toss_sync_rejects_invalid_quantity_without_overwriting_asset(quantity):
     )
 
     def fake_http(_method, path, headers=None, body=None):
+        if path.startswith("/api/v1/buying-power?"):
+            cash_currency = path.split("=")[1]
+            return {"result": {"currency": cash_currency, "cashBuyingPower": "0"}}
         if path == "/oauth2/token":
             return {"access_token": "token", "token_type": "Bearer"}
         if path == "/api/v1/accounts":
@@ -410,6 +565,9 @@ def test_toss_sync_does_not_create_zero_quantity_asset():
     repository = InMemoryRepository()
 
     def fake_http(_method, path, headers=None, body=None):
+        if path.startswith("/api/v1/buying-power?"):
+            cash_currency = path.split("=")[1]
+            return {"result": {"currency": cash_currency, "cashBuyingPower": "0"}}
         if path == "/oauth2/token":
             return {"access_token": "token", "token_type": "Bearer"}
         if path == "/api/v1/accounts":
@@ -459,6 +617,9 @@ def test_toss_sync_rejects_invalid_average_price_without_overwriting_asset(
     )
 
     def fake_http(_method, path, headers=None, body=None):
+        if path.startswith("/api/v1/buying-power?"):
+            cash_currency = path.split("=")[1]
+            return {"result": {"currency": cash_currency, "cashBuyingPower": "0"}}
         if path == "/oauth2/token":
             return {"access_token": "token", "token_type": "Bearer"}
         if path == "/api/v1/accounts":
@@ -490,6 +651,9 @@ def test_toss_sync_accepts_zero_average_price_as_nonnegative():
     repository = InMemoryRepository()
 
     def fake_http(_method, path, headers=None, body=None):
+        if path.startswith("/api/v1/buying-power?"):
+            cash_currency = path.split("=")[1]
+            return {"result": {"currency": cash_currency, "cashBuyingPower": "0"}}
         if path == "/oauth2/token":
             return {"access_token": "token", "token_type": "Bearer"}
         if path == "/api/v1/accounts":
@@ -641,6 +805,9 @@ def test_toss_sync_removes_closed_position_and_preserves_history(items, old_quan
     )
 
     def fake_http(_method, path, headers=None, body=None):
+        if path.startswith("/api/v1/buying-power?"):
+            cash_currency = path.split("=")[1]
+            return {"result": {"currency": cash_currency, "cashBuyingPower": "0"}}
         if path == "/oauth2/token":
             return {"access_token": "token", "token_type": "Bearer"}
         if path == "/api/v1/accounts":

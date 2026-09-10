@@ -136,7 +136,7 @@ export default function Assets() {
       const result = await api.toss.sync();
       setTossSyncResult(result);
       setStatus(
-        `Toss 보유주식 ${result.synced_count}개를 동기화했습니다. 수동 중복 ${result.duplicate_manual_assets.length}개를 확인하세요.`,
+        `Toss 자산 ${result.synced_count}개를 동기화했습니다. 수동 중복 ${result.duplicate_manual_assets.length}개를 확인하세요.`,
       );
       loadAssets();
     } catch (err) {
@@ -307,7 +307,7 @@ export default function Assets() {
             type="button"
             onClick={syncTossHoldings}
           >
-            {isSyncingToss ? "Toss 동기화 중" : "Toss 보유주식 동기화"}
+            {isSyncingToss ? "Toss 동기화 중" : "Toss 주식·현금 동기화"}
           </button>
           <input
             accept=".csv,text/csv"
@@ -331,9 +331,11 @@ export default function Assets() {
       <section className="panel">
         <div className="section-heading">
           <div>
-            <h2>Toss 보유주식 연동</h2>
+            <h2>Toss 주식·가용 현금 연동</h2>
             <p>
-              조회 전용으로 계좌 보유주식을 동기화합니다. 주문, 정정, 취소 기능은 제공하지 않습니다.
+              보유주식과 원화·달러 가용 현금을 조회해 반영합니다. 가용 현금은 매수 가능 금액
+              기준으로, 실제 예수금·출금 가능 금액과 다를 수 있습니다. 수동 현금과 중복되지 않는지
+              확인하세요.
             </p>
           </div>
           <div className="inline-metrics">
