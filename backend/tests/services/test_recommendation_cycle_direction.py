@@ -44,6 +44,8 @@ class CapturingMarketData(StaticMarketData):
 
 
 def price_frame(rows):
+    # Include the actual prior session so forward windows have a history anchor.
+    rows = [("2025-12-31", 100, 100, 100, 100), *rows]
     index = pd.to_datetime([row[0] for row in rows])
     return pd.DataFrame(
         {
@@ -217,6 +219,7 @@ def test_cycle_still_expires_after_horizon_without_barrier_hit():
         },
         index=dates,
     )
+    dataframe.loc[pd.Timestamp("2025-12-31")] = [100, 100, 100, 100, 1000]
 
     updated = backfill({"horizon": "short"}, dataframe)
 
