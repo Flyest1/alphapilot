@@ -32,8 +32,10 @@ class BenchmarkService:
             "days": safe_days,
             "series": [row for row in series if row["points"]],
             "assumptions": [
-                "AlphaPilot 운용 수익률은 추천 cycle 기준가 대비 평균 추천 성과입니다.",
-                "내 실제 수익률은 portfolio_snapshots 총 평가금액 기준 누적 수익률입니다.",
+                "추천 이후 평균 가격 변화는 최근 50개 추천의 기준가 대비 가격 변화 평균입니다. "
+                "매수·매도 방향, 비용, 투자 비중을 반영하지 않으며 날짜별 표본이 달라집니다.",
+                "보유자산 평가액 변화는 스냅샷 총 평가금액의 변화입니다. "
+                "입출금·매매·환율·평가 품질을 포함하며 실제 투자 수익률(TWR/IRR)이 아닙니다.",
                 "미국 증시 대표선은 S&P 500을 사용합니다.",
             ],
         }
@@ -96,7 +98,7 @@ class BenchmarkService:
                 exc,
                 {"operation": "actual_portfolio_series"},
             )
-            return {"key": "actual_portfolio", "label": "내 실제 수익률", "points": []}
+            return {"key": "actual_portfolio", "label": "보유자산 평가액 변화", "points": []}
         rows = sorted(
             snapshots,
             key=lambda row: (
@@ -105,13 +107,15 @@ class BenchmarkService:
             ),
         )[-days:]
         if not rows:
-            return {"key": "actual_portfolio", "label": "내 실제 수익률", "points": []}
+            return {"key": "actual_portfolio", "label": "보유자산 평가액 변화", "points": []}
         base = float(rows[0].get("total_market_value") or 0)
         if base <= 0:
-            return {"key": "actual_portfolio", "label": "내 실제 수익률", "points": []}
+            return {"key": "actual_portfolio", "label": "보유자산 평가액 변화", "points": []}
         return {
             "key": "actual_portfolio",
-            "label": "내 실제 수익률",
+            "label": "보유자산 평가액 변화",
+            "cash_flow_adjusted": False,
+            "metric_type": "valuation_change",
             "points": [
                 {
                     "date": row.get("snapshot_date") or self._date_from_iso(row.get("created_at")),
@@ -129,7 +133,7 @@ class BenchmarkService:
             cycles = self.repository.list_recommendation_cycles(limit=50)
         except Exception as exc:
             log_external_failure("benchmark", exc, {"operation": "alphapilot_cycles"})
-            return {"key": "alphapilot", "label": "AlphaPilot 운용 수익률", "points": []}
+            return {"key": "alphapilot", "label": "추천 이후 평균 가격 변화", "points": []}
         daily_returns: dict[str, list[float]] = {}
         for cycle in cycles:
             reference_price = cycle.get("reference_price")
@@ -150,11 +154,22 @@ class BenchmarkService:
                     ((float(row["close"]) - float(reference_price)) / float(reference_price)) * 100
                 )
         points = [
-            {"date": date, "return_rate": round(sum(values) / len(values), 4)}
+            {
+                "date": date,
+                "return_rate": round(sum(values) / len(values), 4),
+                "sample_count": len(values),
+            }
             for date, values in sorted(daily_returns.items())[-days:]
             if values
         ]
-        return {"key": "alphapilot", "label": "AlphaPilot 운용 수익률", "points": points}
+        return {
+            "key": "alphapilot",
+            "label": "추천 이후 평균 가격 변화",
+            "points": points,
+            "metric_type": "recommendation_price_change",
+            "investable_return": False,
+            "selection_limit": 50,
+        }
 
     def _cycle_market_result(self, ticker: str, lookback_days: int) -> MarketDataResult | None:
         try:

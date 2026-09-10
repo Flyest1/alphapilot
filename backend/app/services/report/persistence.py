@@ -124,6 +124,13 @@ class ReportPersistence:
         portfolio_summary: dict[str, Any],
         frontend_timezone: str,
     ) -> None:
+        if portfolio_summary.get("valuation_status", "complete") != "complete":
+            return
+        if any(
+            portfolio_summary.get(field, 0) is None
+            for field in ("daily_profit_loss", "daily_return_rate")
+        ):
+            return
         try:
             tz = ZoneInfo(frontend_timezone)
         except Exception:
@@ -254,11 +261,26 @@ class ReportPersistence:
                 "action": strategy.action,
                 "horizon": horizon,
                 "status": "active",
+                "started_at": now,
                 "reference_price": strategy.current_price,
                 "target_price": strategy.target_price,
                 "stop_loss": strategy.stop_loss,
                 **score_fields,
                 "metadata": {
+                    "original_decision": {
+                        "policy_version": "original_decision_v1",
+                        "decision_at": now,
+                        "strategy_id": strategy_row["id"],
+                        "report_id": report["id"],
+                        "ticker": strategy.ticker,
+                        "action": strategy.action,
+                        "horizon": horizon,
+                        "reference_price": strategy.current_price,
+                        "target_price": strategy.target_price,
+                        "stop_loss": strategy.stop_loss,
+                        "confidence": strategy.confidence,
+                        "technical_score": technical_score,
+                    },
                     "technical_score": technical_score,
                     "base_confidence": base_confidence,
                     "calibrated_confidence": calibrated_confidence,
