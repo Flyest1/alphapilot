@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from math import isfinite
 from typing import Any
 
 from app.config import get_env_application_defaults, resolve_application_settings
@@ -48,9 +49,10 @@ class PortfolioService:
             cost_native = quantity * avg_price
             price_result = self._price_result(asset)
             current_price_native = self._current_price(asset, avg_price, price_result)
-            value_native = quantity * current_price_native
+            available = current_price_native is not None
+            value_native = quantity * current_price_native if available else 0.0
             cost = cost_native * fx_rate
-            current_price = current_price_native * fx_rate
+            current_price = current_price_native * fx_rate if available else 0.0
             value = value_native * fx_rate
             profit_loss = value - cost
             return_rate = (profit_loss / cost * 100) if cost else 0.0
@@ -80,7 +82,19 @@ class PortfolioService:
                     "fx_rate": round(fx_rate, 4),
                     "base_currency": "KRW",
                     "avg_price_native": round(avg_price, 4),
-                    "current_price_native": round(current_price_native, 4),
+                    "valuation_status": (
+                        "current"
+                        if available
+                        else "stale" if getattr(price_result, "is_stale", False) else "missing"
+                    ),
+                    "provider": (
+                        "cash" if market == "CASH" else getattr(price_result, "provider", None)
+                    ),
+                    "last_trading_date": str(getattr(price_result, "last_trading_date", "") or "")
+                    or None,
+                    "data_quality_note": getattr(price_result, "data_quality_note", None),
+                    "last_observed_price_native": self._observed_price(price_result),
+                    "current_price_native": round(current_price_native, 4) if available else None,
                     "current_price": round(current_price, 2),
                     "market_value_native": round(value_native, 2),
                     "cost_native": round(cost_native, 2),
@@ -104,6 +118,24 @@ class PortfolioService:
                 )
             )
 
+        complete = all(row["valuation_status"] == "current" for row in rows)
+        valued_count = sum(row["valuation_status"] == "current" for row in rows)
+        for row in rows:
+            if row["valuation_status"] != "current":
+                for key in (
+                    "current_price",
+                    "market_value_native",
+                    "market_value",
+                    "profit_loss",
+                    "return_rate",
+                    "daily_profit_loss",
+                    "daily_return_rate",
+                ):
+                    row[key] = None
+            if row["market"] != "CASH" and row["previous_close_native"] is None:
+                row["daily_profit_loss"] = None
+                row["daily_return_rate"] = None
+        daily_complete = complete and all(row["daily_profit_loss"] is not None for row in rows)
         net_totals = self._apply_cost_adjusted_returns(rows, app_settings)
 
         total_value = totals["total_market_value"]
@@ -116,8 +148,8 @@ class PortfolioService:
 
         allocation = []
         for row in rows:
-            weight = (row["market_value"] / total_value * 100) if total_value else 0.0
-            allocation.append({**row, "weight": round(weight, 2)})
+            weight = (row["market_value"] / total_value * 100) if total_value and complete else 0.0
+            allocation.append({**row, "weight": round(weight, 2) if complete else None})
 
         latest_summary = None
         if latest_report:
@@ -136,14 +168,32 @@ class PortfolioService:
         )
 
         return PortfolioSummaryResponse(
-            total_market_value=round(total_value, 2),
+            valuation_status=(
+                "complete" if complete else "partial" if valued_count else "unavailable"
+            ),
+            valued_market_value=round(total_value, 2),
+            valued_asset_count=valued_count,
+            total_asset_count=len(rows),
+            total_market_value=round(total_value, 2) if complete else None,
             total_cost=round(total_cost, 2),
-            total_profit_loss=round(total_profit_loss, 2),
-            total_return_rate=round(total_return_rate, 2),
-            daily_profit_loss=round(daily_profit_loss, 2),
-            daily_return_rate=round(daily_return_rate, 2),
-            domestic_value=round(totals["domestic_value"], 2),
-            global_value=round(totals["global_value"], 2),
+            total_profit_loss=round(total_profit_loss, 2) if complete else None,
+            total_return_rate=round(total_return_rate, 2) if complete else None,
+            daily_profit_loss=round(daily_profit_loss, 2) if daily_complete else None,
+            daily_return_rate=round(daily_return_rate, 2) if daily_complete else None,
+            domestic_value=(
+                round(totals["domestic_value"], 2)
+                if all(row["market_value"] is not None for row in rows if row["market"] == "KR")
+                else None
+            ),
+            global_value=(
+                round(totals["global_value"], 2)
+                if all(
+                    row["market_value"] is not None
+                    for row in rows
+                    if row["market"] not in {"KR", "CASH"}
+                )
+                else None
+            ),
             cash_value=round(totals["cash_value"], 2),
             base_currency="KRW",
             usd_krw_rate=round(usd_krw_rate, 4),
@@ -157,23 +207,23 @@ class PortfolioService:
                         "daily_return_rate": row["daily_return_rate"],
                     }
                     for row in rows
-                    if row["daily_profit_loss"] != 0
+                    if row["daily_profit_loss"] not in (None, 0)
                 ],
                 key=lambda row: abs(row["daily_profit_loss"]),
                 reverse=True,
             ),
-            value_history=value_history,
+            value_history=value_history if complete else [],
             asset_allocation=allocation,
             asset_returns=rows,
             latest_report_summary=latest_summary,
-            currency_exposure=exposures["currency"],
-            market_exposure=exposures["market"],
-            sector_exposure=exposures["sector"],
-            concentration_warnings=exposures["warnings"],
-            allocation_drift=drift["rows"],
-            rebalance_suggestions=drift["suggestions"],
-            total_net_profit_loss=round(net_totals["net_profit_loss"], 2),
-            total_net_return_rate=round(net_totals["net_return_rate"], 2),
+            currency_exposure=exposures["currency"] if complete else [],
+            market_exposure=exposures["market"] if complete else [],
+            sector_exposure=exposures["sector"] if complete else [],
+            concentration_warnings=exposures["warnings"] if complete else [],
+            allocation_drift=drift["rows"] if complete else [],
+            rebalance_suggestions=drift["suggestions"] if complete else [],
+            total_net_profit_loss=round(net_totals["net_profit_loss"], 2) if complete else None,
+            total_net_return_rate=round(net_totals["net_return_rate"], 2) if complete else None,
         )
 
     def _apply_cost_adjusted_returns(
@@ -191,6 +241,9 @@ class PortfolioService:
         total_net_profit = 0.0
         total_cost = 0.0
         for row in rows:
+            if row.get("market_value") is None:
+                row.update(estimated_costs=None, net_profit_loss=None, net_return_rate=None)
+                continue
             cost = float(row.get("cost") or 0)
             value = float(row.get("market_value") or 0)
             total_cost += cost
@@ -334,6 +387,16 @@ class PortfolioService:
 
     def create_snapshot(self) -> dict[str, Any]:
         summary = self.get_summary()
+        if (
+            summary.valuation_status != "complete"
+            or summary.daily_profit_loss is None
+            or summary.daily_return_rate is None
+        ):
+            return {
+                "snapshot": None,
+                "status": "data-limited",
+                "summary": summary.model_dump(mode="json"),
+            }
         snapshot = self.repository.create_portfolio_snapshot(
             {
                 "report_id": None,
@@ -396,10 +459,18 @@ class PortfolioService:
             )
             return None
 
+    @staticmethod
+    def _observed_price(price_result: Any | None) -> float | None:
+        try:
+            price = float(price_result.current_price)
+            return price if isfinite(price) and price > 0 else None
+        except (AttributeError, TypeError, ValueError):
+            return None
+
     def _current_price(
         self, asset: dict[str, Any], fallback: float, price_result: Any | None
-    ) -> float:
-        if asset.get("market") == "CASH" or self.market_data_service is None:
+    ) -> float | None:
+        if asset.get("market") == "CASH":
             return fallback
         try:
             if (
@@ -407,14 +478,15 @@ class PortfolioService:
                 and price_result.current_price is not None
                 and not price_result.is_stale
             ):
-                return float(price_result.current_price)
+                price = float(price_result.current_price)
+                return price if isfinite(price) and price > 0 else None
         except Exception as exc:
             log_external_failure(
                 "market_data",
                 exc,
                 {"operation": "portfolio_current_price", "ticker": asset.get("ticker")},
             )
-        return fallback
+        return None
 
     def _daily_change(
         self,
@@ -482,8 +554,7 @@ class PortfolioService:
             or price_result.dataframe.empty
             or "close" not in price_result.dataframe
         ):
-            fallback_value = quantity * avg_price * fx_rate
-            return {"kind": "cash", "current_value": fallback_value}
+            return {"kind": "unavailable", "current_value": None}
         frame = price_result.dataframe.tail(35)
         values = {
             index.date().isoformat(): round(float(row["close"]) * quantity * fx_rate, 2)
@@ -492,6 +563,8 @@ class PortfolioService:
         return {"kind": "market", "values": values, "current_value": current_value}
 
     def _portfolio_value_history(self, sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if any(source.get("kind") == "unavailable" for source in sources):
+            return []
         market_dates = sorted(
             {
                 date

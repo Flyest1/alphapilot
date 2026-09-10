@@ -221,7 +221,11 @@ class AdvisoryPipeline:
             )
             context["max_asset_weight_pct"] = float(settings.target_max_asset_pct)
             summary = PortfolioService(self.repository, self.market_data_service).get_summary()
-            context["portfolio_total_value"] = float(summary.total_market_value)
+            context["portfolio_total_value"] = (
+                float(summary.total_market_value)
+                if summary.total_market_value is not None
+                else None
+            )
             asset_market = str((asset or {}).get("market") or "").upper()
             asset_currency = str((asset or {}).get("currency") or "").upper()
             uses_usd = (
@@ -298,7 +302,11 @@ class AdvisoryPipeline:
                 if row.get("market") == "ETF" and row.get("ticker")
             ]
             etf_total = sum(float(row.get("market_value") or 0.0) for row in allocations)
-            if allocations and etf_total > 0:
+            if (
+                allocations
+                and etf_total > 0
+                and all(row.get("market_value") is not None for row in allocations)
+            ):
                 return [
                     {
                         "ticker": str(row["ticker"]).upper(),

@@ -12,7 +12,7 @@ export default function AllocationChart({ allocation = [] }) {
             <div className="bar-track">
               <span style={{ width: `${Math.min(asset.weight, 100)}%` }} />
             </div>
-            <em>{asset.weight}%</em>
+            <em>{asset.weight == null ? "평가 불가" : `${asset.weight}%`}</em>
           </div>
         ))}
       </div>

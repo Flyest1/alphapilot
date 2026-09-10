@@ -4,14 +4,18 @@ from pydantic import BaseModel, ConfigDict, Field
 class PortfolioSummaryResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    total_market_value: float = 0
+    total_market_value: float | None = 0
+    valuation_status: str = "complete"
+    valued_market_value: float = 0
+    valued_asset_count: int = 0
+    total_asset_count: int = 0
     total_cost: float = 0
-    total_profit_loss: float = 0
-    total_return_rate: float = 0
-    daily_profit_loss: float = 0
-    daily_return_rate: float = 0
-    domestic_value: float = 0
-    global_value: float = 0
+    total_profit_loss: float | None = 0
+    total_return_rate: float | None = 0
+    daily_profit_loss: float | None = 0
+    daily_return_rate: float | None = 0
+    domestic_value: float | None = 0
+    global_value: float | None = 0
     cash_value: float = 0
     base_currency: str = "KRW"
     usd_krw_rate: float = 1400
@@ -22,8 +26,8 @@ class PortfolioSummaryResponse(BaseModel):
     concentration_warnings: list[str] = Field(default_factory=list)
     allocation_drift: list[dict] = Field(default_factory=list)
     rebalance_suggestions: list[str] = Field(default_factory=list)
-    total_net_profit_loss: float = 0
-    total_net_return_rate: float = 0
+    total_net_profit_loss: float | None = 0
+    total_net_return_rate: float | None = 0
     value_history: list[dict] = Field(default_factory=list)
     asset_allocation: list[dict] = Field(default_factory=list)
     asset_returns: list[dict] = Field(default_factory=list)

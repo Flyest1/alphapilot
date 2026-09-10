@@ -38,8 +38,8 @@ class MarketSummary(BaseModel):
 class PortfolioSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    total_market_value: float
-    total_return_rate: float
+    total_market_value: float | None
+    total_return_rate: float | None
     risk_level: Literal["low", "medium", "high"]
     allocation_comment: str
 

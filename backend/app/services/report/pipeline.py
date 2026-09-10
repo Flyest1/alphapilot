@@ -248,6 +248,11 @@ class ReportService:
                         "fact_correction_count": len(fact_corrections),
                     },
                 )
+        if portfolio_summary.valuation_status != "complete":
+            content.key_risks.append(
+                "data-limited: 시세 누락 또는 지연으로 "
+                "포트폴리오 전체 평가액과 수익률을 계산할 수 없습니다."
+            )
         content = self._append_news_context_note(content, news_context)
         content = self._append_asset_event_notes(content, asset_events)
         with self._timed_step("confidence_calibration"):
@@ -1076,6 +1081,20 @@ class ReportService:
         return f"{report_type_label(report_type)} 시장 기술 요약: " + "; ".join(parts)
 
     def _report_portfolio_summary(self, summary: dict[str, Any]) -> PortfolioSummary:
+        if (
+            summary.get("valuation_status", "complete") != "complete"
+            or summary.get("total_market_value") is None
+            or summary.get("total_return_rate") is None
+        ):
+            return PortfolioSummary(
+                total_market_value=None,
+                total_return_rate=None,
+                risk_level="medium",
+                allocation_comment=(
+                    "data-limited: 시세 누락 또는 지연으로 "
+                    "전체 평가액·수익률·집중 위험을 계산할 수 없습니다."
+                ),
+            )
         total_value = float(summary.get("total_market_value") or 0)
         total_return = float(summary.get("total_return_rate") or 0)
         allocation = summary.get("asset_allocation") or []
