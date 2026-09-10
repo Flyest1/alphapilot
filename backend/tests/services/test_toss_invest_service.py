@@ -113,11 +113,10 @@ def test_toss_sync_upserts_api_assets_and_reports_manual_duplicates():
     assert linked["avg_price"] == 155.3
 
     stale = repository.get_asset(old_linked["id"])
-    assert stale["quantity"] == 0
-    assert stale["external_payload"]["missing_from_latest_sync"] is True
+    assert stale is None
 
 
-def test_toss_sync_zeroes_holdings_from_previously_selected_account():
+def test_toss_sync_preserves_holdings_from_other_accounts():
     repository = InMemoryRepository()
     previous_account_asset = repository.create_asset(
         {
@@ -161,8 +160,8 @@ def test_toss_sync_zeroes_holdings_from_previously_selected_account():
         http_request=fake_http,
     ).sync_holdings()
 
-    assert result["stale_count"] == 1
-    assert repository.get_asset(previous_account_asset["id"])["quantity"] == 0
+    assert result["stale_count"] == 0
+    assert repository.get_asset(previous_account_asset["id"]) == previous_account_asset
     current = repository.get_asset_by_external_key("toss_invest", "2", "US:AAPL")
     assert current is not None
     assert current["quantity"] == 3
@@ -407,7 +406,7 @@ def test_toss_sync_rejects_invalid_quantity_without_overwriting_asset(quantity):
     assert repository.get_asset(linked["id"])["quantity"] == 3
 
 
-def test_toss_sync_accepts_zero_quantity_as_nonnegative():
+def test_toss_sync_does_not_create_zero_quantity_asset():
     repository = InMemoryRepository()
 
     def fake_http(_method, path, headers=None, body=None):
@@ -433,7 +432,7 @@ def test_toss_sync_accepts_zero_quantity_as_nonnegative():
     TossInvestService(repository, env=_env(), http_request=fake_http).sync_holdings()
 
     linked = repository.get_asset_by_external_key("toss_invest", "1", "US:AAPL")
-    assert linked["quantity"] == 0
+    assert linked is None
 
 
 @pytest.mark.parametrize(
@@ -503,7 +502,7 @@ def test_toss_sync_accepts_zero_average_price_as_nonnegative():
                         "name": "Apple Inc.",
                         "marketCountry": "US",
                         "currency": "USD",
-                        "quantity": "0",
+                        "quantity": "1",
                         "averagePurchasePrice": "0",
                     }
                 ]
@@ -580,3 +579,86 @@ def test_toss_http_error_parses_nested_api_error_detail(monkeypatch):
     message = str(exc_info.value)
     assert "GET /api/v1/accounts" in message
     assert "403 forbidden insufficient permission req-123" in message
+
+
+@pytest.mark.parametrize(
+    "items",
+    [
+        [],
+        [
+            {
+                "symbol": "AAPL",
+                "marketCountry": "US",
+                "currency": "USD",
+                "quantity": "0",
+                "averagePurchasePrice": "0",
+            }
+        ],
+    ],
+)
+@pytest.mark.parametrize("old_quantity", [0, 3])
+def test_toss_sync_removes_closed_position_and_preserves_history(items, old_quantity):
+    repository = InMemoryRepository()
+    asset = repository.create_asset(
+        {
+            "source": "toss_api",
+            "external_provider": "toss_invest",
+            "external_account_id": "1",
+            "external_asset_key": "US:AAPL",
+            "market": "US",
+            "ticker": "AAPL",
+            "name": "Apple",
+            "quantity": old_quantity,
+            "avg_price": 150,
+            "currency": "USD",
+        }
+    )
+    manual = repository.create_asset(
+        {
+            "market": "US",
+            "ticker": "AAPL",
+            "name": "Manual",
+            "quantity": 0,
+            "avg_price": 150,
+            "currency": "USD",
+        }
+    )
+    report = repository.create_report({"report_type": "global", "content": {"summary": "history"}})
+    strategy = repository.create_strategy(
+        {
+            "report_id": report["id"],
+            "asset_id": asset["id"],
+            "ticker": "AAPL",
+            "action": "HOLD",
+        }
+    )
+    log = repository.create_performance_log({"strategy_id": strategy["id"], "ticker": "AAPL"})
+    cycle = repository.create_recommendation_cycle(
+        {"strategy_id": strategy["id"], "ticker": "AAPL"}
+    )
+    snapshot = repository.create_portfolio_snapshot(
+        {"report_id": report["id"], "total_market_value": 450}
+    )
+
+    def fake_http(_method, path, headers=None, body=None):
+        if path == "/oauth2/token":
+            return {"access_token": "token", "token_type": "Bearer"}
+        if path == "/api/v1/accounts":
+            return {"result": [{"accountSeq": 1, "accountType": "BROKERAGE"}]}
+        return {"result": {"items": items}}
+
+    service = TossInvestService(repository, env=_env(), http_request=fake_http)
+    result = service.sync_holdings()
+
+    assert repository.get_asset(asset["id"]) is None
+    assert repository.get_asset(manual["id"]) == manual
+    assert result["synced_count"] == 0
+    assert result["created_count"] == 0
+    assert result["updated_count"] == 0
+    assert result["stale_count"] == 1
+    assert repository.get_report(report["id"]) == report
+    assert repository.list_strategies(report["id"]) == [{**strategy, "asset_id": None}]
+    assert repository.list_performance_logs() == [log]
+    assert repository.list_recommendation_cycles() == [cycle]
+    assert repository.list_portfolio_snapshots() == [snapshot]
+    assert service.sync_holdings()["stale_count"] == 0
