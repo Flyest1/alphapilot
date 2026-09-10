@@ -148,7 +148,14 @@ class PerformanceTracker:
         try:
             cycles = self._open_recommendation_cycles(limit=500)
             for cycle in cycles:
-                self._backfill_cycle_row(cycle)
+                try:
+                    self._backfill_cycle_row(cycle)
+                except Exception as exc:
+                    log_external_failure(
+                        "recommendation_cycles",
+                        exc,
+                        {"operation": "backfill_row", "cycle_id": cycle.get("id")},
+                    )
         except Exception as exc:
             log_external_failure("recommendation_cycles", exc, {"operation": "backfill"})
 
@@ -274,7 +281,7 @@ class PerformanceTracker:
         future_rows = result.dataframe[
             (result.dataframe.index.date > started_at.date())
             & (result.dataframe.index.date <= today)
-        ]
+        ].sort_index()
         if future_rows.empty:
             return self._persist_cycle_updates(cycle, unavailable_updates or {}, comparison_cycle)
         reference_price = cycle.get("reference_price")
@@ -336,5 +343,5 @@ class PerformanceTracker:
             str(cycle.get("action") or ""),
             target_price,
             stop_loss,
-            future_rows,
+            future_rows.sort_index().iloc[: horizon_days(cycle.get("horizon"))],
         )
