@@ -583,8 +583,8 @@ class MarketSummary(BaseModel):
 class PortfolioSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    total_market_value: float
-    total_return_rate: float
+    total_market_value: Optional[float]
+    total_return_rate: Optional[float]
     risk_level: Literal["low", "medium", "high"]
     allocation_comment: str
 
@@ -602,7 +602,10 @@ class ReportContent(BaseModel):
     disclaimer: str
 ```
 
-Do not add fields to this schema without explicit approval. If news/trend information is used, fold it into `summary`, `macro_factors`, `key_risks`, `opportunities`, `reasoning`, or `risk`.
+The 2026-09-10 delegated implementation permits null valuation fields when current quotes are
+incomplete; required keys remain present and data-limited context must be shown. Do not convert
+unknown portfolio values to zero. If news/trend information is used, fold it into `summary`,
+`macro_factors`, `key_risks`, `opportunities`, `reasoning`, or `risk`.
 
 ---
 
@@ -1282,3 +1285,14 @@ and manual advisory behavior remains unchanged. No profit or best-performing str
   comparison and preserved provenance; do not bulk rewrite operating outcomes as part of local tests.
 
 Implementation and research baseline: `docs/profitability_research_plan_2026_09_10.md`.
+
+### Delegated implementation decisions (approved 2026-09-10, follow-up)
+
+The user authorized continuing the entire plan, making reversible decisions autonomously and
+committing each verified task. For this roadmap this overrides routine approval gates for design,
+additive local schemas, API/model changes, research configurations and security implementation.
+Record decisions and their tradeoffs in the execution ledger and report them after implementation.
+Existing production behavior must not silently change through unvalidated strategy promotion.
+Stop for explicit approval before irreversible effects, including live financial orders, destructive
+data changes or non-refundable purchases. Development authorization does not activate live orders.
+Use existing approved providers and dependencies where adequate; any new choice must be documented.
