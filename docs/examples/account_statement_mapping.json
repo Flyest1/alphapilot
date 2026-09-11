@@ -1,0 +1,15 @@
+{
+  "version": "statement_csv_v1",
+  "columns": {
+    "event_key": "synthetic_id",
+    "event_date": "date",
+    "event_type": "type",
+    "currency": "currency",
+    "net_cash_amount": "amount"
+  },
+  "constants": {
+    "timezone": "Asia/Seoul",
+    "precision": "date_only",
+    "quality": "provisional"
+  }
+}
