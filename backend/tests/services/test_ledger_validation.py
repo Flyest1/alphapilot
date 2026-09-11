@@ -41,6 +41,14 @@ def test_preserves_decimal_precision_and_missing_cost():
     assert result["events"][0].fee is None
 
 
+def test_json_decimal_roundtrip_never_uses_exponent_notation():
+    row = validate_events([event(fee="0.000000000001", tax="0.000000000000")])["events"][0]
+    serialized = row.model_dump(mode="json")
+    assert serialized["fee"] == "0.000000000001"
+    assert serialized["tax"] == "0.000000000000"
+    assert not validate_events([serialized])["errors"]
+
+
 @pytest.mark.parametrize(
     "change",
     [

@@ -6,7 +6,7 @@ import re
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, PlainSerializer, model_validator
 
 
 def decimal_amount(value):
@@ -18,7 +18,11 @@ def decimal_amount(value):
     return parsed
 
 
-Amount = Annotated[Decimal, BeforeValidator(decimal_amount)]
+Amount = Annotated[
+    Decimal,
+    BeforeValidator(decimal_amount),
+    PlainSerializer(lambda value: format(value, "f"), return_type=str, when_used="json"),
+]
 Currency = Literal["KRW", "USD"]
 Digest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 Identifier = Annotated[str, Field(min_length=1, max_length=200, pattern=r"^\S(?:.*\S)?$")]
