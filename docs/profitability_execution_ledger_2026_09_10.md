@@ -113,6 +113,11 @@ python scripts/audit_recommendations.py input.json --as-of 2026-09-10 --output a
 
 ### 이전 구현 묶음의 검증 기록
 
+신규 주가 증거 보존 후속 작업: 공급자 옵션·버전·수집 시각·원본 가격/기업행사 열을
+캐시와 보고서 JSON에 보존하고 새 추천 최초 판단에 연결했다. 과거 캐시를 소급 추정하지
+않으며 마감 시각 경과와 종가 확정을 구분한다. [구현과 한계](price_lineage_preservation_2026_09_11.md).
+최신 백엔드 검증은 635개 테스트와 Ruff·Black 통과다.
+
 - 백엔드 전체 599개 테스트 통과, Ruff·Black 통과.
 - 프론트엔드 143개 테스트·lint·build 통과.
 - 런타임 경로 독립 검토, 주문 취소·지연 체결 수정 후 재검토 완료.
