@@ -1,0 +1,127 @@
+{
+  "synthetic": true,
+  "as_of": "2026-09-04",
+  "known_at": "2026-09-10T00:00:00+00:00",
+  "opening": {
+    "account_id": "demo",
+    "as_of": "2026-08-31",
+    "source_record_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "cash_basis": "settled",
+    "cash": {
+      "KRW": "1000000",
+      "USD": "1000"
+    },
+    "receivables": {
+      "KRW": "0",
+      "USD": "0"
+    },
+    "payables": {
+      "KRW": "0",
+      "USD": "0"
+    },
+    "positions": {}
+  },
+  "events": [
+    {
+      "account_id": "demo",
+      "event_key": "trade",
+      "revision": 1,
+      "source_type": "statement",
+      "source_key": "demo:1",
+      "source_record_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "event_type": "trade",
+      "event_date": "2026-09-01",
+      "effective_at": null,
+      "observed_at": "2026-09-04T00:00:00+00:00",
+      "timezone": "Asia/Seoul",
+      "precision": "date_only",
+      "quality": "verified",
+      "currency": "USD",
+      "market": "US",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "quantity": "2",
+      "gross_amount": "200",
+      "fee": "1",
+      "tax": "0",
+      "net_cash_amount": "-201",
+      "settlement_date": "2026-09-03",
+      "settlement_confirmed": true
+    },
+    {
+      "account_id": "demo",
+      "event_key": "dividend",
+      "revision": 1,
+      "source_type": "statement",
+      "source_key": "demo:2",
+      "source_record_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event_type": "dividend",
+      "event_date": "2026-09-01",
+      "effective_at": null,
+      "observed_at": "2026-09-04T00:00:00+00:00",
+      "timezone": "Asia/Seoul",
+      "precision": "date_only",
+      "quality": "verified",
+      "currency": "USD",
+      "market": "US",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "quantity": "2",
+      "gross_amount": "10",
+      "fee": "0",
+      "tax": "1.5",
+      "net_cash_amount": "8.5",
+      "settlement_date": "2026-09-03",
+      "settlement_confirmed": true
+    },
+    {
+      "account_id": "demo",
+      "event_key": "fx",
+      "revision": 1,
+      "source_type": "statement",
+      "source_key": "demo:3",
+      "source_record_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "event_type": "fx_conversion",
+      "event_date": "2026-09-01",
+      "effective_at": null,
+      "observed_at": "2026-09-04T00:00:00+00:00",
+      "timezone": "Asia/Seoul",
+      "precision": "date_only",
+      "quality": "verified",
+      "currency": "KRW",
+      "market": null,
+      "symbol": null,
+      "side": null,
+      "quantity": null,
+      "gross_amount": "140000",
+      "fee": "100",
+      "tax": "0",
+      "net_cash_amount": "-140100",
+      "settlement_date": "2026-09-03",
+      "settlement_confirmed": true,
+      "counter_currency": "USD",
+      "counter_amount": "100"
+    }
+  ],
+  "observed": {
+    "account_id": "demo",
+    "as_of": "2026-09-04",
+    "source_record_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "cash_basis": "settled",
+    "cash": {
+      "KRW": "859900",
+      "USD": "907.5"
+    },
+    "receivables": {
+      "KRW": "0",
+      "USD": "0"
+    },
+    "payables": {
+      "KRW": "0",
+      "USD": "0"
+    },
+    "positions": {
+      "US:AAPL:USD": "2"
+    }
+  }
+}

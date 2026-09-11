@@ -52,6 +52,8 @@ def test_preserves_decimal_precision_and_missing_cost():
         {"source_record_hash": "invalid"},
         {"currency": "EUR"},
         {"effective_at": "2026-09-01T10:00:00"},
+        {"observed_at": "2026-08-31T00:00:00Z"},
+        {"settlement_confirmed": True},
         {"timezone": "fake/zone"},
         {"settlement_date": "2026-08-31"},
         {"unexpected": "field"},
@@ -67,3 +69,10 @@ def test_invalid_row_does_not_discard_valid_rows(change):
 def test_date_only_evidence_is_not_given_a_fabricated_time():
     result = validate_events([event(precision="date_only", effective_at=None)])
     assert result["events"][0].effective_at is None
+
+
+def test_full_numeric_precision_is_accepted_without_context_rounding():
+    number = "99999999999999999999999999.999999999999"
+    result = validate_events([event(gross_amount=number)])
+    assert not result["errors"]
+    assert str(result["events"][0].gross_amount) == number

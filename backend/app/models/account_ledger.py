@@ -13,7 +13,7 @@ def decimal_amount(value):
     if not isinstance(value, (str, Decimal)) or not re.fullmatch(r"-?\d+(\.\d+)?", str(value)):
         raise ValueError("Use a finite decimal string, never float")
     parsed = Decimal(value)
-    if abs(parsed) >= Decimal("1e26") or parsed.as_tuple().exponent < -12:
+    if parsed.copy_abs() >= Decimal("1e26") or parsed.as_tuple().exponent < -12:
         raise ValueError("Exceeds numeric(38,12) precision")
     return parsed
 
@@ -61,6 +61,7 @@ class LedgerEvent(BaseModel):
     tax: Amount | None = None
     net_cash_amount: Amount | None = None
     settlement_date: date | None = None
+    settlement_confirmed: bool = Field(default=False, strict=True)
     counter_currency: Currency | None = None
     counter_amount: Amount | None = None
 
@@ -72,6 +73,8 @@ class LedgerEvent(BaseModel):
             raise ValueError("Unknown timezone") from None
         if self.observed_at.tzinfo is None:
             raise ValueError("observed_at needs timezone")
+        if self.observed_at.astimezone(zone).date() < self.event_date:
+            raise ValueError("Observation predates event")
         if self.precision == "exact_time" and self.effective_at is None:
             raise ValueError("exact_time requires effective_at")
         if self.effective_at is not None:
@@ -79,8 +82,15 @@ class LedgerEvent(BaseModel):
                 raise ValueError("effective_at needs timezone")
             if self.effective_at.astimezone(zone).date() != self.event_date:
                 raise ValueError("effective_at must match event_date in declared timezone")
+            if self.effective_at > self.observed_at:
+                raise ValueError("Observation predates effective time")
         if self.settlement_date and self.settlement_date < self.event_date:
             raise ValueError("Settlement before event date")
+        if self.settlement_confirmed and (
+            self.settlement_date is None
+            or self.settlement_date > self.observed_at.astimezone(ZoneInfo("Asia/Seoul")).date()
+        ):
+            raise ValueError("Settlement confirmation requires elapsed settlement date")
         if self.revision == 1 and self.supersedes_hash is not None:
             raise ValueError("First revision cannot supersede")
         if self.revision > 1 and self.supersedes_hash is None:
