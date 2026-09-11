@@ -46,6 +46,32 @@ class FakeMarketDataWithFx(FakeMarketData):
         return 1450
 
 
+def test_report_persists_price_evidence_and_links_initial_decision():
+    class EvidenceMarketData(FakeMarketData):
+        def fetch_price_history(self, *args, **kwargs):
+            result = super().fetch_price_history(*args, **kwargs)
+            result.price_lineage = {
+                "source_sha256": "frozen-evidence",
+                "raw_daily_bars": {"columns": ["Close"], "data": [[179]]},
+            }
+            return result
+
+    repo = seeded_repo()
+    report = ReportService(
+        repo,
+        market_data_service=EvidenceMarketData(),
+        technical_analysis_service=FakeTechnical(),
+        ai_provider=FailingAI(),
+        news_service=FakeNews(),
+    ).generate_report("domestic")
+    stored = repo.get_report(report["id"])["report_inputs"]["tickers"]["005930"]
+    assert stored["price_lineage"]["raw_daily_bars"]["data"] == [[179]]
+    cycle = next(c for c in repo.list_recommendation_cycles() if c["ticker"] == "005930")
+    original = cycle["metadata"]["original_decision"]
+    assert original["price_lineage"]["source_sha256"] == "frozen-evidence"
+    assert original["report_id"] == report["id"]
+
+
 class FakeTechnical:
     def analyze(self, ticker, _dataframe):
         return TechnicalAnalysisResult(

@@ -24,7 +24,8 @@ class FakeKRProvider:
         self.frame = frame
         self.calls = []
 
-    def get_market_ohlcv_by_date(self, start, end, ticker):
+    def get_market_ohlcv_by_date(self, start, end, ticker, *, adjusted=True):
+        assert adjusted is True
         self.calls.append((start, end, ticker))
         return self.frame
 
@@ -33,7 +34,7 @@ class FakeKRProvider:
 
 
 class FailingKRProvider:
-    def get_market_ohlcv_by_date(self, _start, _end, _ticker):
+    def get_market_ohlcv_by_date(self, _start, _end, _ticker, **_kwargs):
         raise RuntimeError("provider failed")
 
     def get_nearest_business_day_in_a_week(self, date_text):

@@ -26,6 +26,7 @@ def test_original_decision_survives_reused_cycle_target_updates():
         "short",
         cycles,
         technical_score=70,
+        price_lineage={"source_sha256": "first", "raw_daily_bars": {"data": [1]}},
     )
     first = cycles[0]["metadata"]["original_decision"].copy()
     persistence.sync_recommendation_cycle(
@@ -35,6 +36,7 @@ def test_original_decision_survives_reused_cycle_target_updates():
         "short",
         cycles,
         technical_score=90,
+        price_lineage={"source_sha256": "later"},
     )
     assert len(cycles) == 1
     assert cycles[0]["target_price"] == 112
@@ -44,3 +46,5 @@ def test_original_decision_survives_reused_cycle_target_updates():
     assert first["strategy_id"] == "first-strategy"
     assert first["technical_score"] == 70
     assert first["decision_at"] == cycles[0]["started_at"]
+    assert first["price_lineage"]["source_sha256"] == "first"
+    assert "raw_daily_bars" not in first["price_lineage"]
