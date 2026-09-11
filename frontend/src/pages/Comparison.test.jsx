@@ -103,3 +103,12 @@ describe("Comparison page", () => {
     expect(screen.getByRole("button", { name: "10일" })).toHaveClass("active");
   });
 });
+
+describe("comparison metric definitions", () => {
+  it("describes valuation changes without claiming actual portfolio returns", async () => {
+    api.portfolio.benchmarkReturns.mockResolvedValue({ series: [] });
+    render(<Comparison />);
+    await screen.findByText(/보유자산 평가액 변화/);
+    expect(screen.queryByText(/실제 포트폴리오 수익률/)).not.toBeInTheDocument();
+  });
+});

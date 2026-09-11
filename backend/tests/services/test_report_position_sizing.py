@@ -143,7 +143,7 @@ def test_candidates_receive_position_sizing_amount_range():
     assert saved_inputs["tickers"][sized[0].ticker]["position_sizing"] == sizing
     assert saved_inputs["tickers"][sized[0].ticker]["sector"] == "Communication Services"
     assert saved_inputs["settings"]["position_sizing"]["minimum_ev_outcome_samples"] == 30
-    assert saved_inputs["portfolio_risk"]["model_version"] == "portfolio-risk-v1"
+    assert saved_inputs["portfolio_risk"]["model_version"] == "portfolio-risk-v2"
     assert saved_inputs["portfolio_risk"]["candidate_order"] == [sized[0].ticker]
     # 보유 자산에는 사이징을 제공하지 않는다
     assert owned.position_sizing is None

@@ -44,6 +44,8 @@ class CapturingMarketData(StaticMarketData):
 
 
 def price_frame(rows):
+    # Include the actual prior session so forward windows have a history anchor.
+    rows = [("2025-12-31", 100, 100, 100, 100), *rows]
     index = pd.to_datetime([row[0] for row in rows])
     return pd.DataFrame(
         {
@@ -79,6 +81,54 @@ def backfill(cycle, dataframe):
     stored = create_cycle(repository, **cycle)
     PerformanceTracker(repository, StaticMarketData(dataframe)).backfill_recommendation_cycles()
     return next(row for row in repository.list_recommendation_cycles() if row["id"] == stored["id"])
+
+
+@pytest.mark.parametrize("late_price", [120, 80])
+@pytest.mark.parametrize("reverse_rows", [False, True])
+def test_short_horizon_expires_before_late_barrier_and_keeps_forward_returns(
+    late_price, reverse_rows
+):
+    dates = pd.bdate_range("2026-01-02", periods=20)
+    rows = [
+        (day, price, price, price, price)
+        for index, day in enumerate(dates)
+        for price in [100 if index < 5 else late_price]
+    ]
+    if reverse_rows:
+        rows.reverse()
+
+    updated = backfill({"horizon": "short"}, price_frame(rows))
+
+    assert updated["status"] == "expired"
+    assert updated["closed_at"] == "2026-01-08T00:00:00+00:00"
+    assert updated.get("barrier_hit_at") is None
+    assert updated["return_after_5d"] == 0
+    assert updated["return_after_20d"] == late_price - 100
+
+
+def test_failed_cycle_does_not_block_other_pending_cycles(monkeypatch):
+    repository = InMemoryRepository()
+    healthy = create_cycle(repository, ticker="AAPL")
+    broken = create_cycle(repository, ticker="BROKEN")
+    monkeypatch.setattr(
+        repository, "list_open_recommendation_cycles", lambda limit: [broken, healthy]
+    )
+
+    class PartiallyUnavailableMarketData(StaticMarketData):
+        def fetch_price_history(self, market, ticker, **kwargs):
+            if ticker == "BROKEN":
+                raise RuntimeError("Market data unavailable")
+            return super().fetch_price_history(market, ticker, **kwargs)
+
+    dataframe = price_frame([("2026-01-02", 100, 111, 99, 110)])
+    PerformanceTracker(
+        repository, PartiallyUnavailableMarketData(dataframe)
+    ).backfill_recommendation_cycles()
+
+    updated = next(
+        row for row in repository.list_recommendation_cycles() if row["id"] == healthy["id"]
+    )
+    assert updated["status"] == "hit_target"
 
 
 @pytest.mark.parametrize("action", ["BUY", "HOLD", "WATCH"])
@@ -169,6 +219,7 @@ def test_cycle_still_expires_after_horizon_without_barrier_hit():
         },
         index=dates,
     )
+    dataframe.loc[pd.Timestamp("2025-12-31")] = [100, 100, 100, 100, 1000]
 
     updated = backfill({"horizon": "short"}, dataframe)
 

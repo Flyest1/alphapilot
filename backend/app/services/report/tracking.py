@@ -134,21 +134,35 @@ class PerformanceTracker:
 
     def backfill_performance_logs(self) -> None:
         try:
-            logs = self._unevaluated_performance_logs(limit=250)
+            logs = self._unevaluated_performance_logs()
             strategies = {row["id"]: row for row in self.repository.list_strategies()}
             for log_row in logs:
                 strategy = strategies.get(log_row.get("strategy_id"))
                 if not strategy:
                     continue
-                self._backfill_log_row(log_row, strategy)
+                try:
+                    self._backfill_log_row(log_row, strategy)
+                except Exception as exc:
+                    log_external_failure(
+                        "performance_logs",
+                        exc,
+                        {"operation": "backfill_row", "log_id": log_row.get("id")},
+                    )
         except Exception as exc:
             log_external_failure("performance_logs", exc, {"operation": "backfill"})
 
     def backfill_recommendation_cycles(self) -> None:
         try:
-            cycles = self._open_recommendation_cycles(limit=500)
+            cycles = self._open_recommendation_cycles()
             for cycle in cycles:
-                self._backfill_cycle_row(cycle)
+                try:
+                    self._backfill_cycle_row(cycle)
+                except Exception as exc:
+                    log_external_failure(
+                        "recommendation_cycles",
+                        exc,
+                        {"operation": "backfill_row", "cycle_id": cycle.get("id")},
+                    )
         except Exception as exc:
             log_external_failure("recommendation_cycles", exc, {"operation": "backfill"})
 
@@ -191,7 +205,7 @@ class PerformanceTracker:
                 recalculated += 1
         return recalculated
 
-    def _unevaluated_performance_logs(self, limit: int) -> list[dict[str, Any]]:
+    def _unevaluated_performance_logs(self, limit: int | None = None) -> list[dict[str, Any]]:
         lister = getattr(self.repository, "list_unevaluated_performance_logs", None)
         if lister is not None:
             return lister(limit=limit)
@@ -201,7 +215,7 @@ class PerformanceTracker:
             if row.get("price_after_20d") is None
         ]
 
-    def _open_recommendation_cycles(self, limit: int) -> list[dict[str, Any]]:
+    def _open_recommendation_cycles(self, limit: int | None = None) -> list[dict[str, Any]]:
         lister = getattr(self.repository, "list_open_recommendation_cycles", None)
         if lister is not None:
             return lister(limit=limit)
@@ -224,17 +238,27 @@ class PerformanceTracker:
         ticker = strategy.get("ticker")
         if not ticker:
             return
-        result = self._price_history(str(ticker), lookback_days=90)
-        if result.dataframe.empty:
-            return
         created_at = parse_iso_datetime(strategy.get("created_at") or log_row.get("created_at"))
         if created_at is None:
             return
         today = datetime.now(timezone.utc).date()
+        age_days = max(0, (today - created_at.date()).days)
+        result = self._price_history(str(ticker), lookback_days=max(90, age_days + 30))
+        if result.dataframe.empty:
+            return
+        # Require an anchor at/before recommendation time; a truncated provider
+        # response must never be numbered as the original forward trading days.
+        if result.dataframe.index.min().date() > created_at.date():
+            log_external_failure(
+                "performance_logs",
+                ValueError("missing_recommendation_history_anchor"),
+                {"operation": "backfill_row", "log_id": log_row.get("id")},
+            )
+            return
         future_rows = result.dataframe[
             (result.dataframe.index.date > created_at.date())
             & (result.dataframe.index.date <= today)
-        ]
+        ].sort_index()
         updates: dict[str, Any] = {}
         base_price = log_row.get("price_at_recommendation") or strategy.get("current_price")
         if base_price is None:
@@ -271,10 +295,17 @@ class PerformanceTracker:
         result = self._price_history(str(ticker), lookback_days=max(160, age_days + 30))
         if result.dataframe.empty:
             return self._persist_cycle_updates(cycle, unavailable_updates or {}, comparison_cycle)
+        if result.dataframe.index.min().date() > started_at.date():
+            log_external_failure(
+                "recommendation_cycles",
+                ValueError("missing_recommendation_history_anchor"),
+                {"operation": "backfill_row", "cycle_id": cycle.get("id")},
+            )
+            return self._persist_cycle_updates(cycle, unavailable_updates or {}, comparison_cycle)
         future_rows = result.dataframe[
             (result.dataframe.index.date > started_at.date())
             & (result.dataframe.index.date <= today)
-        ]
+        ].sort_index()
         if future_rows.empty:
             return self._persist_cycle_updates(cycle, unavailable_updates or {}, comparison_cycle)
         reference_price = cycle.get("reference_price")
@@ -336,5 +367,5 @@ class PerformanceTracker:
             str(cycle.get("action") or ""),
             target_price,
             stop_loss,
-            future_rows,
+            future_rows.sort_index().iloc[: horizon_days(cycle.get("horizon"))],
         )

@@ -93,6 +93,15 @@ def test_reduce_action_uses_directional_target_and_stop_with_atr():
     assert reduce_strategy.stop_loss == 108  # 100 + 2×ATR
 
 
+class CurrentQuotes:
+    def fetch_price_history(self, market, ticker):
+        return SimpleNamespace(
+            current_price=100000 if market == "KR" else 100,
+            is_stale=False,
+            dataframe=pd.DataFrame(),
+        )
+
+
 def seed_portfolio(repo):
     repo.upsert_settings({"usd_krw_rate": 1000})
     repo.create_asset(
@@ -122,7 +131,7 @@ def test_allocation_drift_rows_and_suggestions():
     seed_portfolio(repo)
     # 목표: 국내 40 / 글로벌 40 / 현금 20. 실제: 국내 70 / 글로벌 0 / 현금 30.
 
-    summary = PortfolioService(repo).get_summary()
+    summary = PortfolioService(repo, CurrentQuotes()).get_summary()
     drift = {row["key"]: row for row in summary.allocation_drift}
 
     assert drift["domestic"]["actual_pct"] == 70
@@ -148,7 +157,7 @@ def test_drift_respects_custom_targets_and_band():
         }
     )
 
-    summary = PortfolioService(repo).get_summary()
+    summary = PortfolioService(repo, CurrentQuotes()).get_summary()
 
     assert summary.rebalance_suggestions == []
     assert all(row["exceeded"] is False for row in summary.allocation_drift)
@@ -185,7 +194,7 @@ def test_net_returns_subtract_fees_taxes_and_fx_spread():
         }
     )
 
-    summary = PortfolioService(repo).get_summary()
+    summary = PortfolioService(repo, CurrentQuotes()).get_summary()
     rows = {row["ticker"]: row for row in summary.asset_returns}
 
     # KR: 매수 수수료 0.1% × 100,000 + 매도 (0.1% + 0.2%) × 100,000 = 100 + 300 = 400

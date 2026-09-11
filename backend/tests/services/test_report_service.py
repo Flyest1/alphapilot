@@ -719,8 +719,9 @@ def test_backfill_recommendation_cycles_updates_returns_and_status():
     updated = next(row for row in repo.list_recommendation_cycles() if row["id"] == cycle["id"])
     assert updated["price_after_1d"] == 51
     assert updated["return_after_1d"] == -49
-    assert updated["status"] == "hit_target"
-    assert updated["closed_at"]
+    # This fixture's highs reach the target only after the 20-session horizon.
+    assert updated["status"] == "expired"
+    assert updated["closed_at"] == "2026-01-29T00:00:00+00:00"
 
 
 def test_infer_market_treats_alphanumeric_six_character_codes_as_kr():

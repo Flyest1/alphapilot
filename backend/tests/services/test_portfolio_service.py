@@ -235,3 +235,109 @@ def test_benchmark_service_returns_index_actual_and_alphapilot_series():
     assert by_key["kospi"]["points"][-1]["return_rate"] == 5
     assert by_key["actual_portfolio"]["points"][-1]["return_rate"] == 10
     assert by_key["alphapilot"]["points"][-1]["return_rate"] == 20
+
+
+def test_missing_quote_is_not_valued_at_purchase_price():
+    repo = InMemoryRepository()
+    repo.create_asset(dict(market="KR", ticker="005930", name="Stock", quantity=2, avg_price=100))
+    repo.create_asset(dict(market="CASH", ticker="KRW", name="Cash", quantity=1000, avg_price=1))
+    summary = PortfolioService(repo).get_summary()
+    assert summary.total_market_value is None
+    assert summary.total_profit_loss is None
+    assert summary.total_return_rate is None
+    assert summary.valuation_status == "partial"
+    assert summary.valued_market_value == 1000
+    assert summary.valued_asset_count == 1
+    assert summary.asset_returns[0]["current_price"] is None
+    assert summary.asset_returns[0]["valuation_status"] == "missing"
+    assert summary.value_history == []
+    assert summary.rebalance_suggestions == []
+    result = PortfolioService(repo).create_snapshot()
+    assert result["snapshot"] is None
+    assert repo.list_portfolio_snapshots() == []
+
+
+def test_stale_quote_preserves_origin_without_claiming_current_valuation():
+    class StaleMarket(FakeMarketData):
+        def fetch_price_history(self, market, ticker):
+            result = super().fetch_price_history(market, ticker)
+            result.is_stale = True
+            result.provider = "pykrx"
+            result.last_trading_date = "2026-05-21"
+            return result
+
+    repo = InMemoryRepository()
+    repo.create_asset(dict(market="KR", ticker="005930", name="Stock", quantity=2, avg_price=100))
+    summary = PortfolioService(repo, StaleMarket()).get_summary()
+    assert summary.total_market_value is None
+    assert summary.valuation_status == "unavailable"
+    row = summary.asset_returns[0]
+    assert row["valuation_status"] == "stale"
+    assert row["provider"] == "pykrx"
+    assert row["last_trading_date"] == "2026-05-21"
+    assert row["last_observed_price_native"] == 120
+    assert row["net_return_rate"] is None
+
+
+def test_report_summary_preserves_unavailable_valuation():
+    from app.services.report.pipeline import ReportService
+
+    service = ReportService.__new__(ReportService)
+    result = service._report_portfolio_summary(
+        {"valuation_status": "partial", "total_market_value": None, "total_return_rate": None}
+    )
+    assert result.total_market_value is None
+    assert result.total_return_rate is None
+    assert "data-limited" in result.allocation_comment
+
+
+def test_invalid_quote_is_json_safe_and_cannot_create_a_valuation():
+    class InvalidMarket(FakeMarketData):
+        def fetch_price_history(self, market, ticker):
+            result = super().fetch_price_history(market, ticker)
+            result.current_price = float("nan")
+            return result
+
+    repo = InMemoryRepository()
+    repo.create_asset(dict(market="KR", ticker="005930", name="Stock", quantity=1, avg_price=100))
+    summary = PortfolioService(repo, InvalidMarket()).get_summary()
+    assert summary.asset_returns[0]["last_observed_price_native"] is None
+    assert summary.domestic_value is None
+
+
+def test_single_close_does_not_claim_zero_daily_change():
+    class SingleCloseMarket(FakeMarketData):
+        def fetch_price_history(self, market, ticker):
+            result = super().fetch_price_history(market, ticker)
+            result.dataframe = result.dataframe.tail(1)
+            return result
+
+    repo = InMemoryRepository()
+    repo.create_asset(dict(market="KR", ticker="005930", name="Stock", quantity=1, avg_price=100))
+    summary = PortfolioService(repo, SingleCloseMarket()).get_summary()
+    assert summary.total_market_value == 120
+    assert summary.daily_profit_loss is None
+    assert summary.daily_return_rate is None
+    assert summary.asset_returns[0]["daily_profit_loss"] is None
+
+
+def test_missing_price_history_does_not_draw_purchase_cost_as_market_value():
+    class NoHistoryMarket(FakeMarketData):
+        def fetch_price_history(self, market, ticker):
+            result = super().fetch_price_history(market, ticker)
+            result.dataframe = pd.DataFrame()
+            return result
+
+    repo = InMemoryRepository()
+    repo.create_asset(dict(market="KR", ticker="005930", name="Stock", quantity=1, avg_price=100))
+    summary = PortfolioService(repo, NoHistoryMarket()).get_summary()
+    assert summary.total_market_value == 120
+    assert summary.value_history == []
+
+
+def test_report_prompt_explicitly_preserves_unavailable_portfolio_values():
+    from app.services.report.prompt_builder import build_prompt
+
+    prompt = build_prompt("global")
+    assert "Preserve null portfolio values" in prompt
+    assert "never replace them with zero or purchase cost" in prompt

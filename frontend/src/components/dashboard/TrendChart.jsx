@@ -20,13 +20,13 @@ function compactKrw(value) {
 }
 
 function PortfolioTrend({ points = [] }) {
-  if (points.length < 2) {
+  if (points.filter((point) => point.total_market_value != null).length < 2) {
     return <p className="empty-state">차트로 표시할 기간 데이터가 아직 부족합니다.</p>;
   }
   const data = points.map((point) => ({
     date: point.date,
-    total: Number(point.total_market_value || 0),
-    change: Number(point.daily_profit_loss || 0),
+    total: point.total_market_value == null ? null : Number(point.total_market_value),
+    change: point.daily_profit_loss == null ? null : Number(point.daily_profit_loss),
   }));
 
   return (
@@ -89,7 +89,11 @@ export default function TrendChart({ summary, chartRange, onChangeRange }) {
           <p>최신 거래일 종가와 직전 거래일 종가 차이를 KRW 기준으로 환산한 값입니다.</p>
         </div>
         <div className="inline-metrics">
-          <span>{summary?.daily_return_rate ?? 0}%</span>
+          <span>
+            {summary?.daily_return_rate == null
+              ? "일간 수익률 계산 불가"
+              : `${summary.daily_return_rate}%`}
+          </span>
           <span>현금 {formatMoney(summary?.cash_value)} KRW</span>
         </div>
       </div>

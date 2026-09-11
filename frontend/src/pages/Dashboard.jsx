@@ -83,7 +83,11 @@ export default function Dashboard() {
     try {
       const result = await api.portfolio.snapshot();
       setSummary(result.summary);
-      setSnapshotStatus("현재 환율과 시세 기준으로 자산 스냅샷을 저장했습니다.");
+      setSnapshotStatus(
+        result.snapshot
+          ? "현재 환율과 시세 기준으로 자산 스냅샷을 저장했습니다."
+          : "시세 누락 또는 지연으로 스냅샷을 저장하지 않았습니다.",
+      );
       await loadDashboard({ background: true });
     } catch (err) {
       setError(err.message);

@@ -160,7 +160,7 @@ def test_pipeline_uses_owned_etfs_when_request_has_no_positions():
 
     positions = pipeline._positions(SimpleNamespace(positions=[]))
 
-    assert positions == [{"ticker": "SPY", "weight_pct": 100.0}]
+    assert positions == [{"ticker": "SPY", "weight_pct": None}]
 
 
 def test_pipeline_prepares_traceable_result_metadata():
@@ -401,3 +401,28 @@ def test_sector_market_input_coverage_marks_unavailable_macro_inputs():
     assert coverage["interest_rate_outlook"]["status"] == "data-limited"
     assert coverage["corporate_earnings"]["status"] == "data-limited"
     assert coverage["etf_flows"]["status"] == "data-limited"
+
+
+def test_owned_etf_weights_remain_unknown_when_one_quote_is_missing():
+    import pandas as pd
+
+    class PartialMarket(FakeMarketData):
+        def fetch_price_history(self, market, ticker):
+            return SimpleNamespace(
+                current_price=100 if ticker == "SPY" else None,
+                is_stale=False,
+                dataframe=pd.DataFrame(),
+            )
+
+    repository = InMemoryRepository()
+    for ticker in ["SPY", "QQQ"]:
+        repository.create_asset(
+            dict(
+                market="ETF", ticker=ticker, name=ticker, quantity=1, avg_price=100, currency="USD"
+            )
+        )
+    pipeline = AdvisoryPipeline(repository, PartialMarket(), yf_module=FakeYFinance())
+    assert pipeline._positions(SimpleNamespace(positions=[])) == [
+        {"ticker": "SPY", "weight_pct": None},
+        {"ticker": "QQQ", "weight_pct": None},
+    ]

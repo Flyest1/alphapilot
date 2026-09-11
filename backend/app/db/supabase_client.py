@@ -1267,7 +1267,27 @@ class SupabaseRepository:
         builder = self.client.table("strategies").select("*").order("created_at", desc=True)
         if report_id is not None:
             builder = builder.eq("report_id", report_id)
-        return self._run(builder, {"operation": "list_strategies", "report_id": report_id})
+        return self._run_all_pages(
+            builder, {"operation": "list_strategies", "report_id": report_id}
+        )
+
+    def _run_all_pages(
+        self, builder: Any, context: dict[str, Any], limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Gather a stable ordered worklist before callers mutate pending rows.
+
+        Advance by the received count because the server can cap pages below
+        the requested range. Only an empty page establishes exhaustion.
+        """
+        builder = builder.order("id", desc=True)
+        rows: list[dict[str, Any]] = []
+        while limit is None or len(rows) < limit:
+            count = 500 if limit is None else min(500, limit - len(rows))
+            page = self._run(builder.range(len(rows), len(rows) + count - 1), context)
+            if not page:
+                break
+            rows.extend(page)
+        return rows
 
     def create_performance_log(self, data: dict[str, Any]) -> dict[str, Any]:
         builder = self.client.table("performance_logs").insert(data)
@@ -1287,9 +1307,9 @@ class SupabaseRepository:
             .is_("price_after_20d", "null")
             .order("created_at", desc=True)
         )
-        if limit is not None:
-            builder = builder.limit(limit)
-        return self._run(builder, {"operation": "list_unevaluated_performance_logs"})
+        return self._run_all_pages(
+            builder, {"operation": "list_unevaluated_performance_logs"}, limit
+        )
 
     def update_performance_log(self, log_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
         builder = self.client.table("performance_logs").update(data).eq("id", log_id)
@@ -1435,9 +1455,7 @@ class SupabaseRepository:
             .or_("status.eq.active,price_after_60d.is.null")
             .order("created_at", desc=True)
         )
-        if limit is not None:
-            builder = builder.limit(limit)
-        return self._run(builder, {"operation": "list_open_recommendation_cycles"})
+        return self._run_all_pages(builder, {"operation": "list_open_recommendation_cycles"}, limit)
 
     def get_market_data_cache(self, cache_key: str) -> dict[str, Any] | None:
         builder = (

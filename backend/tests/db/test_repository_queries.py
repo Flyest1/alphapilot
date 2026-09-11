@@ -1,11 +1,15 @@
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
 
+import pandas as pd
+import pytest
 from httpx import RemoteProtocolError
 from tenacity import wait_none
 
 from app.db.supabase_client import InMemoryRepository, SupabaseRepository
+from app.services.report.tracking import PerformanceTracker
 
 
 class _RetryBuilder:
@@ -194,6 +198,101 @@ def test_list_open_recommendation_cycles_keeps_active_and_unevaluated():
     rows = repo.list_open_recommendation_cycles(limit=10)
 
     assert {row["id"] for row in rows} == {active["id"], pending["id"]}
+
+
+class _CappedQuery:
+    def __init__(self, rows):
+        self.rows = rows
+        self.orders = []
+        self.bounds = (0, 99999)
+
+    def select(self, _columns):
+        return self
+
+    def is_(self, field, _value):
+        self.rows = [row for row in self.rows if row.get(field) is None]
+        return self
+
+    def or_(self, _expression):
+        self.rows = [
+            row
+            for row in self.rows
+            if row.get("status") == "active" or row.get("price_after_60d") is None
+        ]
+        return self
+
+    def order(self, field, desc=False):
+        self.orders.append((field, desc))
+        return self
+
+    def limit(self, count):
+        self.bounds = (0, count - 1)
+        return self
+
+    def range(self, start, end):
+        self.bounds = (start, end)
+        return self
+
+    def execute(self):
+        rows = self.rows
+        for field, desc in reversed(self.orders):
+            rows = sorted(rows, key=lambda row: row[field], reverse=desc)
+        start, end = self.bounds
+        return _CaptureResponse(rows[start : min(end + 1, start + 73)])
+
+
+class _CappedClient:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def table(self, _name):
+        return _CappedQuery(self.rows)
+
+
+@pytest.mark.parametrize(
+    "method",
+    ["list_open_recommendation_cycles", "list_unevaluated_performance_logs", "list_strategies"],
+)
+def test_pending_queries_paginate_past_server_cap_with_stable_tie_order(method):
+    rows = [{"id": f"{i:04d}", "created_at": "2020-01-01", "status": "active"} for i in range(1101)]
+    repo = SupabaseRepository(client=_CappedClient(rows))
+    result = getattr(repo, method)()
+    assert [row["id"] for row in result] == [f"{i:04d}" for i in reversed(range(1101))]
+
+
+@pytest.mark.parametrize(
+    "method", ["list_open_recommendation_cycles", "list_unevaluated_performance_logs"]
+)
+def test_pending_queries_preserve_explicit_limit_across_server_pages(method):
+    rows = [{"id": f"{i:04d}", "created_at": "2020-01-01", "status": "active"} for i in range(600)]
+    result = getattr(SupabaseRepository(client=_CappedClient(rows)), method)(limit=250)
+    assert len(result) == 250
+    assert result[-1]["id"] == "0350"
+
+
+def test_cycle_backfill_gathers_pages_before_pending_updates_shrink_results(monkeypatch):
+    rows = [
+        {
+            "id": f"{i:04d}",
+            "created_at": "2020-01-01",
+            "started_at": "2020-01-01",
+            "status": "active",
+            "ticker": "AAPL",
+            "reference_price": 100,
+        }
+        for i in range(1101)
+    ]
+    repo = SupabaseRepository(client=_CappedClient(rows))
+    frame = pd.DataFrame({"close": [100] * 81}, index=pd.bdate_range("2020-01-01", periods=81))
+    market = SimpleNamespace(fetch_price_history=lambda *a, **kw: SimpleNamespace(dataframe=frame))
+
+    def persist(cycle_id, updates):
+        next(row for row in rows if row["id"] == cycle_id).update(updates)
+
+    monkeypatch.setattr(repo, "update_recommendation_cycle", persist)
+    PerformanceTracker(repo, market).backfill_recommendation_cycles()
+    assert len([row for row in rows if row.get("price_after_60d") == 100]) == 1101
+    assert all(row["status"] == "expired" for row in rows)
 
 
 def test_market_data_cache_roundtrip():

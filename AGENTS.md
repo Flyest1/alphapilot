@@ -4,7 +4,7 @@
 
 This file is the single source of truth for AlphaPilot after MVP completion.
 
-AlphaPilot is a single-user personal AI investment decision-support system. The MVP is implemented and deployed with free infrastructure. Future work must improve reliability, data quality, portfolio intelligence, and user experience without adding automatic trading or broker execution.
+AlphaPilot is a single-user personal AI investment decision-support system. The MVP is implemented and deployed with free infrastructure. Future work must improve reliability, data quality, portfolio intelligence, and user experience. On 2026-09-10 the user approved staged autonomous-operation development using Toss Invest; the approval and activation boundaries below govern that work.
 
 The product should act like a personal CIO / investment strategist:
 
@@ -12,7 +12,7 @@ The product should act like a personal CIO / investment strategist:
 Return optimization = expected return * probability of success - downside risk - volatility risk - concentration risk - liquidity risk
 ```
 
-All recommendations are decision-support information only. They must never imply guaranteed profit or execute trades.
+All recommendations are decision-support information only. They must never imply guaranteed profit. A recommendation alone must never trigger a live trade; execution is governed by the staged authorization below.
 
 ---
 
@@ -23,7 +23,7 @@ All recommendations are decision-support information only. They must never imply
 3. **Whitelist enforcement.** Do not introduce libraries, external services, hosting providers, API providers, scraping methods, schedulers, or UI frameworks that are not explicitly allowed here.
 4. **No silent omission.** If a documented requirement cannot be implemented in the current environment, state it clearly and keep the implementation locally testable with mocks where appropriate.
 5. **Code-as-spec wins over prose.** Pydantic models, SQL schemas, public API contracts, and JSON examples in this document are authoritative.
-6. **No trading code.** Do not create functions, classes, modules, routes, buttons, placeholders, or stubs for order placement, trade execution, or automatic trading. Broker API usage is allowed only for the explicitly approved read-only Toss Invest account/holdings sync described below.
+6. **Staged trading development.** Toss Invest execution development is approved under the 2026-09-10 staged authorization below. Existing report, advisory, scheduler, and holdings-sync workflows must remain unable to place orders. Live execution is disabled until its activation conditions are met.
 7. **Commit discipline.** Use Conventional Commits. Keep commits scoped to the current roadmap step.
 8. **Test before commit.** Code changes must pass:
 
@@ -97,10 +97,10 @@ Future work must preserve these capabilities while improving reliability and inv
 
 AlphaPilot must not:
 
-- place orders
-- connect to broker APIs except the explicitly approved read-only Toss Invest account/holdings sync
+- place live orders before the staged activation conditions below are met
+- connect to broker APIs other than Toss Invest within the approved staged scope
 - implement paper trading as if it were execution
-- create trade execution stubs
+- expose unfinished execution paths to operating workflows
 - promise guaranteed profit
 - imply risk-free returns
 - expose OpenAI keys, Supabase keys, scheduler secrets, or database credentials to the frontend
@@ -206,12 +206,13 @@ Only these external services are allowed:
                                XML, official Archives complete-submission text, and N-PORT data)
 - FRED API                    (free, read-only macroeconomic observations; backend API key required)
 - Telegram Bot API            (notification channel, Phase 9; user must provide bot token via backend env var)
-- Toss Invest Open API        (read-only account/holdings sync only; no order endpoints)
+- Toss Invest Open API        (holdings sync; staged execution development approved 2026-09-10)
 ```
 
 Toss Invest Open API exception (approved 2026-06):
 
-- Allowed only for read-only account and holdings synchronization.
+- Operating integration remains read-only account and holdings synchronization; staged execution
+  development is governed by the 2026-09-10 authorization below.
 - Approved 2026-09-10: include KRW/USD `cashBuyingPower` from
   `GET /api/v1/buying-power?currency=KRW|USD` solely for read-only available-cash sync.
   Label it "토스 가용 현금" (cash-based buying power, not actual deposits/withdrawable cash)
@@ -226,7 +227,7 @@ Toss Invest Open API exception (approved 2026-06):
   Failed or invalid sync responses must not delete assets.
 - Manual assets must remain supported so the user can delete duplicates after sync review.
 - Toss credentials must live only in backend environment variables or `.env`, never in frontend code, localStorage, Supabase, GitHub Pages, or committed files.
-- Do not implement or call order create, order modify, order cancel, broker execution, automatic trading, order preview, buying-power checks for execution, sellable-quantity checks for execution, or any route/button/stub that could become a trading workflow.
+- The original read-only restriction is superseded only for the staged development scope below. Operating holdings synchronization remains read-only and must not invoke execution endpoints.
 
 SEC EDGAR and FRED exceptions (approved 2026-07):
 
@@ -588,8 +589,8 @@ class MarketSummary(BaseModel):
 class PortfolioSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    total_market_value: float
-    total_return_rate: float
+    total_market_value: Optional[float]
+    total_return_rate: Optional[float]
     risk_level: Literal["low", "medium", "high"]
     allocation_comment: str
 
@@ -607,7 +608,10 @@ class ReportContent(BaseModel):
     disclaimer: str
 ```
 
-Do not add fields to this schema without explicit approval. If news/trend information is used, fold it into `summary`, `macro_factors`, `key_risks`, `opportunities`, `reasoning`, or `risk`.
+The 2026-09-10 delegated implementation permits null valuation fields when current quotes are
+incomplete; required keys remain present and data-limited context must be shown. Do not convert
+unknown portfolio values to zero. If news/trend information is used, fold it into `summary`,
+`macro_factors`, `key_risks`, `opportunities`, `reasoning`, or `risk`.
 
 ---
 
@@ -1247,6 +1251,54 @@ A post-MVP step is complete when:
 3. Required commands pass.
 4. README or setup instructions are updated if needed.
 5. No unapproved external services or libraries were added.
-6. No trading/execution code was introduced.
+6. Any trading-related development complies with the staged authorization below; no live execution was activated without explicit activation approval.
 7. Changes are committed with a Conventional Commit.
 8. Deployment changes are pushed when the user expects the hosted site to update.
+
+
+## Staged Autonomous Operation Authorization (approved 2026-09-10)
+
+The user explicitly approved revising this document and starting implementation toward autonomous
+operation and improved profitability. This section overrides historical blanket prohibitions on
+trading development in this document **only for this new roadmap**. Existing Phase 5 decision-support
+and manual advisory behavior remains unchanged. No profit or best-performing strategy is guaranteed.
+
+- Approved broker: Toss Invest. Official documentation at https://developers.tossinvest.com/llms.txt
+  and https://openapi.tossinvest.com/openapi-docs/latest/openapi.json describes order creation,
+  modification, cancellation and order/account queries. Verify the current official contract before
+  implementing each integration; documentation availability does not establish this account's
+  entitlement, market access, or production readiness.
+- Start with measurement correctness, data quality, reproducible evaluation and strategy validation.
+  Follow with offline execution simulation, isolated broker integration, supervised limited operation,
+  and only then bounded autonomous operation. Simulation must be clearly labeled and cannot be
+  presented as an actual account return or real execution.
+- Local execution-component development and mock contract tests are approved. New public API contracts,
+  database schemas and security-model choices remain subject to the existing explicit-approval rules.
+  No new broker, service or dependency is approved by this amendment.
+- Live order activation is NOT authorized by this development approval. Before activation, record the
+  user's chosen account, allowed markets/assets, capital allocation, per-order/position limits,
+  daily loss and maximum drawdown limits, operating hours and explicit live-mode approval. Resolve the
+  stronger-authentication decision before exposing execution controls; the existing browser token gate
+  must not silently become sufficient authorization for trading.
+- Design execution to fail closed and default to disabled. Validate order idempotency, duplicate-request
+  handling, uncertain responses, partial fills, cancel/replace races, broker/ledger reconciliation,
+  stale-data rejection, emergency stop, loss-limit enforcement and auditability before live use.
+  Do not retry an uncertain order submission blindly.
+- Strategy changes and increases in capital/risk limits require human review; autonomous operation must
+  not increase its own permissions or loss limits. Reports, advisory jobs and holdings sync must not
+  acquire implicit execution side effects.
+- Preserve credentials rules and historical data. Historical metric corrections require a reproducible
+  comparison and preserved provenance; do not bulk rewrite operating outcomes as part of local tests.
+
+Implementation and research baseline: `docs/profitability_research_plan_2026_09_10.md`.
+
+### Delegated implementation decisions (approved 2026-09-10, follow-up)
+
+The user authorized continuing the entire plan, making reversible decisions autonomously and
+committing each verified task. For this roadmap this overrides routine approval gates for design,
+additive local schemas, API/model changes, research configurations and security implementation.
+Record decisions and their tradeoffs in the execution ledger and report them after implementation.
+Existing production behavior must not silently change through unvalidated strategy promotion.
+Stop for explicit approval before irreversible effects, including live financial orders, destructive
+data changes or non-refundable purchases. Development authorization does not activate live orders.
+Use existing approved providers and dependencies where adequate; any new choice must be documented.

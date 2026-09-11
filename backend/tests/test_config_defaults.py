@@ -6,10 +6,10 @@ from app.models.settings import Settings
 
 def test_application_defaults_match_env_example_and_sql_defaults():
     root = Path(__file__).resolve().parents[2]
-    env_text = (root / "backend" / ".env.example").read_text()
+    env_text = (root / "backend" / ".env.example").read_text(encoding="utf-8")
     sql_text = (
         root / "backend" / "app" / "db" / "migrations" / "001_initial_schema.sql"
-    ).read_text()
+    ).read_text(encoding="utf-8")
     defaults = Settings()
 
     assert f"DOMESTIC_REPORT_TIME={defaults.domestic_report_time}" in env_text
@@ -57,10 +57,10 @@ def test_settings_row_overrides_env_defaults():
 
 def test_notification_defaults_match_env_example_and_migration():
     root = Path(__file__).resolve().parents[2]
-    env_text = (root / "backend" / ".env.example").read_text()
+    env_text = (root / "backend" / ".env.example").read_text(encoding="utf-8")
     migration = (
         root / "backend" / "app" / "db" / "migrations" / "013_create_notifications.sql"
-    ).read_text()
+    ).read_text(encoding="utf-8")
     defaults = Settings()
 
     for field in (
@@ -78,8 +78,8 @@ def test_notification_defaults_match_env_example_and_migration():
 
 def test_toss_invest_infrastructure_env_keys_are_documented():
     root = Path(__file__).resolve().parents[2]
-    env_text = (root / "backend" / ".env.example").read_text()
-    agents_text = (root / "AGENTS.md").read_text()
+    env_text = (root / "backend" / ".env.example").read_text(encoding="utf-8")
+    agents_text = (root / "AGENTS.md").read_text(encoding="utf-8")
 
     for name in (
         "TOSS_INVEST_CLIENT_ID",
@@ -92,9 +92,11 @@ def test_toss_invest_infrastructure_env_keys_are_documented():
 
 def test_advisory_provider_infrastructure_env_keys_are_documented():
     root = Path(__file__).resolve().parents[2]
-    env_text = (root / "backend" / ".env.example").read_text()
-    oracle_env_text = (root / "deploy" / "oracle" / "backend.env.example").read_text()
-    agents_text = (root / "AGENTS.md").read_text()
+    env_text = (root / "backend" / ".env.example").read_text(encoding="utf-8")
+    oracle_env_text = (root / "deploy" / "oracle" / "backend.env.example").read_text(
+        encoding="utf-8"
+    )
+    agents_text = (root / "AGENTS.md").read_text(encoding="utf-8")
 
     for name in ("FRED_API_KEY", "SEC_EDGAR_USER_AGENT", "SEC_EDGAR_CACHE_MAX_BYTES"):
         assert f"{name}=" in env_text
