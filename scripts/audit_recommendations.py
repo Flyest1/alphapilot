@@ -27,7 +27,12 @@ def main() -> None:
             frame = pd.DataFrame(rows).set_index("date")
             frame.index = pd.to_datetime(frame.index, utc=True)
             histories[ticker] = frame
-    result = audit_recommendations(payload["cycles"], histories, as_of=args.as_of)
+    result = audit_recommendations(
+        payload["cycles"],
+        histories,
+        as_of=args.as_of,
+        session_calendars=payload.get("session_calendars"),
+    )
     result["input_sha256"] = hashlib.sha256(source).hexdigest()
     result["price_provenance"] = payload.get("price_provenance", {})
     # Exclusive creation protects both the input and any previous audit artifact.

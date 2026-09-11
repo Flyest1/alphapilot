@@ -1,6 +1,7 @@
 """Pure original-decision audit; never rewrites operating recommendation outcomes."""
 
 from collections import Counter
+from datetime import date
 from math import isfinite
 from typing import Any
 
@@ -9,9 +10,57 @@ import pandas as pd
 from app.services.report.tracking import evaluate_barriers, horizon_days, trading_timestamp
 
 
+def _calendar_check(calendar: Any, start: date, cutoff: date, actual: set[date]) -> dict:
+    if calendar is None:
+        return {"exclusion_reason": "missing_session_calendar"}
+    try:
+
+        def parse(value: Any) -> date:
+            if not isinstance(value, str):
+                raise ValueError("Session dates must be ISO date strings")
+            parsed = date.fromisoformat(value)
+            if parsed.isoformat() != value:
+                raise ValueError("Session dates must be YYYY-MM-DD")
+            return parsed
+
+        if not isinstance(calendar, dict) or not isinstance(calendar.get("source"), str):
+            raise ValueError("Calendar source required")
+        if not calendar["source"].strip() or not isinstance(calendar.get("sessions"), list):
+            raise ValueError("Calendar source and sessions required")
+        lower, upper = parse(calendar["coverage_start"]), parse(calendar["coverage_end"])
+        sessions = [parse(value) for value in calendar["sessions"]]
+        if lower > upper or len(sessions) != len(set(sessions)):
+            raise ValueError("Invalid calendar bounds or duplicate sessions")
+        if any(day < lower or day > upper for day in sessions):
+            raise ValueError("Session outside declared coverage")
+    except (ValueError, TypeError, KeyError):
+        return {"exclusion_reason": "invalid_session_calendar"}
+    if lower > start or upper < cutoff:
+        return {"exclusion_reason": "insufficient_calendar_coverage"}
+    expected = {day for day in sessions if start < day <= cutoff}
+    details = {
+        "calendar_source": calendar["source"],
+        "expected_session_count": len(expected),
+        "observed_session_count": len(actual),
+        "missing_sessions": [day.isoformat() for day in sorted(expected - actual)],
+        "unexpected_sessions": [day.isoformat() for day in sorted(actual - expected)],
+    }
+    if expected - actual:
+        details["exclusion_reason"] = "missing_expected_sessions"
+    elif actual - expected:
+        details["exclusion_reason"] = "unexpected_price_sessions"
+    return details
+
+
 def audit_recommendations(
-    cycles: list[dict[str, Any]], histories: dict[str, pd.DataFrame], *, as_of: str
+    cycles: list[dict[str, Any]],
+    histories: dict[str, pd.DataFrame],
+    *,
+    as_of: str,
+    session_calendars: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if session_calendars is not None and not isinstance(session_calendars, dict):
+        raise ValueError("session_calendars must be an object keyed by ticker")
     cutoff = pd.Timestamp(as_of).date()
     observations = []
     reasons: Counter = Counter()
@@ -55,6 +104,17 @@ def audit_recommendations(
                 reason = "duplicate_price_sessions"
         if reason is None:
             future = frame[frame.index.date > start]
+            if session_calendars is not None:
+                result.update(
+                    _calendar_check(
+                        session_calendars.get(original["ticker"]),
+                        start,
+                        cutoff,
+                        set(future.index.date),
+                    )
+                )
+                reason = result.get("exclusion_reason")
+        if reason is None:
             columns = [key for key in ("close", "high", "low") if key in future]
             numeric = future[columns].apply(pd.to_numeric, errors="coerce")
             if (
@@ -116,10 +176,14 @@ def audit_recommendations(
             }
         observations.append(result)
     return {
-        "policy_version": "original_decision_audit_v1",
+        "policy_version": "original_decision_audit_v2",
         "as_of": cutoff.isoformat(),
         "research_only": True,
-        "measurement_quality": "provisional_no_exchange_calendar",
+        "measurement_quality": (
+            "provisional_supplied_session_calendar"
+            if session_calendars is not None
+            else "provisional_no_exchange_calendar"
+        ),
         "promotion_permitted": False,
         "sample_count": len(cycles),
         "evaluated_count": len(cycles) - sum(reasons.values()),
@@ -131,7 +195,11 @@ def audit_recommendations(
         ),
         "limitations": [
             "Legacy originals are not inferred from mutable latest recommendation fields.",
-            "No exchange calendar: internal missing sessions cannot be certified complete.",
+            (
+                "Coverage checked against supplied calendars; source accuracy is not verified."
+                if session_calendars is not None
+                else "No exchange calendar: internal missing sessions cannot be certified complete."
+            ),
             "Daily bars start after decision date; intraday execution and costs are not modeled.",
             "Prices must use the same adjustment and currency basis as original barriers.",
         ],
