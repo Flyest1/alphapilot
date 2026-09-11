@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from copy import deepcopy
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from io import StringIO
 import logging
@@ -10,6 +11,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from app.utils.datetime import parse_iso_datetime
 from app.utils.logging import log_external_failure
+from app.services.market_price_lineage import collect_price_lineage
 
 
 @dataclass
@@ -20,6 +22,7 @@ class MarketDataResult:
     provider: str
     data_quality_note: str
     current_price: float | None = None
+    price_lineage: dict[str, Any] = field(default_factory=dict)
 
 
 class MarketDataService:
@@ -82,6 +85,17 @@ class MarketDataService:
                 raw = self._fetch_us_with_retry(normalized_ticker, lookback_days)
             result = self._result_from_frame(
                 raw, provider, stale_data_business_days, normalized_ticker
+            )
+            result.price_lineage = collect_price_lineage(
+                raw,
+                provider,
+                normalized_ticker,
+                self.now_provider(),
+                (
+                    {"adjusted": True}
+                    if provider == "pykrx"
+                    else {"auto_adjust": False, "actions": True, "repair": False, "prepost": False}
+                ),
             )
             self._price_cache[cache_key] = result
             self._write_persistent_cache(cache_key, result)
@@ -289,6 +303,7 @@ class MarketDataService:
             start.strftime("%Y%m%d"),
             end.strftime("%Y%m%d"),
             normalized,
+            adjusted=True,
         )
 
     @retry(
@@ -300,7 +315,9 @@ class MarketDataService:
     def _fetch_us_with_retry(self, ticker: str, lookback_days: int) -> pd.DataFrame:
         yf_module = self._yf_module()
         normalized = self.normalize_ticker("US", ticker)
-        return yf_module.Ticker(normalized).history(period=f"{lookback_days}d", auto_adjust=False)
+        return yf_module.Ticker(normalized).history(
+            period=f"{lookback_days}d", auto_adjust=False, actions=True, repair=False, prepost=False
+        )
 
     @retry(
         stop=stop_after_attempt(3),
@@ -369,6 +386,11 @@ class MarketDataService:
                 provider=str(payload.get("provider") or "cache"),
                 data_quality_note=str(payload.get("data_quality_note") or "ok"),
                 current_price=payload.get("current_price"),
+                price_lineage=(
+                    deepcopy(payload.get("price_lineage"))
+                    if isinstance(payload.get("price_lineage"), dict)
+                    else {}
+                ),
             )
         except Exception as exc:
             log_external_failure("market_data_cache", exc, {"operation": "deserialize"})
@@ -391,6 +413,7 @@ class MarketDataService:
                 "provider": result.provider,
                 "data_quality_note": result.data_quality_note,
                 "current_price": result.current_price,
+                "price_lineage": deepcopy(result.price_lineage),
             }
             self.repository.upsert_market_data_cache(self._persistent_cache_key(cache_key), payload)
         except Exception as exc:
@@ -499,11 +522,11 @@ class MarketDataService:
                 )
         return current_date
 
-    def _quiet_pykrx_call(self, func: Any, *args: Any) -> Any:
+    def _quiet_pykrx_call(self, func: Any, *args: Any, **kwargs: Any) -> Any:
         previous_disable_level = logging.root.manager.disable
         logging.disable(logging.CRITICAL)
         try:
-            return func(*args)
+            return func(*args, **kwargs)
         finally:
             logging.disable(previous_disable_level)
 

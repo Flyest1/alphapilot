@@ -68,3 +68,51 @@ def test_fetch_works_without_repository():
     result = service.fetch_price_history("US", "AAPL")
 
     assert result.current_price == 5.5
+
+
+def test_price_lineage_survives_cache_without_becoming_a_new_observation():
+    repo, yf = InMemoryRepository(), FakeYf()
+    yf.frame["Adj Close"] = yf.frame["Close"] / 2
+    yf.frame["Dividends"] = [0, 0, 1, 0, 0]
+    yf.frame["Stock Splits"] = [0, 0, 0, 2, 0]
+    first = build_service(repo, yf).fetch_price_history("US", "AAPL")
+    second = build_service(repo, yf).fetch_price_history("US", "AAPL")
+    assert first.price_lineage == second.price_lineage
+    assert first.price_lineage["request_options"]["auto_adjust"] is False
+    assert "Dividends" in first.price_lineage["raw_daily_bars"]["columns"]
+    assert "Adj Close" in first.price_lineage["raw_daily_bars"]["columns"]
+    assert len(first.price_lineage["source_sha256"]) == 64
+    assert list(first.dataframe.columns) == ["open", "high", "low", "close", "volume"]
+    assert yf.calls == 1
+
+
+def test_legacy_cache_does_not_invent_price_lineage():
+    repo, yf = InMemoryRepository(), FakeYf()
+    service = build_service(repo, yf)
+    service.fetch_price_history("US", "AAPL")
+    key = "US:AAPL:180:2:2026-06-05"
+    row = repo.get_market_data_cache(key)
+    row["payload"].pop("price_lineage", None)
+    repo.upsert_market_data_cache(key, row["payload"])
+    result = build_service(repo, yf).fetch_price_history("US", "AAPL")
+    assert result.price_lineage == {}
+    assert yf.calls == 1
+
+
+def test_regular_close_elapsed_is_not_finality_certification():
+    yf = FakeYf()
+    service = MarketDataService(
+        yf_module=yf, now_provider=lambda: datetime(2026, 6, 5, 19, tzinfo=timezone.utc)
+    )
+    early = service.fetch_price_history("US", "AAPL").price_lineage["latest_session"]
+    assert early["regular_close_elapsed"] is False
+    late = (
+        MarketDataService(
+            yf_module=yf, now_provider=lambda: datetime(2026, 6, 5, 21, tzinfo=timezone.utc)
+        )
+        .fetch_price_history("US", "AAPL")
+        .price_lineage["latest_session"]
+    )
+    assert late["regular_close_elapsed"] is True
+    assert late["provider_finality_verified"] is False
+    assert late["exchange_calendar_verified"] is False

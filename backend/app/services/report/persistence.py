@@ -1,6 +1,7 @@
 """리포트/전략/성과 로그/추천 사이클/스냅샷 저장 책임 모듈."""
 
 from datetime import datetime, timezone
+from copy import deepcopy
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -91,6 +92,7 @@ class ReportPersistence:
                 horizon=candidate_horizon,
                 existing_cycles=existing_cycles,
                 technical_score=strategy_inputs.get("technical_score"),
+                price_lineage=strategy_inputs.get("price_lineage"),
             )
         self.save_portfolio_snapshot(
             report=report,
@@ -170,6 +172,7 @@ class ReportPersistence:
         horizon: str,
         existing_cycles: list[dict[str, Any]],
         technical_score: int | float | None = None,
+        price_lineage: dict[str, Any] | None = None,
     ) -> None:
         if strategy.current_price is None or strategy.reasoning == "data-limited":
             return
@@ -280,6 +283,13 @@ class ReportPersistence:
                         "stop_loss": strategy.stop_loss,
                         "confidence": strategy.confidence,
                         "technical_score": technical_score,
+                        "price_lineage": deepcopy(
+                            {
+                                key: value
+                                for key, value in (price_lineage or {}).items()
+                                if key != "raw_daily_bars"
+                            }
+                        ),
                     },
                     "technical_score": technical_score,
                     "base_confidence": base_confidence,

@@ -6,6 +6,7 @@
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
+from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -756,6 +757,8 @@ class ReportService:
             strategy = row["strategy"]
             last_trading_date = market_data.last_trading_date
             tickers[row["asset"]["ticker"]] = {
+                "price_lineage": deepcopy(getattr(market_data, "price_lineage", {})),
+                "asset_currency": row["asset"].get("currency"),
                 "provider": market_data.provider,
                 "last_trading_date": (last_trading_date.isoformat() if last_trading_date else None),
                 "is_stale": market_data.is_stale,
@@ -781,6 +784,13 @@ class ReportService:
             last_trading_date = market_data.last_trading_date
             key = f"{str(asset.get('market') or '').upper()}:{asset.get('ticker')}"
             portfolio_risk_market_inputs[key] = {
+                "price_lineage": deepcopy(
+                    {
+                        key: value
+                        for key, value in getattr(market_data, "price_lineage", {}).items()
+                        if key != "raw_daily_bars"
+                    }
+                ),
                 "market": asset.get("market"),
                 "ticker": asset.get("ticker"),
                 "currency": asset.get("currency"),
