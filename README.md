@@ -726,10 +726,19 @@ python scripts/recalculate_recommendation_cycles.py --apply
 
 ## Toss Invest 조회 전용 연동
 
-- **목적**: Toss Invest Open API에서 계좌 목록과 보유주식만 조회해 AlphaPilot의 `assets`에
+- **목적**: Toss Invest Open API에서 계좌 목록, 보유주식, 원화·달러 가용 현금을 조회해 AlphaPilot의 `assets`에
   `Toss 연동` 자산으로 저장합니다. 수동 자산은 계속 별도로 관리할 수 있습니다.
 - **API**: `GET /api/toss/status`는 백엔드 환경변수 설정 여부만 반환하고,
-  `POST /api/toss/sync`는 `/oauth2/token`, `/api/v1/accounts`, `/api/v1/holdings`만 호출합니다.
+  `POST /api/toss/sync`는 `/oauth2/token`, `/api/v1/accounts`, `/api/v1/holdings`와
+  `/api/v1/buying-power?currency=KRW`, `/api/v1/buying-power?currency=USD`를 호출합니다.
+- **가용 현금**: `cashBuyingPower`를 `토스 가용 현금 (원화/달러)`로 표시하고 CASH 합계에
+  반영합니다. 실제 예수금·출금 가능 금액과 다를 수 있습니다. 수량은 금액, 평균 매입가는 1이며,
+  USD는 기존 설정 환율로 환산합니다. 같은 통화의 수동 현금은 중복 후보로 안내하고 보존합니다.
+  두 통화와 주식 응답이 모두 유효해야 한 번에 저장하며, 조회 실패 시 기존 자산을 보존합니다.
+  금액이 0이면 해당 계좌의 연동 현금 행을 삭제합니다.
+- **적용 순서**: 운영 사용 전에 `backend/app/db/migrations/025_sync_toss_available_cash.sql`을
+  Supabase SQL Editor에서 적용한 다음 백엔드와 프론트엔드를 배포하세요. 기존 테이블·기록은
+  변경하지 않고 동기화 함수만 확장합니다. 토스 API의 해당 조회 권한이 필요합니다.
 - **중복 처리**: 같은 시장/티커의 수동 자산이 있으면 동기화 결과에 중복 후보로 표시합니다.
   자동 삭제하지 않으므로 사용자가 확인 후 수동 자산을 삭제해야 합니다.
 - **리포트 연계**: GitHub Actions가 호출하는 정기 리포트는 먼저 Toss 보유주식을 동기화하고,

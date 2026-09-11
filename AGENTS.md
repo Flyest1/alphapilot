@@ -213,6 +213,12 @@ Toss Invest Open API exception (approved 2026-06):
 
 - Operating integration remains read-only account and holdings synchronization; staged execution
   development is governed by the 2026-09-10 authorization below.
+- Approved 2026-09-10: include KRW/USD `cashBuyingPower` from
+  `GET /api/v1/buying-power?currency=KRW|USD` solely for read-only available-cash sync.
+  Label it "토스 가용 현금" (cash-based buying power, not actual deposits/withdrawable cash)
+  and include it in portfolio CASH totals. No execution-related use is permitted.
+  Migration 025 extends reconciliation to CASH:KRW and CASH:USD; fetch and validate both
+  currencies before atomically saving stocks and cash. Preserve all assets on any fetch failure.
 - API-linked assets must be visibly marked separately from manually entered assets.
 - Approved 2026-09-10: after a valid full holdings sync, delete absent or zero-quantity Toss-linked
   assets only for the synchronized account. Preserve manual assets, other accounts, historical

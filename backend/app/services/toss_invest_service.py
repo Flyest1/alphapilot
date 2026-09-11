@@ -56,6 +56,9 @@ class TossInvestService:
 
         synced_at = datetime.now(timezone.utc).isoformat()
         asset_rows = [self._asset_from_holding(item, account, synced_at) for item in items]
+        # Fetch and validate both currencies before the single atomic reconciliation.
+        for currency in ("KRW", "USD"):
+            asset_rows.append(self._cash_asset(token, account, currency, synced_at))
         reconciliation = self.repository.reconcile_toss_assets(
             str(account["account_seq"]), synced_at, asset_rows
         )
@@ -204,16 +207,56 @@ class TossInvestService:
             "external_payload": item,
         }
 
+    def _cash_asset(
+        self, token: str, account: dict[str, Any], currency: str, synced_at: str
+    ) -> dict[str, Any]:
+        response = self.http_request(
+            "GET",
+            f"/api/v1/buying-power?{urlencode({'currency': currency})}",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Tossinvest-Account": str(account["account_seq"]),
+            },
+        )
+        result = response.get("result") if isinstance(response, dict) else None
+        if not isinstance(result, dict) or result.get("currency") != currency:
+            raise TossInvestError(f"Toss Invest available cash response is invalid for {currency}.")
+        amount = _to_nonnegative_number(result.get("cashBuyingPower"), "available cash")
+        return {
+            "source": TOSS_ASSET_SOURCE,
+            "external_provider": TOSS_PROVIDER,
+            "external_account_id": str(account["account_seq"]),
+            "external_asset_key": f"CASH:{currency}",
+            "market": "CASH",
+            "ticker": currency,
+            "name": f"토스 가용 현금 ({'원화' if currency == 'KRW' else '달러'})",
+            "quantity": amount,
+            "avg_price": 1,
+            "currency": currency,
+            "memo": (
+                "현금 기반 매수 가능 금액 기준이며 "
+                "실제 예수금·출금 가능 금액과 다를 수 있습니다."
+            ),
+            "synced_at": synced_at,
+            "external_payload": result,
+        }
+
     def _manual_duplicates(self, synced_assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
         synced_keys = {
             (str(asset.get("market")), str(asset.get("ticker")).upper()) for asset in synced_assets
         }
         duplicates = []
+        synced_cash_currencies = {
+            asset.get("currency") for asset in synced_assets if asset.get("market") == "CASH"
+        }
         for asset in self.repository.list_assets():
             if str(asset.get("source") or "manual") != "manual":
                 continue
             key = (str(asset.get("market")), str(asset.get("ticker")).upper())
-            if key not in synced_keys:
+            cash_duplicate = (
+                asset.get("market") == "CASH" and asset.get("currency") in synced_cash_currencies
+            )
+            if key not in synced_keys and not cash_duplicate:
                 continue
             duplicates.append(
                 {
