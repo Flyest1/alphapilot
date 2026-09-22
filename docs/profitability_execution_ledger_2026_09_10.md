@@ -139,3 +139,11 @@ python scripts/audit_recommendations.py input.json --as-of 2026-09-10 --output a
 서버 전용 접근과 원장 불변성을 유지하고, 실제 PostgreSQL 권한 회귀 검증을 CI에 넣는다.
 허용 정책·로그인 방식·실거래 권한을 추가하지 않는다. 변경 결정, 기본 권한의 소유자 범위,
 운영 적용 결과는 [DB 접근 강화 기록](database_access_hardening_2026_09_23.md)을 따른다.
+
+### 2026-09-23 운영 원장 적용 준비
+
+사용자가 실제 자료 확보 전 준비 작업을 승인했다. 기존 정규화·검토·재생·대사 엔진을
+호출하는 로컬 CLI와 한국어 점검 보고서를 추가한다. 빈 잔고는 null로 시작하며 명세서
+자료 기간·원본 해시·계좌·잔고 기준을 검사한다. 자동 점검 통과는 ready_for_review일 뿐
+coverage_verified와 실제 수익률을 활성화하지 않는다. 운영 DB 접근이나 자료 자동 저장 없이
+기존 운영 이력의 대조를 다음 단계로 남긴다. [사용 절차](ledger_operating_preparation_2026_09_23.md).

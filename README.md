@@ -779,6 +779,12 @@ python scripts/recalculate_recommendation_cycles.py --apply
 `docs/phase10_multi_user_design.md`에 설계만 정리되어 있습니다. 명시적 승인과
 `AGENTS.md` 대개정 전에는 Supabase Auth, `user_id`, RLS, 결제 기능을 추가하지 않습니다.
 
+## 운영 원장 자료 준비
+
+명세서·기초/기말 잔고를 준비할 때 `scripts/prepare_account_ledger.py`의 `init`과 `check`를
+사용할 수 있습니다. 누락 자료·매핑 오류·기간 공백·중복 의심·잔고 차이를 로컬 한국어 보고서로
+확인하며 DB 저장이나 수익률 계산은 하지 않습니다. [사용 순서와 한계](docs/ledger_operating_preparation_2026_09_23.md)를 참고하세요.
+
 ## 보안 범위
 
 2026-09-23 migration 028은 기존 DB 테이블의 직접 익명 접근을 차단하고 RLS를 활성화합니다.
