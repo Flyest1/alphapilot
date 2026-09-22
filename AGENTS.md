@@ -1302,3 +1302,52 @@ Existing production behavior must not silently change through unvalidated strate
 Stop for explicit approval before irreversible effects, including live financial orders, destructive
 data changes or non-refundable purchases. Development authorization does not activate live orders.
 Use existing approved providers and dependencies where adequate; any new choice must be documented.
+
+### Account ledger storage and statement ingestion (2026-09-11)
+
+The user approved the non-destructive ledger storage and statement connection bundle.
+Migration `026_add_account_ledger.sql` is additive and independent of all existing asset,
+report, performance and holdings-sync tables. It introduces `ledger_accounts`,
+`ledger_import_runs`, `ledger_source_records`, `ledger_import_sources`, `ledger_events`,
+`ledger_import_results`, `ledger_reconciliation_runs`, and `ledger_postings`.
+All eight tables are append-only, enable RLS, and allow only server-side service-role
+SELECT/INSERT; no frontend or authenticated/anon direct access is granted.
+
+Internal service-role RPCs are `ledger_capture_import`, `ledger_publish_import`,
+`ledger_read_account`, and `ledger_save_reconciliation`. No public FastAPI route or
+scheduler is added. Source capture and event publication use separate atomic transactions.
+Same event/revision content may be observed again later without replacing the first
+observation; earlier observation times or changed content require explicit review/revision.
+Reconciliation results and postings are versioned per run, not updated in place.
+
+Only explicitly mapped UTF-8 CSV statements are supported initially. Real Toss statement
+files were unavailable on 2026-09-11; broker-specific CSV/XLSX/PDF support is not verified.
+Original files and exact mapping bytes remain in Git-ignored `backups/ledger_statements`
+(or another directory beneath `backups`). The database receives source hashes/row metadata
+and allowlisted normalized events, never raw documents, arbitrary memo fields or credentials.
+The CLI defaults to local validation; `--persist` explicitly opts into server-side storage.
+Schema/CSV validation is not economic verification: default quality is provisional,
+coverage remains false, and return/realized-profit calculations remain unavailable.
+Operating migration application and real-statement reconciliation must be reported separately
+from successful disposable PostgreSQL tests. See `docs/account_ledger_storage_2026_09_11.md`.
+
+### Ledger recovery reviews (approved 2026-09-23)
+
+The user requested recovery bundle 1, push and deployment. Additive migration 027 adds
+append-only `ledger_reviews` and server-only `ledger_record_review` / `ledger_read_review_state`
+RPCs. Server timestamps and expected-revision checks preserve history and reject conflicting
+concurrent decisions. A shared account lock also serializes new event insertions.
+Import resolution requires a validated replacement of the same document and row count.
+Reopen appends history. Cross-document equivalent financial rows are duplicate candidates;
+only explicit duplicate/distinct decisions affect replay. Decisions bind immutable event
+revisions and apply only to selected as-of heads at or before known_at. Earlier and later
+revisions may be reviewed independently; stale decisions do not exclude new revisions.
+Contradictions and unreviewed candidates keep replay incomplete. No review upgrades evidence
+quality, verifies full coverage, or activates returns or live trading.
+
+Original-file backup/verify/restore uses standard-library ZIP and SHA-256 with strict
+path/type/filename/size checks. Restore fully verifies before reserving a new directory under
+Git-ignored backups. It never overwrites existing files/directories; interrupted copies retain
+the partial new destination and require a different destination on retry. Backups are private,
+unencrypted local files. No external storage service or scheduler is added.
+See `docs/ledger_recovery_2026_09_23.md` for CLI contracts and deployment verification.
