@@ -95,6 +95,19 @@ backend/.venv/Scripts/python.exe scripts/backup_ledger_archive.py restore `
 가상 보관소 3개 파일 4,324바이트를 백업·검증·복원한 manifest SHA-256이 일치했다.
 전체 테스트와 운영 배포 결과는 완료 후 아래에 기록한다.
 
+2026-09-23 운영 반영: [PR #10](https://github.com/Flyest1/alphapilot/pull/10)을 병합했다.
+배포 코드 commit은 `9af056f75b6907849a12a924e044d3f302dd7b2e`다.
+운영 Supabase에 026/027을 순서대로 적용했다. 원장 9개 테이블 모두 RLS 활성,
+anon/authenticated SELECT 차단, service_role SELECT 허용·UPDATE 차단을 확인했다.
+실제 supabase-py로 운영 ledger_read_review_state를 호출해 빈 검증 계좌의 정상 응답을
+확인했으며 테스트용 운영 원장 행은 생성하지 않았다.
+[Oracle 배포](https://github.com/Flyest1/alphapilot/actions/runs/35746757649)는 성공했고
+`/health`가 status=ok, systemd 서비스가 active(running)임을 확인했다.
+PR 및 병합 후 CI 통과: Linux 백엔드 745 passed/8 local-DB integration skips,
+프론트엔드 143 passed와 lint/build 성공. 실제 DB 통합 테스트 8개는 로컬에서 별도 통과했다.
+새 원장의 보안 advisor는 service_role 전용 설계에 따른 RLS no-policy INFO 9개만 있으며,
+기존 20개 RLS ERROR 및 4개 함수 WARN은 이번 변경 전후 동일하다.
+
 로컬 전체 검증: 752 passed, 1 skipped, 기존 경고 3개. Windows 링크 생성 권한에
 따른 1개 생략이며 ZIP 링크 거절은 검증됐다. Ruff·Black 통과. 새 PostgreSQL DB에
 최종 026/027 파일을 순서대로 적용한 뒤 저장소·검토 SQL 검증을 다시 통과했다.

@@ -5,8 +5,8 @@
 - [x] 실패/부분 수집을 동일 원문에 대한 검증된 대체 수집으로 해결하는 append-only 검토 이력.
 - [x] 문서 간 동일 거래 후보 검출, 중복/별개/재검토 결정과 재생 반영.
 - [x] 원본·매핑·정규화 파일의 해시 검증 백업 및 새 경로 복원.
-- [ ] 실제 PostgreSQL 회귀, 전체 테스트, 독립 검토, 작업별 커밋.
-- [ ] PR·CI·병합, 운영 migration 026/027, Oracle 배포와 운영 읽기 검증.
+- [x] 실제 PostgreSQL 회귀, 전체 테스트, 독립 검토 지적 수정, 작업별 커밋.
+- [x] PR·CI·병합, 운영 migration 026/027, Oracle 배포와 운영 읽기 검증.
 
 Ruling: 기존 수집·이벤트를 삭제하거나 수정하지 않는다. 검토 결정은 revision으로
 추가하고 known_at 이후 결정은 과거 재생에 반영하지 않는다 — 감사와 재현 보존.
@@ -32,3 +32,6 @@ Ruling: 검토 RPC는 현재 최대 revision뿐 아니라 지정한 기존 revis
 
 검증: 전체 752 passed / 1 Windows symlink privilege skip, Ruff·Black 통과.
 실제 PG 8개 통합 테스트 및 새 DB에서 026/027 + SQL checks 통과.
+
+운영 완료: PR #10 / commit 9af056f, 026/027 적용, 원장9개테이블 접근 차단 검증,
+Oracle workflow35746757649 성공과 health ok 확인. 운영 원장 테스트 행은 만들지 않았다.
