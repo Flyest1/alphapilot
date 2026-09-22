@@ -781,6 +781,10 @@ python scripts/recalculate_recommendation_cycles.py --apply
 
 ## 보안 범위
 
+2026-09-23 migration 028은 기존 DB 테이블의 직접 익명 접근을 차단하고 RLS를 활성화합니다.
+프론트엔드는 기존 API 토큰으로 FastAPI를 호출하며 서버 전용 DB 접근은 유지합니다.
+원장의 수정·삭제 차단도 유지합니다. [적용 범위와 검증 기록](docs/database_access_hardening_2026_09_23.md)을 참고하세요.
+
 이 MVP는 단일 사용자용입니다. Supabase Auth, 로그인/회원가입, 사용자별 권한 분리는 구현하지 않았습니다.
 
 현재 보안 방식은 다음과 같습니다.
