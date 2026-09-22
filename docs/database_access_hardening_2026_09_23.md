@@ -61,4 +61,19 @@ service_role 전용 테이블의 RLS no-policy INFO는 의도한 설계다.
 
 로컬 검증: 전체 백엔드 775 passed, 1 skipped(Windows 링크 생성 권한), 기존 경고 3개.
 새 PostgreSQL 접근 검증 23개와 기존 원장 DB 검증 8개를 포함한다. Ruff·Black 통과.
-운영 적용 결과는 완료 후 아래에 기록한다.
+운영 적용(2026-09-23 KST): Supabase에 migration 028 적용 성공. 테이블 29개 모두 RLS 활성,
+anon/authenticated 테이블 접근 및 public 함수 실행 권한 0개, 기존 서버의 누락 CRUD 권한
+0개, 원장의 UPDATE/DELETE/TRUNCATE 권한 0개를 확인했다.
+
+실제 REST 검증: 적용 전 anon의 assets 조회(limit=0)가 HTTP 200이었다. 적용 후 29개
+테이블 각각 서버 조회 HTTP 200, anon 조회 permission denied(42501)를 확인했다.
+원장 상태 조회 RPC도 서버 성공·anon 거절을 확인했다. 운영 테스트 행은 만들지 않았다.
+Security advisor의 기존 ERROR 20개·WARN 4개가 사라졌고, 서버 전용 설계에 따른
+[RLS no-policy INFO](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy)
+29개만 남았다.
+
+[PR #11](https://github.com/Flyest1/alphapilot/pull/11)의
+[CI](https://github.com/Flyest1/alphapilot/actions/runs/35756090792)는 백엔드 768 passed,
+기존 로컬 원장 DB 테스트 8 skipped, 프론트엔드 143 passed 및 lint/format/build를 통과했다.
+신규 권한 테스트 23개는 CI에서도 실제 PostgreSQL로 실행됐다. 기존 원장 DB 테스트 8개는
+위 로컬 검증에서 별도로 통과했다. Oracle 배포 결과는 PR 병합 후 확인한다.

@@ -116,3 +116,6 @@ PR 및 병합 후 CI 통과: Linux 백엔드 745 passed/8 local-DB integration s
 기존 함수 4개의 mutable search_path 경고가 확인됐다. 이번 원장에는 동일한 권한을
 부여하지 않는다. 기존 영역의 익명 접근 차단은 우선순위 높은 별도 보안 작업이다.
 [Supabase RLS 점검 안내](https://supabase.com/docs/guides/database/database-linter?lint=0013_rls_disabled_in_public).
+
+2026-09-23 후속 조치: migration 028로 위 기존 RLS ERROR 20개·함수 WARN 4개를
+해소했다. [운영 권한 검증 결과](database_access_hardening_2026_09_23.md)를 참고한다.
