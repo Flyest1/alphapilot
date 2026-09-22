@@ -1351,3 +1351,17 @@ Git-ignored backups. It never overwrites existing files/directories; interrupted
 the partial new destination and require a different destination on retry. Backups are private,
 unencrypted local files. No external storage service or scheduler is added.
 See `docs/ledger_recovery_2026_09_23.md` for CLI contracts and deployment verification.
+
+### Database direct-access hardening (approved 2026-09-23)
+
+Migration 028 enables RLS on the 20 existing application tables and revokes client
+access to public tables/sequences. FastAPI continues to use service_role; no direct
+frontend database access or Supabase Auth flow is introduced. Ledger SELECT/INSERT-only
+permissions and immutable triggers remain unchanged. Four legacy signal trigger functions
+become server-only with a fixed trusted search_path.
+
+New postgres-owned public objects must not automatically grant anon/authenticated access.
+Postgres-owned functions require explicit execution grants (the implicit global PUBLIC
+EXECUTE default is removed). Supabase-managed owner defaults are outside this migration.
+Future migrations must enable RLS and explicitly review server permissions, including when
+created under a different owner. See `docs/database_access_hardening_2026_09_23.md`.
