@@ -1365,3 +1365,13 @@ Postgres-owned functions require explicit execution grants (the implicit global 
 EXECUTE default is removed). Supabase-managed owner defaults are outside this migration.
 Future migrations must enable RLS and explicitly review server permissions, including when
 created under a different owner. See `docs/database_access_hardening_2026_09_23.md`.
+
+### Operating ledger preparation (approved 2026-09-23)
+
+The local `prepare_account_ledger.py init/check` workflow creates incomplete templates and
+checks explicitly supplied CSV mappings, statement periods, balance evidence hashes and
+reconciliation. It never opens the database, reads credentials, calls a broker or persists
+events. `ready_for_review` is a local preparation result, not source authenticity, complete
+coverage, production reconciliation or authorization to persist. Empty/unknown amounts stay
+null until supplied; buying power is not settled cash. Original files and existing output
+directories are not overwritten. See `docs/ledger_operating_preparation_2026_09_23.md`.
