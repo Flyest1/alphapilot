@@ -6,7 +6,7 @@ No hosting environment variables or operating credentials are read.
 """
 
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -52,6 +52,8 @@ def sql(query):
 
 
 def literal(value):
+    if type(value) is int:
+        return str(value) + "::integer"
     if isinstance(value, (dict, list)):
         return "'" + json.dumps(value).replace("'", "''") + "'::jsonb"
     return "'" + value.replace("'", "''") + "'::text"
@@ -201,3 +203,123 @@ def test_later_observation_deduplicates_without_rewriting_first_observation():
     assert len(events) == 1 and len(imports) == 2
     assert events[0]["observed_at"] == "2026-09-11T12:00:00+09:00"
     assert all(item["result"]["status"] == "validated" for item in imports)
+
+
+def import_fixture(repo, account, raw, mapping):
+    batch = normalize_statement(
+        raw, account_id=account, observed_at="2026-09-11T12:00:00+09:00", mapping=mapping
+    )
+    return repo.import_statement(
+        batch, raw=raw, mapping=mapping, account_id=account, observed_at="2026-09-11T12:00:00+09:00"
+    )
+
+
+def projection(repo, account):
+    now = datetime.now(timezone.utc) + timedelta(seconds=1)
+    return repo.inspect_reviews(
+        account, opening_date="2026-08-31", as_of=now.date().isoformat(), known_at=now
+    )
+
+
+def test_resolve_failed_mapping_and_reopen_preserves_original_error():
+    account = "pg-test-" + uuid4().hex
+    repo = LedgerRepository(RpcClient())
+    raw, _, mapping = fixture(account)
+    bad_mapping = {**mapping, "constants": {**mapping["constants"], "event_type": "invalid"}}
+    bad = import_fixture(repo, account, raw, bad_mapping)
+    good = import_fixture(repo, account, raw, mapping)
+    assert projection(repo, account)["issues"]
+    request = {
+        "kind": "import_resolution",
+        "source_run_key": bad["run_key"],
+        "replacement_run_key": good["run_key"],
+        "decision": "resolve",
+        "reason_code": "corrected_mapping",
+    }
+    decision = repo.record_review(account, request, expected_revision=0)
+    assert not projection(repo, account)["issues"]
+    original = json.loads(
+        sql(
+            "SELECT result FROM ledger_import_results "
+            f"WHERE account_id={literal(account)} AND run_key={literal(bad['run_key'])};"
+        )
+    )
+    assert original["status"] == "rejected"
+    repo.record_review(
+        account,
+        {
+            **request,
+            "replacement_run_key": None,
+            "decision": "reopen",
+            "reason_code": "review_reopened",
+        },
+        expected_revision=decision["revision"],
+    )
+    assert projection(repo, account)["issues"]
+
+
+def duplicated_account():
+    account = "pg-test-" + uuid4().hex
+    repo = LedgerRepository(RpcClient())
+    raw, _, mapping = fixture(account)
+    import_fixture(repo, account, raw, mapping)
+    # Extra unmapped column makes a different document with the same economic row.
+    second = raw.replace(b"net\n", b"net,memo\n").replace(b",10\n", b",10,another statement\n")
+    import_fixture(repo, account, second, mapping)
+    candidate = projection(repo, account)["duplicate_candidates"][0]
+    request = {key: value for key, value in candidate.items() if key != "decision"}
+    request.update(kind="duplicate_review", decision="duplicate", reason_code="same_transaction")
+    return repo, account, request
+
+
+def test_duplicate_review_replays_one_transaction_and_reopen_restores_uncertainty():
+    repo, account, request = duplicated_account()
+    before = datetime.now(timezone.utc) - timedelta(seconds=1)
+    decision = repo.record_review(account, request, expected_revision=0)
+    prepared = projection(repo, account)
+    assert not prepared["issues"] and len(prepared["events"]) == 1
+    historical = repo.inspect_reviews(
+        account, opening_date="2026-08-31", as_of=before.date().isoformat(), known_at=before
+    )
+    assert historical["issues"] and len(historical["events"]) == 2
+    now = datetime.now(timezone.utc) + timedelta(seconds=1)
+    saved = repo.save_reconciliation(opening(account), as_of=now.date().isoformat(), known_at=now)
+    stored = json.loads(
+        sql(
+            "SELECT result FROM ledger_reconciliation_runs "
+            f"WHERE account_id={literal(account)} AND run_key={literal(saved['run_key'])};"
+        )
+    )
+    assert stored["replay"]["balances"]["cash"]["USD"] == "10.000000000000"
+    assert stored["replay"]["status"] == "replayed"
+    assert len(repo.list_events(account)) == 2
+    repo.record_review(
+        account,
+        {**request, "decision": "reopen", "reason_code": "review_reopened"},
+        expected_revision=decision["revision"],
+    )
+    assert projection(repo, account)["issues"]
+
+
+def test_two_conflicting_reviewers_cannot_overwrite_each_other():
+    repo, account, request = duplicated_account()
+    requests = [
+        request,
+        {**request, "decision": "distinct", "reason_code": "separate_transactions"},
+    ]
+
+    def record(item):
+        try:
+            repo.record_review(account, item, expected_revision=0)
+            return True
+        except RuntimeError:
+            return False
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(record, requests))
+    assert sorted(results) == [False, True]
+    assert sql(f"SELECT count(*) FROM ledger_reviews WHERE account_id={literal(account)};") == "1"
+
+
+def test_review_sql_guards():
+    sql(Path(__file__).with_name("ledger_review_checks.sql").read_text(encoding="utf-8"))

@@ -16,6 +16,7 @@ from pydantic import AwareDatetime, TypeAdapter
 from app.models.account_ledger import Identifier, LedgerEvent
 from app.services.ledger.reconciliation import reconcile_ledger
 from app.services.ledger.replay import replay_ledger
+from app.services.ledger.review import prepare_replay
 from app.services.ledger.statement import normalize_statement
 
 
@@ -140,23 +141,45 @@ class LedgerRepository:
     def list_events(self, account_id):
         return self._read_account(account_id)[0]
 
+    def record_review(self, account_id, request, *, expected_revision):
+        TypeAdapter(Identifier).validate_python(account_id)
+        if type(expected_revision) is not int or expected_revision < 0:
+            raise ValueError("Expected revision must be a nonnegative integer")
+        return self._rpc(
+            "ledger_record_review",
+            account_id=account_id,
+            request=request,
+            expected_revision=expected_revision,
+        )
+
+    def inspect_reviews(self, account_id, *, opening_date, as_of, known_at):
+        TypeAdapter(Identifier).validate_python(account_id)
+        snapshot = self._rpc("ledger_read_review_state", account_id=account_id)
+        return prepare_replay(
+            snapshot,
+            account_id=account_id,
+            opening_date=opening_date,
+            as_of=as_of,
+            known_at=known_at,
+        )
+
     def save_reconciliation(self, opening, *, as_of: str, known_at: datetime, observed=None):
         account_id = opening["account_id"]
-        events, imports = self._read_account(account_id)
+        TypeAdapter(Identifier).validate_python(account_id)
+        snapshot = self._rpc("ledger_read_review_state", account_id=account_id)
+        prepared = prepare_replay(
+            snapshot,
+            account_id=account_id,
+            opening_date=opening["as_of"],
+            as_of=as_of,
+            known_at=known_at,
+        )
+        events = prepared["events"]
         replay = replay_ledger(opening, events, as_of=as_of, known_at=known_at)
-        relevant_imports = []
-        for item in imports:
-            if (
-                TypeAdapter(AwareDatetime).validate_python(item["manifest"]["observed_at"])
-                > known_at
-            ):
-                continue
-            relevant_imports.append(item)
-            publication = item["result"]
-            if publication is None or publication["status"] != "validated":
-                replay["issues"].append(
-                    {"reason": "incomplete_statement_import", "run_key": item["run_key"]}
-                )
+        replay["issues"].extend(prepared["issues"])
+        replay["review_projection"] = {
+            key: value for key, value in prepared.items() if key != "events"
+        }
         if replay["issues"]:
             replay["status"] = "incomplete"
         result = {
@@ -180,7 +203,8 @@ class LedgerRepository:
             "as_of": as_of,
             "known_at": known_at.isoformat(),
             "events_hash": digest(events),
-            "imports_hash": digest(relevant_imports),
+            "imports_hash": digest(snapshot["imports"]),
+            "reviews_hash": digest(snapshot["reviews"]),
         }
         run_key = digest({"input": inputs, "result": result})
         return self._rpc(

@@ -1330,3 +1330,24 @@ Schema/CSV validation is not economic verification: default quality is provision
 coverage remains false, and return/realized-profit calculations remain unavailable.
 Operating migration application and real-statement reconciliation must be reported separately
 from successful disposable PostgreSQL tests. See `docs/account_ledger_storage_2026_09_11.md`.
+
+### Ledger recovery reviews (approved 2026-09-23)
+
+The user requested recovery bundle 1, push and deployment. Additive migration 027 adds
+append-only `ledger_reviews` and server-only `ledger_record_review` / `ledger_read_review_state`
+RPCs. Server timestamps and expected-revision checks preserve history and reject conflicting
+concurrent decisions. A shared account lock also serializes new event insertions.
+Import resolution requires a validated replacement of the same document and row count.
+Reopen appends history. Cross-document equivalent financial rows are duplicate candidates;
+only explicit duplicate/distinct decisions affect replay. Decisions bind immutable event
+revisions and apply only to selected as-of heads at or before known_at. Earlier and later
+revisions may be reviewed independently; stale decisions do not exclude new revisions.
+Contradictions and unreviewed candidates keep replay incomplete. No review upgrades evidence
+quality, verifies full coverage, or activates returns or live trading.
+
+Original-file backup/verify/restore uses standard-library ZIP and SHA-256 with strict
+path/type/filename/size checks. Restore fully verifies before reserving a new directory under
+Git-ignored backups. It never overwrites existing files/directories; interrupted copies retain
+the partial new destination and require a different destination on retry. Backups are private,
+unencrypted local files. No external storage service or scheduler is added.
+See `docs/ledger_recovery_2026_09_23.md` for CLI contracts and deployment verification.
