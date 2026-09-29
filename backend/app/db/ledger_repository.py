@@ -18,6 +18,7 @@ from app.services.ledger.reconciliation import reconcile_ledger
 from app.services.ledger.replay import replay_ledger
 from app.services.ledger.review import prepare_replay
 from app.services.ledger.statement import normalize_statement
+from app.services.ledger.storage_preview import proposed_import
 
 
 def canonical(value):
@@ -94,23 +95,8 @@ class LedgerRepository:
             errors.append({key: error[key] for key in ("row", "fields", "reason")})
         if len(events) + len(errors) != len(sources):
             raise ValueError("Every source row requires an outcome")
-        result = {
-            "errors": errors,
-            "status": "partial" if errors and events else "validated" if events else "rejected",
-            "coverage_verified": False,
-        }
-        manifest = {
-            "document_hash": document_hash,
-            "mapping_hash": batch["mapping_hash"],
-            "schema_version": batch["schema_version"],
-            "observed_at": timestamp.isoformat(),
-            "source_type": "statement",
-            "source_count": len(sources),
-            "coverage_verified": False,
-        }
-        run_key = digest(
-            {"manifest": manifest, "account_id": account_id, "events": events, "result": result}
-        )
+        proposal = proposed_import(batch, account_id=account_id, observed_at=timestamp)
+        result, manifest, run_key = proposal["result"], proposal["manifest"], proposal["run_key"]
         self._rpc(
             "ledger_capture_import",
             account_id=account_id,
@@ -125,6 +111,16 @@ class LedgerRepository:
             events=events,
             result=result,
         )
+
+    def read_review_snapshot(self, account_id):
+        """Read one atomic snapshot through GET; no mutation RPC is reachable here."""
+        TypeAdapter(Identifier).validate_python(account_id)
+        snapshot = (
+            self.client.rpc("ledger_read_review_state", {"p_account_id": account_id}, get=True)
+            .execute()
+            .data
+        )
+        return {"account_id": account_id, "snapshot": snapshot}
 
     def _read_account(self, account_id):
         """One database snapshot includes all revisions and incomplete imports."""

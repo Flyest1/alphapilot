@@ -85,7 +85,9 @@ def _safe_json(value):
     raise TypeError("Unsupported report value")
 
 
-def check_preparation(manifest_path: Path):
+def check_preparation(manifest_path: Path, *, evidence=None):
+    if evidence is not None:
+        evidence.clear()
     result = {
         "version": "ledger_preparation_v1",
         "status": "blocked",
@@ -177,8 +179,8 @@ def check_preparation(manifest_path: Path):
             continue
         try:
             value = LedgerBalance.model_validate(_json(source(item["balance"], name + "_balance")))
-            evidence = source(item["evidence"], name + "_evidence")
-            if value.source_record_hash != hashlib.sha256(evidence).hexdigest():
+            balance_evidence = source(item["evidence"], name + "_evidence")
+            if value.source_record_hash != hashlib.sha256(balance_evidence).hexdigest():
                 raise ValueError("Evidence hash mismatch")
             expected = start - timedelta(days=1) if start and name == "opening" else end
             if value.account_id != account or expected is None or value.as_of != expected:
@@ -192,6 +194,7 @@ def check_preparation(manifest_path: Path):
     if not account or start is None or end is None or known_at is None:
         return result
     events, imports, periods, seen = [], [], [], set()
+    batches = []
     total_rows = 0
     for index, item in enumerate(statements, 1):
         try:
@@ -223,6 +226,7 @@ def check_preparation(manifest_path: Path):
                         block("event_outside_period", document=index)
                 except ValueError:
                     block("ambiguous_event_date", document=index)
+            batches.append(batch)
             events.extend(batch["events"])
             imports.append(
                 {
@@ -275,4 +279,18 @@ def check_preparation(manifest_path: Path):
             block("reconciliation_failed")
     if not result["blockers"]:
         result["status"] = "ready_for_review"
+    # Existing events may supply a correction's prior revision or explain local residuals.
+    # Only projection blockers may be deferred; malformed/missing evidence never reaches DB.
+    projection_codes = {"review_issues", "replay_issues", "balance_mismatch"}
+    if evidence is not None and all(
+        item["code"] in projection_codes for item in result["blockers"]
+    ):
+        evidence.update(
+            account_id=account,
+            observed_at=manifest["observed_at"],
+            opening=balances["opening"],
+            closing=balances["closing"],
+            as_of=end.isoformat(),
+            batches=batches,
+        )
     return json.loads(json.dumps(result, default=_safe_json, allow_nan=False))

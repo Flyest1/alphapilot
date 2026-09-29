@@ -9,6 +9,8 @@ CHECK_LABELS = {
     "overlapping_documents": "명세서 누락 기간·겹친 거래·중복 검토",
 }
 BLOCK_LABELS = {
+    "storage_preview_blocked": "기존 원장과 합산한 저장 전 검토에 차단 항목이 있습니다.",
+    "storage_preview_failed": "원장 조회 또는 스냅샷 검증에 실패했습니다. 저장하지 마세요.",
     "invalid_manifest": "자료 목록의 형식이나 파일을 확인하세요.",
     "missing_account": "실계좌 번호 대신 사용할 일관된 원장 계좌 식별자를 입력하세요.",
     "missing_period": "검증할 시작일과 종료일을 YYYY-MM-DD로 입력하세요.",
@@ -103,4 +105,42 @@ def render_preparation_report(result):
             "",
         ]
     )
+    preview = result.get("storage_preview")
+    if preview is not None:
+        lines.extend(
+            ["## 기존 원장과 저장 전 검토", "", f"상태: {preview['status']}. DB 저장: 없음."]
+        )
+        if "snapshot_hash" in preview:
+            lines.append(
+                f"조회 근거: {preview['snapshot_source']}; 스냅샷 해시: {preview['snapshot_hash']}"
+            )
+            for item in preview["documents"]:
+                lines.append(
+                    f"- 명세서 {item['index']}: {item['status']}; 신규 행 {item['new_events']}, "
+                    f"신규 정정 {item['new_revisions']}, 재관측 {item['reobserved_events']}"
+                )
+            lines.append(f"- 기존 원장 포함 중복 의심 쌍: {preview['duplicate_candidates']}")
+            for issue in preview["blockers"]:
+                lines.append(f"- 저장 차단: {issue['code']}")
+            comparison = preview["reconciliation"]
+            lines.extend(
+                [
+                    "",
+                    "합산 후 차이 = 기말 잔고 − 기존 원장과 새 자료의 계산 잔고.",
+                    "",
+                    "| 항목 | 통화/종목 | 차이 |",
+                    "|---|---|---|",
+                ]
+            )
+            for component, values in comparison["residuals"].items():
+                for key, amount in values.items():
+                    lines.append(f"| {component} | {key} | {amount} |")
+        lines.extend(
+            [
+                "",
+                "스냅샷은 조회 시점의 근거입니다. 실제 저장 직전에 새로 조회·검토해야 합니다.",
+                "snapshot.json은 계좌 식별자와 거래·검토 이력이 포함된 비공개 파일입니다.",
+                "",
+            ]
+        )
     return "\n".join(lines)
