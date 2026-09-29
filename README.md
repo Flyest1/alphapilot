@@ -772,9 +772,10 @@ python scripts/recalculate_recommendation_cycles.py --apply
 - **보안**: `TOSS_INVEST_CLIENT_ID`, `TOSS_INVEST_CLIENT_SECRET`,
   `TOSS_INVEST_ACCOUNT_ID`는 백엔드 서버 또는 로컬 `backend/.env`에만 저장합니다. 프론트엔드,
   localStorage, Supabase, GitHub Pages 빌드에는 넣지 않습니다.
-- **현재 동기화 범위 밖**: 주문 생성/정정/취소, 주문 내역, 매수 가능금액, 매도 가능수량,
-  주문 미리보기, 자동 리밸런스, 자동 매매. 별도 승인된 단계적 개발은 AGENTS.md를 따르며,
-  보유주식 동기화에 주문 기능을 연결하지 않습니다.
+- **현재 운영 동기화 범위 밖**: 주문 생성/정정/취소, 주문 내역의 화면·DB 저장, 매도 가능수량,
+  주문 미리보기, 자동 리밸런스, 자동 매매. 내부 읽기 전용 주문 증거 수집기는 mock으로만
+  검증했으며 공개 API·스케줄러·보유주식 동기화에 연결하지 않았습니다. API 페이지 완주만으로
+  거래 완전성이나 수익률 정확성을 확정하지 않습니다.
 
 ## Phase 10 설계 상태
 

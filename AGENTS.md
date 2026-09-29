@@ -1388,3 +1388,20 @@ unreviewed duplicates, broken corrections and combined balance residuals. It nev
 imports, records reviews or changes existing data. Snapshot hashes bind review evidence, not
 authorization. Refresh before actual persistence. No schema, broker calls or trading are added.
 See `docs/ledger_storage_preview_2026_09_29.md`.
+
+### Read-only Toss order evidence collection (approved 2026-09-29)
+
+The internal `TossOrderEvidenceReader` may call only GET order-list and order-detail endpoints for an
+explicit configured account and date range. It reads OPEN and all CLOSED cursor pages, overlaps the
+start boundary by one day, and may refresh explicitly known open order ids. It returns raw list pages
+and cumulative execution observations only. It must not infer individual fills, replacement links,
+missing fees/taxes, cash flows, settlement balances, or performance.
+
+The evidence packet is local and non-persistent: no public FastAPI route, scheduler, operating DB
+write, or frontend is added. Tokens, authorization headers and account numbers must not enter the
+packet. Unknown statuses are preserved and quarantined; malformed data, account mismatch and
+non-progressing pagination fail closed. API pagination completion never upgrades economic coverage,
+which remains false until statements and balance evidence reconcile. The reader shares an in-process
+token/read lock with holdings sync because issuing a new token invalidates the previous token. This is
+not cross-process coordination. No live account request or order mutation is authorized by this scope.
+See `docs/toss_ledger_capabilities_2026_09_11.md`.

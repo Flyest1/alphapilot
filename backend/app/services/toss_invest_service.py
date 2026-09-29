@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from math import isfinite
+from threading import RLock
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -15,6 +17,7 @@ from app.db.supabase_client import Repository
 TOSS_BASE_URL = "https://openapi.tossinvest.com"
 TOSS_PROVIDER = "toss_invest"
 TOSS_ASSET_SOURCE = "toss_api"
+_TOSS_READ_OPERATION_LOCK = RLock()
 
 
 class TossInvestError(RuntimeError):
@@ -23,6 +26,36 @@ class TossInvestError(RuntimeError):
 
 class TossInvestConfigurationError(TossInvestError):
     pass
+
+
+class TossInvestRateLimitError(TossInvestError):
+    def __init__(self, retry_after_seconds: float = 1.0) -> None:
+        self.retry_after_seconds = retry_after_seconds
+        super().__init__("Toss Invest API rate limit exceeded.")
+
+
+class TossInvestReadSession:
+    def __init__(
+        self,
+        token: str,
+        account: dict[str, Any],
+        http_request: Any,
+    ) -> None:
+        self._token = token
+        self.account = account
+        self._http_request = http_request
+
+    def get(self, path: str) -> dict[str, Any]:
+        if not path.startswith("/api/v1/"):
+            raise TossInvestError("Toss Invest read path is not allowed.")
+        return self._http_request(
+            "GET",
+            path,
+            headers={
+                "Authorization": f"Bearer {self._token}",
+                "X-Tossinvest-Account": str(self.account["account_seq"]),
+            },
+        )
 
 
 class TossInvestService:
@@ -47,6 +80,10 @@ class TossInvestService:
         }
 
     def sync_holdings(self) -> dict[str, Any]:
+        with _TOSS_READ_OPERATION_LOCK:
+            return self._sync_holdings_locked()
+
+    def _sync_holdings_locked(self) -> dict[str, Any]:
         self._ensure_configured()
         token = self._issue_token()
         accounts = self._get_accounts(token)
@@ -82,6 +119,18 @@ class TossInvestService:
                 "daily_profit_loss": holdings.get("dailyProfitLoss"),
             },
         }
+
+    @contextmanager
+    def read_session(self, expected_account_id: str):
+        with _TOSS_READ_OPERATION_LOCK:
+            self._ensure_configured()
+            token = self._issue_token()
+            account = self._select_account(self._get_accounts(token))
+            if str(account["account_seq"]) != str(expected_account_id):
+                raise TossInvestConfigurationError(
+                    "Toss Invest requested account does not match the configured account."
+                )
+            yield TossInvestReadSession(token, account, self.http_request)
 
     def _credentials_configured(self) -> bool:
         return bool(self.env.toss_invest_client_id and self.env.toss_invest_client_secret)
@@ -287,6 +336,16 @@ class TossInvestService:
             with urlopen(request, timeout=30) as response:
                 raw = response.read().decode("utf-8")
         except HTTPError as exc:
+            if exc.code == 429:
+                retry_after = 1.0
+                try:
+                    header_value = exc.headers.get("Retry-After", "1") if exc.headers else "1"
+                    parsed_retry_after = float(header_value)
+                    if isfinite(parsed_retry_after):
+                        retry_after = parsed_retry_after
+                except (TypeError, ValueError):
+                    pass
+                raise TossInvestRateLimitError(max(retry_after, 0)) from exc
             detail = _safe_error_detail(exc)
             operation = f"{method} {path}"
             raise TossInvestError(

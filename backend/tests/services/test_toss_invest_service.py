@@ -11,6 +11,7 @@ from app.services.portfolio_service import PortfolioService
 from app.services.toss_invest_service import (
     TossInvestConfigurationError,
     TossInvestError,
+    TossInvestRateLimitError,
     TossInvestService,
 )
 
@@ -713,6 +714,36 @@ def test_toss_http_error_includes_operation_and_oauth_detail(monkeypatch):
 
     assert "POST /oauth2/token" in str(exc_info.value)
     assert "403 access_denied" in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    ("headers", "expected_retry_after"),
+    [
+        ({"Retry-After": "0.75"}, 0.75),
+        (None, 1.0),
+        ({"Retry-After": "NaN"}, 1.0),
+        ({"Retry-After": "-2"}, 0.0),
+    ],
+)
+def test_toss_http_429_is_classified_with_retry_after(monkeypatch, headers, expected_retry_after):
+    repository = InMemoryRepository()
+
+    def fake_urlopen(_request, timeout=30):
+        raise HTTPError(
+            url="https://openapi.tossinvest.com/oauth2/token",
+            code=429,
+            msg="Too Many Requests",
+            hdrs=headers,
+            fp=BytesIO(b'{"error":"rate_limited"}'),
+        )
+
+    monkeypatch.setattr(toss_module, "urlopen", fake_urlopen)
+    service = TossInvestService(repository, env=_env())
+
+    with pytest.raises(TossInvestRateLimitError) as exc_info:
+        service.sync_holdings()
+
+    assert exc_info.value.retry_after_seconds == expected_retry_after
 
 
 def test_toss_http_error_parses_nested_api_error_detail(monkeypatch):
