@@ -1,14 +1,21 @@
-"""Prepare local ledger evidence and reports, without DB or network access."""
+"""Prepare local evidence, optionally read an operating snapshot, never write to a DB."""
 
 import argparse
 import json
+import os
+from urllib.parse import urlparse
 from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
-from app.services.ledger.preparation import check_preparation, preparation_template  # noqa: E402
+from app.services.ledger.preparation import (  # noqa: E402
+    _json,
+    _read,
+    check_preparation,
+    preparation_template,
+)
 from app.services.ledger.preparation_report import (  # noqa: E402
     CHECK_LABELS,
     render_preparation_report,
@@ -21,6 +28,57 @@ def _json_file(folder, name, value):
         stream.write("\n")
 
 
+def _operating_snapshot(account_id, expected_project):
+    from dotenv import load_dotenv
+    from supabase import create_client
+    from app.db.ledger_repository import LedgerRepository
+
+    load_dotenv(ROOT / "backend/.env", override=False)
+    url = os.environ["SUPABASE_URL"]
+    parsed = urlparse(url)
+    if (
+        not expected_project
+        or parsed.scheme != "https"
+        or parsed.netloc != f"{expected_project}.supabase.co"
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("Explicit expected operating project required")
+    return LedgerRepository(
+        create_client(url, os.environ["SUPABASE_SERVICE_ROLE_KEY"])
+    ).read_review_snapshot(account_id)
+
+
+def _preview(args, result, evidence, output):
+    from app.services.ledger.storage_preview import preview_storage
+
+    if not evidence:
+        result["storage_preview"] = {"status": "not_checked", "stored": False}
+        return
+    try:
+        snapshot = (
+            _operating_snapshot(evidence["account_id"], args.expected_project_id)
+            if args.read_operating
+            else _json(_read(args.snapshot))
+        )
+        preview = preview_storage(evidence, snapshot)
+        preview["snapshot_source"] = "operating_read" if args.read_operating else "offline_snapshot"
+        result["storage_preview"] = preview
+        result["local_status"] = result["status"]
+        result["local_projection_blockers"] = result["blockers"]
+        result["blockers"] = []
+        result["status"] = preview["status"]
+        _json_file(output, "snapshot.json", snapshot)
+        if preview["status"] != "ready_for_review":
+            result["status"] = "blocked"
+            result["blockers"].append({"code": "storage_preview_blocked"})
+    except Exception:
+        result["status"] = "blocked"
+        result["storage_preview"] = {"status": "failed", "stored": False}
+        result["blockers"].append({"code": "storage_preview_failed"})
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -29,13 +87,31 @@ def main(argv=None):
     check = commands.add_parser("check", help="Check files and write JSON/Korean Markdown reports")
     check.add_argument("manifest", type=Path)
     check.add_argument("--output-dir", type=Path, required=True)
+    preview = commands.add_parser(
+        "preview", help="Compare validated material with a read-only account snapshot"
+    )
+    preview.add_argument("manifest", type=Path)
+    preview.add_argument("--output-dir", type=Path, required=True)
+    source = preview.add_mutually_exclusive_group(required=True)
+    source.add_argument("--snapshot", type=Path)
+    source.add_argument("--read-operating", action="store_true")
+    preview.add_argument("--expected-project-id")
     args = parser.parse_args(argv)
+    if args.command == "preview" and args.read_operating and not args.expected_project_id:
+        parser.error("--read-operating requires --expected-project-id")
     try:
         output = args.output_dir.resolve()
         output.relative_to((ROOT / "backups").resolve())
-        result = check_preparation(args.manifest) if args.command == "check" else None
+        evidence = {}
+        result = (
+            check_preparation(args.manifest, evidence=evidence)
+            if args.command in {"check", "preview"}
+            else None
+        )
         # Reserve a new directory; interrupted output remains, never overwritten on retry.
         output.mkdir(parents=True, exist_ok=False)
+        if args.command == "preview":
+            _preview(args, result, evidence, output)
         if result is not None:
             _json_file(output, "report.json", result)
             with (output / "report.md").open("x", encoding="utf-8") as stream:

@@ -1375,3 +1375,16 @@ events. `ready_for_review` is a local preparation result, not source authenticit
 coverage, production reconciliation or authorization to persist. Empty/unknown amounts stay
 null until supplied; buying power is not settled cash. Original files and existing output
 directories are not overwritten. See `docs/ledger_operating_preparation_2026_09_23.md`.
+
+### Operating ledger storage preview (approved 2026-09-29)
+
+`prepare_account_ledger.py preview` compares supplied material with an atomic account-scoped
+`ledger_read_review_state` snapshot. Offline `--snapshot` never loads credentials; explicit
+`--read-operating --expected-project-id` uses server-side credentials and GET RPC only.
+Missing/malformed evidence prevents operating reads. Local projection differences may be
+re-evaluated against existing events, preserving correction chains and review decisions.
+The preview detects idempotent imports, re-observations, revision conflicts, pending imports,
+unreviewed duplicates, broken corrections and combined balance residuals. It never publishes
+imports, records reviews or changes existing data. Snapshot hashes bind review evidence, not
+authorization. Refresh before actual persistence. No schema, broker calls or trading are added.
+See `docs/ledger_storage_preview_2026_09_29.md`.
