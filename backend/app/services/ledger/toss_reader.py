@@ -73,9 +73,11 @@ class TossOrderEvidenceReader:
         for order_id in known_ids:
             self._validate_order_id(order_id)
 
+        started_at = self.now().isoformat()
         queried_from = ordered_from - timedelta(days=1)
         raw_pages: list[dict[str, Any]] = []
         listed_orders: dict[str, dict[str, Any]] = {}
+        closed_order_ids: set[str] = set()
         with self.service.read_session(account_id) as session:
             open_result = self._get_page(
                 session,
@@ -92,7 +94,9 @@ class TossOrderEvidenceReader:
             while True:
                 closed_page_count += 1
                 if closed_page_count > 100:
-                    raise TossOrderEvidenceError("Toss order pagination did not progress.")
+                    raise TossOrderEvidenceError(
+                        "Toss CLOSED order page budget exceeded; narrow the date range."
+                    )
                 closed_result = self._get_page(
                     session,
                     status="CLOSED",
@@ -103,7 +107,11 @@ class TossOrderEvidenceReader:
                 raw_pages.append(
                     {"status": "CLOSED", "cursor": cursor, "result": deepcopy(closed_result)}
                 )
-                self._add_listed_orders(listed_orders, closed_result["orders"])
+                self._add_listed_orders(
+                    listed_orders,
+                    closed_result["orders"],
+                    reject_ids=closed_order_ids,
+                )
                 if not closed_result["hasNext"]:
                     break
                 next_cursor = closed_result["nextCursor"]
@@ -118,8 +126,9 @@ class TossOrderEvidenceReader:
                 detail = response.get("result") if isinstance(response, dict) else None
                 observations.append(self._observation(account_id, detail, expected_id=order_id))
 
-        oldest_ordered_at = min(
-            (item["payload"]["orderedAt"] for item in observations),
+        oldest_observation = min(
+            observations,
+            key=lambda item: self._aware_datetime(item["payload"]["orderedAt"]),
             default=None,
         )
         return {
@@ -127,6 +136,7 @@ class TossOrderEvidenceReader:
             "mode": "read_only_evidence",
             "contract_version": self.contract_version,
             "account_id": account_id,
+            "started_at": started_at,
             "observed_at": self.now().isoformat(),
             "raw_pages": raw_pages,
             "observations": observations,
@@ -134,11 +144,14 @@ class TossOrderEvidenceReader:
                 "api_pages_complete": True,
                 "economic_coverage_verified": False,
                 "unsupported_order_types_possible": True,
+                "open_scope": "all",
                 "requested_from": ordered_from.isoformat(),
                 "requested_to": ordered_to.isoformat(),
                 "queried_from": queried_from.isoformat(),
                 "queried_to": ordered_to.isoformat(),
-                "oldest_ordered_at": oldest_ordered_at,
+                "oldest_ordered_at": (
+                    oldest_observation["payload"]["orderedAt"] if oldest_observation else None
+                ),
                 "warnings": [
                     "API page completion does not prove complete account trade coverage.",
                     "Unsupported order types and non-order cash flows may be absent.",
@@ -157,10 +170,10 @@ class TossOrderEvidenceReader:
     ) -> dict[str, Any]:
         query: dict[str, Any] = {
             "status": status,
-            "from": ordered_from.isoformat(),
-            "to": ordered_to.isoformat(),
         }
         if status == "CLOSED":
+            query["from"] = ordered_from.isoformat()
+            query["to"] = ordered_to.isoformat()
             query["limit"] = 100
             if cursor is not None:
                 query["cursor"] = cursor
@@ -197,11 +210,19 @@ class TossOrderEvidenceReader:
         raise AssertionError("unreachable")
 
     def _add_listed_orders(
-        self, destination: dict[str, dict[str, Any]], orders: list[dict[str, Any]]
+        self,
+        destination: dict[str, dict[str, Any]],
+        orders: list[dict[str, Any]],
+        *,
+        reject_ids: set[str] | None = None,
     ) -> None:
         for order in orders:
             order_id = order.get("orderId")
             self._validate_order_id(order_id)
+            if reject_ids is not None:
+                if order_id in reject_ids:
+                    raise TossOrderEvidenceError("Toss order pagination did not progress.")
+                reject_ids.add(order_id)
             destination[str(order_id)] = order
 
     def _observation(
@@ -238,6 +259,7 @@ class TossOrderEvidenceReader:
             "event_type": "execution_aggregate",
             "precision": "aggregate",
             "quality": "provisional" if status in KNOWN_ORDER_STATUSES else "quarantined",
+            "observed_at": self.now().isoformat(),
             "payload": deepcopy(payload),
         }
 

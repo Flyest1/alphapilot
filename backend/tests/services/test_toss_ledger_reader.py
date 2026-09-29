@@ -87,10 +87,12 @@ def test_collects_read_only_order_evidence_without_secrets_or_completeness_claim
             return {"result": details[order_id]}
         query = parse_qs(split.query)
         assert split.path == "/api/v1/orders"
+        if query["status"] == ["OPEN"]:
+            assert "from" not in query
+            assert "to" not in query
+            return {"result": {"orders": [open_order], "nextCursor": None, "hasNext": False}}
         assert query["from"] == ["2026-09-19"]
         assert query["to"] == ["2026-09-21"]
-        if query["status"] == ["OPEN"]:
-            return {"result": {"orders": [open_order], "nextCursor": None, "hasNext": False}}
         if "cursor" not in query:
             return {"result": {"orders": [closed_1], "nextCursor": "cursor-2", "hasNext": True}}
         assert query["cursor"] == ["cursor-2"]
@@ -119,10 +121,16 @@ def test_collects_read_only_order_evidence_without_secrets_or_completeness_claim
     ]
     assert all(item["event_type"] == "execution_aggregate" for item in packet["observations"])
     assert all(item["precision"] == "aggregate" for item in packet["observations"])
+    assert all(
+        item["observed_at"] == "2026-09-29T00:00:00+00:00" for item in packet["observations"]
+    )
+    assert packet["started_at"] == "2026-09-29T00:00:00+00:00"
+    assert packet["observed_at"] == "2026-09-29T00:00:00+00:00"
     assert packet["coverage"] == {
         "api_pages_complete": True,
         "economic_coverage_verified": False,
         "unsupported_order_types_possible": True,
+        "open_scope": "all",
         "requested_from": "2026-09-20",
         "requested_to": "2026-09-21",
         "queried_from": "2026-09-19",
@@ -142,7 +150,9 @@ def test_collects_read_only_order_evidence_without_secrets_or_completeness_claim
     assert not any(path.endswith("/cancel") or path.endswith("/modify") for _, path, _, _ in calls)
 
 
-@pytest.mark.parametrize("failure", ["repeated_cursor", "empty_intermediate_page"])
+@pytest.mark.parametrize(
+    "failure", ["repeated_cursor", "empty_intermediate_page", "repeated_order_id"]
+)
 def test_closed_pagination_fails_closed_on_non_progress(failure):
     module = importlib.import_module("app.services.ledger.toss_reader")
     closed_calls = 0
@@ -159,13 +169,18 @@ def test_closed_pagination_fails_closed_on_non_progress(failure):
         closed_calls += 1
         if closed_calls > 2:
             raise AssertionError("collector followed a non-progressing cursor")
-        orders = (
-            [] if failure == "empty_intermediate_page" else [_order("closed-1", status="FILLED")]
-        )
+        if failure == "empty_intermediate_page":
+            orders = []
+        elif failure == "repeated_order_id" or closed_calls == 1:
+            orders = [_order("closed-1", status="FILLED")]
+        else:
+            orders = [_order("closed-2", status="FILLED")]
         return {
             "result": {
                 "orders": orders,
-                "nextCursor": "same-cursor",
+                "nextCursor": (
+                    "same-cursor" if failure == "repeated_cursor" else f"cursor-{closed_calls}"
+                ),
                 "hasNext": True,
             }
         }
@@ -181,6 +196,38 @@ def test_closed_pagination_fails_closed_on_non_progress(failure):
             ordered_from=date(2026, 9, 20),
             ordered_to=date(2026, 9, 21),
         )
+
+
+def test_oldest_ordered_at_compares_instants_not_iso_text():
+    module = importlib.import_module("app.services.ledger.toss_reader")
+    earlier = _order("earlier", status="FILLED", filled="5")
+    earlier["orderedAt"] = "2026-01-01T00:30:00+14:00"
+    later = _order("later", status="FILLED", filled="5")
+    later["orderedAt"] = "2025-12-31T23:00:00-12:00"
+    details = {item["orderId"]: item for item in (earlier, later)}
+
+    def fake_http(method, request_path, headers=None, body=None):
+        if request_path == "/oauth2/token":
+            return {"access_token": "token", "token_type": "Bearer"}
+        if request_path == "/api/v1/accounts":
+            return {"result": [{"accountSeq": 1, "accountType": "BROKERAGE"}]}
+        split = urlsplit(request_path)
+        if split.path == "/api/v1/orders":
+            query = parse_qs(split.query)
+            orders = [earlier, later] if query["status"] == ["OPEN"] else []
+            return {"result": {"orders": orders, "nextCursor": None, "hasNext": False}}
+        return {"result": details[split.path.rsplit("/", 1)[1]]}
+
+    packet = module.TossOrderEvidenceReader(
+        TossInvestService(InMemoryRepository(), env=_env(), http_request=fake_http),
+        sleep=lambda _seconds: None,
+    ).collect(
+        account_id="1",
+        ordered_from=date(2025, 12, 31),
+        ordered_to=date(2026, 1, 1),
+    )
+
+    assert packet["coverage"]["oldest_ordered_at"] == earlier["orderedAt"]
 
 
 def test_open_response_rejects_pagination_state():
@@ -248,6 +295,32 @@ def test_rate_limit_retry_is_bounded_for_read_requests(eventual_success):
 
     assert attempts == (4 if eventual_success else 3)
     assert delays == [0.25, 0.25]
+
+
+def test_rate_limit_above_retry_delay_budget_raises_without_sleeping():
+    module = importlib.import_module("app.services.ledger.toss_reader")
+    toss_module = importlib.import_module("app.services.toss_invest_service")
+    delays: list[float] = []
+
+    def fake_http(method, path, headers=None, body=None):
+        if path == "/oauth2/token":
+            return {"access_token": "token", "token_type": "Bearer"}
+        if path == "/api/v1/accounts":
+            return {"result": [{"accountSeq": 1, "accountType": "BROKERAGE"}]}
+        raise toss_module.TossInvestRateLimitError(retry_after_seconds=6)
+
+    reader = module.TossOrderEvidenceReader(
+        TossInvestService(InMemoryRepository(), env=_env(), http_request=fake_http),
+        sleep=delays.append,
+    )
+
+    with pytest.raises(toss_module.TossInvestRateLimitError):
+        reader.collect(
+            account_id="1",
+            ordered_from=date(2026, 9, 20),
+            ordered_to=date(2026, 9, 21),
+        )
+    assert delays == []
 
 
 @pytest.mark.parametrize(
@@ -322,7 +395,8 @@ def test_unknown_order_status_is_preserved_but_quarantined():
 def test_order_collection_and_holdings_sync_serialize_token_scoped_reads():
     module = importlib.import_module("app.services.ledger.toss_reader")
     first_token_started = Event()
-    release_first_token = Event()
+    first_order_read_started = Event()
+    release_first_order_read = Event()
     second_token_started = Event()
     token_lock = Lock()
     token_count = 0
@@ -335,7 +409,6 @@ def test_order_collection_and_holdings_sync_serialize_token_scoped_reads():
                 current = token_count
             if current == 1:
                 first_token_started.set()
-                assert release_first_token.wait(2)
             else:
                 second_token_started.set()
             return {"access_token": f"token-{current}", "token_type": "Bearer"}
@@ -343,6 +416,9 @@ def test_order_collection_and_holdings_sync_serialize_token_scoped_reads():
             return {"result": [{"accountSeq": 1, "accountType": "BROKERAGE"}]}
         split = urlsplit(request_path)
         if split.path == "/api/v1/orders":
+            if not first_order_read_started.is_set():
+                first_order_read_started.set()
+                assert release_first_order_read.wait(2)
             return {"result": {"orders": [], "nextCursor": None, "hasNext": False}}
         if request_path == "/api/v1/holdings":
             return {"result": {"items": []}}
@@ -365,9 +441,10 @@ def test_order_collection_and_holdings_sync_serialize_token_scoped_reads():
             ordered_to=date(2026, 9, 21),
         )
         assert first_token_started.wait(1)
+        assert first_order_read_started.wait(1)
         sync_future = pool.submit(holdings.sync_holdings)
         assert not second_token_started.wait(0.1)
-        release_first_token.set()
+        release_first_order_read.set()
         assert read_future.result()["coverage"]["api_pages_complete"] is True
         assert sync_future.result()["mode"] == "read_only"
 

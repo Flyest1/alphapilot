@@ -1392,13 +1392,13 @@ See `docs/ledger_storage_preview_2026_09_29.md`.
 ### Read-only Toss order evidence collection (approved 2026-09-29)
 
 The internal `TossOrderEvidenceReader` may call only GET order-list and order-detail endpoints for an
-explicit configured account and date range. It reads OPEN and all CLOSED cursor pages, overlaps the
-start boundary by one day, and may refresh explicitly known open order ids. It returns raw list pages
-and cumulative execution observations only. It must not infer individual fills, replacement links,
-missing fees/taxes, cash flows, settlement balances, or performance.
+explicit configured account and CLOSED date range. It reads all OPEN orders without a date filter and
+all CLOSED cursor pages with a one-day start overlap, and may refresh explicitly known open order ids.
+It returns raw list pages and cumulative execution observations only. It must not infer individual
+fills, replacement links, missing fees/taxes, cash flows, settlement balances, or performance.
 
 The evidence packet is local and non-persistent: no public FastAPI route, scheduler, operating DB
-write, or frontend is added. Tokens, authorization headers and account numbers must not enter the
+write, or frontend is added. Tokens, authorization headers and raw `accountNo` values must not enter the
 packet. Unknown statuses are preserved and quarantined; malformed data, account mismatch and
 non-progressing pagination fail closed. API pagination completion never upgrades economic coverage,
 which remains false until statements and balance evidence reconcile. The reader shares an in-process
