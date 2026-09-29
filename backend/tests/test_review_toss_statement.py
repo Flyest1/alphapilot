@@ -1,13 +1,17 @@
+import importlib.util
 import json
+from pathlib import Path
 
 import pytest
 
-from scripts.review_toss_statement import (
-    _spreadsheet_safe,
-    parse_layout_pages,
-    summarize_rows,
-    validate_output_directory,
-)
+SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "review_toss_statement.py"
+SPEC = importlib.util.spec_from_file_location("review_toss_statement", SCRIPT_PATH)
+MODULE = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(MODULE)
+_spreadsheet_safe = MODULE._spreadsheet_safe
+parse_layout_pages = MODULE.parse_layout_pages
+summarize_rows = MODULE.summarize_rows
+validate_output_directory = MODULE.validate_output_directory
 
 
 def test_parse_layout_preserves_section_transition_and_source_coordinates():
