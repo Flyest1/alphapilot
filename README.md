@@ -166,7 +166,7 @@ SEC_EDGAR_CACHE_MAX_BYTES=1073741824
 DOMESTIC_REPORT_TIME=08:30
 GLOBAL_REPORT_TIME=22:30
 AI_PROVIDER=openai
-OPENAI_MODEL=gpt-5.6-luna
+OPENAI_MODEL=gpt-6-luna
 RISK_PROFILE=balanced
 CANDIDATE_HORIZON=medium
 FRONTEND_TIMEZONE=Asia/Seoul
@@ -905,10 +905,11 @@ AI 자문 Bundle B·C는 다음 안정화와 화면 개선을 포함합니다.
 - 일반적인 방법론 주의사항만으로 결과 전체가 `partial`이 되지 않도록 종목별 필수 데이터 상태를
   기준으로 판정합니다. `partial`은 일부 지표 제한 안내로 표시하고, 전체 필수 근거가 부족한
   `data-limited`·`insufficient_data`는 강한 경고를 유지합니다.
-- 애플리케이션 기본 OpenAI 모델은 `gpt-5.6-luna`이며 `settings.ai_model`, `OPENAI_MODEL`,
-  Pydantic 기본값 순서로 해석합니다. GPT-5.6 모델 계열의 리포트·자문 생성 요청은
-  OpenAI API가 허용하는 최고 수준인 `reasoning_effort=max`를 사용하며 지원되지 않는
-  `temperature` 파라미터는 보내지 않습니다.
+- 애플리케이션 기본 OpenAI 모델은 `gpt-6-luna`이며 `settings.ai_model`, `OPENAI_MODEL`,
+  Pydantic 기본값 순서로 해석합니다. GPT-6 Luna의 리포트·자문 요청은 실제 API에서
+  검증한 `reasoning_effort=xhigh`를 사용하고 `temperature`는 보내지 않습니다. 기존
+  GPT-5.6 모델 계열의 `max` 설정과 다른 사용자 지정 모델은 유지합니다. 시작 시 이전
+  기본값 `gpt-5.4-mini`·`gpt-5.6-luna`만 업그레이드합니다.
 - 프런트 페이지는 `React.lazy`로 분리해 최초 번들에 모든 화면을 한꺼번에 포함하지 않습니다.
 
 2026-07-17 Bundle B·C 운영 검증에서는 기본 미국 주식 15개와 ETF 10개를 사용해 8개 자문 유형이 모두 완료되고 OpenAI 설명과 추적 가능한 evidence가 저장되는 것을 확인했습니다. 실행 중인 대규모 자문 job의 `updated_at` heartbeat가 전진한 뒤 Oracle 백엔드를 재시작했으며, 동일 job이 분석 1건만 생성하고 완료 상태로 복구되었습니다. 재시작 후 AAPL SEC 분석은 기존 85개 accession payload를 변경하거나 추가 다운로드하지 않고 최신 10-K·10-Q·8-K를 다시 제공했습니다. GitHub CI, Pages, Oracle 배포와 실제 Pages 정적 번들의 전용 결과·재시도·N-PORT 경고·active job 복원 코드도 확인했습니다.

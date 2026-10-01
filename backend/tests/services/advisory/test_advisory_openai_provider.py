@@ -92,9 +92,10 @@ def test_openai_advisory_provider_uses_separate_json_schema():
     assert "reasoning_effort" not in client.chat.completions.kwargs
 
 
-def test_openai_advisory_provider_uses_max_reasoning_effort_for_luna():
+@pytest.mark.parametrize("model", ["gpt-5.6-luna", "gpt-6-luna"])
+def test_openai_advisory_provider_uses_max_reasoning_effort_for_luna(model):
     client = FakeClient(narrative_payload())
-    provider = OpenAIAdvisoryProvider(None, "gpt-5.6-luna", client=client)
+    provider = OpenAIAdvisoryProvider(None, model, client=client)
 
     provider.generate_narrative(
         "sector_outlook",
@@ -102,7 +103,7 @@ def test_openai_advisory_provider_uses_max_reasoning_effort_for_luna():
     )
 
     kwargs = client.chat.completions.kwargs
-    assert kwargs["reasoning_effort"] == "max"
+    assert kwargs["reasoning_effort"] == ("xhigh" if model == "gpt-6-luna" else "max")
     assert "temperature" not in kwargs
 
 

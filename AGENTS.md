@@ -341,7 +341,7 @@ These may exist in `.env.example`, SQL defaults, and Pydantic settings models:
 DOMESTIC_REPORT_TIME=08:30
 GLOBAL_REPORT_TIME=22:30
 AI_PROVIDER=openai
-OPENAI_MODEL=gpt-5.6-luna
+OPENAI_MODEL=gpt-6-luna
 RISK_PROFILE=balanced
 CANDIDATE_HORIZON=medium
 FRONTEND_TIMEZONE=Asia/Seoul
@@ -792,8 +792,13 @@ Model selection:
 Current default:
 
 ```text
-gpt-5.6-luna
+gpt-6-luna
 ```
+
+GPT-6 Luna report and advisory requests use `reasoning_effort=xhigh`, validated against the
+operating API. Do not send `temperature`. The API rejected `max` on 2026-09-30 despite
+model documentation listing it. Preserve existing GPT-5.6 `max` options and custom models.
+At startup upgrade only previous defaults `gpt-5.4-mini` and `gpt-5.6-luna`.
 
 Fallback:
 

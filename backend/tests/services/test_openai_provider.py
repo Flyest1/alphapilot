@@ -40,14 +40,14 @@ def test_openai_provider_uses_structured_output_schema_and_parses_response():
 
 @pytest.mark.parametrize(
     "model",
-    ["gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
+    ["gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-luna"],
 )
-def test_openai_provider_uses_max_reasoning_effort_for_gpt_5_6_family(model):
+def test_openai_provider_uses_max_reasoning_effort_for_supported_models(model):
     client = FakeClient()
     provider = OpenAIProvider(api_key="unused", model=model, client=client)
 
     provider.generate_report("prompt", {"ticker": "AAPL"})
 
     kwargs = client.chat.completions.kwargs
-    assert kwargs["reasoning_effort"] == "max"
+    assert kwargs["reasoning_effort"] == ("xhigh" if model == "gpt-6-luna" else "max")
     assert "temperature" not in kwargs

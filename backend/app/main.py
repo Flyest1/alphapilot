@@ -53,8 +53,8 @@ SCHEDULER_ENDPOINTS = {
     "/api/reports/domestic/generate",
     "/api/reports/global/generate",
 }
-LEGACY_DEFAULT_OPENAI_MODEL = "gpt-5.4-mini"
-CURRENT_DEFAULT_OPENAI_MODEL = "gpt-5.6-luna"
+LEGACY_DEFAULT_OPENAI_MODELS = {"gpt-5.4-mini", "gpt-5.6-luna"}
+CURRENT_DEFAULT_OPENAI_MODEL = "gpt-6-luna"
 
 
 def _bearer_token(request: Request) -> str | None:
@@ -88,9 +88,9 @@ def _upgrade_legacy_ai_model(
     stored_settings: dict | None,
     app_defaults: dict[str, Any],
 ) -> tuple[dict | None, dict[str, Any]]:
-    if app_defaults.get("ai_model") == LEGACY_DEFAULT_OPENAI_MODEL:
+    if app_defaults.get("ai_model") in LEGACY_DEFAULT_OPENAI_MODELS:
         app_defaults = {**app_defaults, "ai_model": CURRENT_DEFAULT_OPENAI_MODEL}
-    if not stored_settings or stored_settings.get("ai_model") != LEGACY_DEFAULT_OPENAI_MODEL:
+    if not stored_settings or stored_settings.get("ai_model") not in LEGACY_DEFAULT_OPENAI_MODELS:
         return stored_settings, app_defaults
     try:
         stored_settings = repository.upsert_settings({"ai_model": CURRENT_DEFAULT_OPENAI_MODEL})

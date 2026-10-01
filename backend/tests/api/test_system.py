@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from fastapi.testclient import TestClient
 
 from app.db.supabase_client import InMemoryRepository
@@ -60,7 +62,7 @@ def test_system_status_endpoint_reports_operational_counts():
     assert body["scheduler"]["global"]["last_expected_at"]
     assert body["security"]["tokens_distinct"] is True
     assert body["openai"]["latest_global_generation"]["mode"] == "technical_only"
-    assert body["openai"]["model"] == "gpt-5.6-luna"
+    assert body["openai"]["model"] == "gpt-6-luna"
     assert body["openai"]["latest_global_generation"]["fallback_reason"] == "provider_error"
     assert body["openai"]["recent_technical_only_count"] == 1
     assert body["data_providers"]["sec_edgar"] == {
@@ -100,15 +102,16 @@ def test_system_status_reports_database_model_override():
     assert response.json()["openai"]["model"] == "gpt-5.6-sol"
 
 
-def test_startup_upgrades_legacy_default_model_without_manual_migration(monkeypatch):
-    monkeypatch.setenv("OPENAI_MODEL", "gpt-5.4-mini")
+@pytest.mark.parametrize("legacy_model", ["gpt-5.4-mini", "gpt-5.6-luna"])
+def test_startup_upgrades_legacy_default_model_without_manual_migration(monkeypatch, legacy_model):
+    monkeypatch.setenv("OPENAI_MODEL", legacy_model)
     repository = InMemoryRepository()
-    repository.upsert_settings({"ai_model": "gpt-5.4-mini"})
+    repository.upsert_settings({"ai_model": legacy_model})
 
     app = create_app(repository=repository)
 
-    assert repository.get_settings()["ai_model"] == "gpt-5.6-luna"
-    assert app.state.application_settings.ai_model == "gpt-5.6-luna"
+    assert repository.get_settings()["ai_model"] == "gpt-6-luna"
+    assert app.state.application_settings.ai_model == "gpt-6-luna"
 
 
 def test_settings_update_refreshes_advisory_model_without_restart():
@@ -120,7 +123,7 @@ def test_settings_update_refreshes_advisory_model_without_restart():
         response = client.post(
             "/api/settings",
             headers={"Authorization": "Bearer test-api-token"},
-            json={"ai_model": "gpt-5.6-luna"},
+            json={"ai_model": "gpt-6-luna"},
         )
         status_response = client.get(
             "/api/system/status",
@@ -128,9 +131,9 @@ def test_settings_update_refreshes_advisory_model_without_restart():
         )
 
     assert response.status_code == 200
-    assert response.json()["ai_model"] == "gpt-5.6-luna"
-    assert app.state.advisory_narrative_provider.model == "gpt-5.6-luna"
-    assert status_response.json()["openai"]["model"] == "gpt-5.6-luna"
+    assert response.json()["ai_model"] == "gpt-6-luna"
+    assert app.state.advisory_narrative_provider.model == "gpt-6-luna"
+    assert status_response.json()["openai"]["model"] == "gpt-6-luna"
 
 
 def test_system_status_isolated_from_sec_cache_observability_failure():
@@ -159,3 +162,10 @@ def test_system_status_isolated_from_sec_cache_observability_failure():
         "max_size_bytes": 1024,
         "utilization_percent": 0.0,
     }
+
+
+@pytest.mark.parametrize("legacy_model", ["gpt-5.4-mini", "gpt-5.6-luna"])
+def test_startup_upgrades_legacy_env_default_without_settings_row(monkeypatch, legacy_model):
+    monkeypatch.setenv("OPENAI_MODEL", legacy_model)
+    app = create_app(repository=InMemoryRepository())
+    assert app.state.application_settings.ai_model == "gpt-6-luna"
