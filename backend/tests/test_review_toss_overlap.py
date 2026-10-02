@@ -1,5 +1,10 @@
+import csv
 import importlib.util
+import json
+import sys
 from pathlib import Path
+
+import pytest
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "review_toss_overlap.py"
 SPEC = importlib.util.spec_from_file_location("review_toss_overlap", SCRIPT)
@@ -46,6 +51,39 @@ def test_exact_overlap_is_multiset_and_keeps_both_source_rows():
     assert results[2]["matched_source_rows"] == "a" * 64 + ":1:1"
     assert report["coverage_verified"] is False
     assert report["ready_for_operating_import"] is False
+
+
+def test_each_later_document_reuses_prior_multiset_without_consuming_it():
+    results, report = MODULE.compare_sources(
+        [row("a", 1), row("a", 2)],
+        [
+            ("early", [row("b", 1), row("b", 2), row("b", 3)]),
+            ("late", [row("c", 1), row("c", 2), row("c", 3)]),
+            ("latest", [row("d", 1), row("d", 2)]),
+        ],
+    )
+
+    assert [item["overlap_status"] for item in results] == [
+        "baseline",
+        "baseline",
+        "duplicate_exact",
+        "duplicate_exact",
+        "new_observation",
+        "duplicate_exact",
+        "duplicate_exact",
+        "duplicate_exact",
+        "duplicate_exact",
+        "duplicate_exact",
+    ]
+    assert [item["matched_source_rows"] for item in results[5:]] == [
+        "a" * 64 + ":1:1",
+        "a" * 64 + ":1:2",
+        "b" * 64 + ":1:3",
+        "a" * 64 + ":1:1",
+        "a" * 64 + ":1:2",
+    ]
+    assert report["provisional_distinct_count"] == 3
+    assert report["coverage_verified"] is False
 
 
 def test_unparsed_row_is_only_candidate_not_auto_deduplicated():
@@ -108,3 +146,58 @@ def test_rejects_same_source_digest_with_conflicting_input():
         assert "source coordinate" in str(exc)
     else:
         raise AssertionError("conflicting source coordinate was accepted")
+
+
+def test_rejects_repeated_source_coordinate_even_with_identical_input():
+    repeated = row("a", 1)
+
+    with pytest.raises(ValueError, match="source coordinate"):
+        MODULE.compare_sources([repeated], [("boundary", [repeated.copy()])])
+
+
+def test_cli_compares_four_review_tables_without_overwriting_input(tmp_path, monkeypatch):
+    backup_root = tmp_path / "backups"
+    backup_root.mkdir()
+    sources = []
+    for digest in "abcd":
+        path = backup_root / f"{digest}.csv"
+        with path.open("w", encoding="utf-8", newline="") as target:
+            writer = csv.DictWriter(target, fieldnames=list(row(digest, 1)))
+            writer.writeheader()
+            writer.writerow(row(digest, 1))
+        sources.append(path)
+    original_bytes = [path.read_bytes() for path in sources]
+    output = backup_root / "review"
+    monkeypatch.setattr(MODULE, "__file__", str(tmp_path / "scripts" / "review_toss_overlap.py"))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "review_toss_overlap.py",
+            *(str(path) for path in sources),
+            "--output-dir",
+            str(output),
+            "--same-account-confirmed",
+        ],
+    )
+
+    assert MODULE.main() == 0
+
+    with (output / "overlap_rows.csv").open(encoding="utf-8-sig", newline="") as source:
+        results = list(csv.DictReader(source))
+    report = json.loads((output / "report.json").read_text(encoding="utf-8"))
+    assert [item["overlap_status"] for item in results] == [
+        "baseline",
+        "duplicate_exact",
+        "duplicate_exact",
+        "duplicate_exact",
+    ]
+    assert [item["source_label"] for item in results] == [
+        "baseline",
+        "early",
+        "late",
+        "supplement_3",
+    ]
+    assert report["provisional_distinct_count"] == 1
+    assert report["ready_for_operating_import"] is False
+    assert [path.read_bytes() for path in sources] == original_bytes

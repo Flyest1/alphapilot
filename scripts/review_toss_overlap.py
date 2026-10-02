@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-from collections import Counter, defaultdict, deque
+from collections import Counter, defaultdict
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -94,16 +94,15 @@ def compare_sources(
 ) -> tuple[list[dict[str, str]], dict[str, object]]:
     """Classify overlaps; only fully parsed, multiset-matched rows are exact repeats."""
     seen_coordinates: dict[str, dict[str, str]] = {}
-    exact: dict[tuple[str, ...], deque[str]] = defaultdict(deque)
+    exact: dict[tuple[str, ...], list[str]] = defaultdict(list)
     weak: dict[tuple[str, ...], list[str]] = defaultdict(list)
     output: list[dict[str, str]] = []
     counts: Counter[str] = Counter()
 
     def check(row: dict[str, str]) -> str:
         coordinate = _coordinate(row)
-        previous = seen_coordinates.get(coordinate)
-        if previous is not None and previous != row:
-            raise ValueError("source coordinate has conflicting input")
+        if coordinate in seen_coordinates:
+            raise ValueError("source coordinate appears more than once")
         seen_coordinates[coordinate] = row
         return coordinate
 
@@ -129,12 +128,17 @@ def compare_sources(
         emit(row, "baseline", "baseline", [])
 
     for label, rows in supplements:
+        prior_lengths = {key: len(coordinates) for key, coordinates in exact.items()}
+        occurrences: Counter[tuple[str, ...]] = Counter()
         for row in rows:
             coordinate = check(row)
             strong = _strong_key(row)
-            if strong is not None and exact[strong]:
-                emit(row, label, "duplicate_exact", [exact[strong].popleft()])
-                continue
+            if strong is not None:
+                occurrence = occurrences[strong]
+                occurrences[strong] += 1
+                if occurrence < prior_lengths.get(strong, 0):
+                    emit(row, label, "duplicate_exact", [exact[strong][occurrence]])
+                    continue
             weak_key = _weak_key(row)
             candidates = weak.get(weak_key, []) if weak_key is not None else []
             if candidates and strong is None:
@@ -168,8 +172,7 @@ def _read(path: Path) -> list[dict[str, str]]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("baseline", type=Path)
-    parser.add_argument("early", type=Path)
-    parser.add_argument("late", type=Path)
+    parser.add_argument("supplements", nargs="+", type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--same-account-confirmed", action="store_true")
     args = parser.parse_args()
@@ -179,11 +182,15 @@ def main() -> int:
     output_dir = args.output_dir.resolve()
     if root not in output_dir.parents or output_dir.exists():
         parser.error("output must be a new directory below backups")
-    paths = (args.baseline.resolve(), args.early.resolve(), args.late.resolve())
+    paths = (args.baseline.resolve(), *(path.resolve() for path in args.supplements))
     if any(root not in path.parents for path in paths):
         parser.error("all review tables must be under backups")
     rows, report = compare_sources(
-        _read(paths[0]), [("early", _read(paths[1])), ("late", _read(paths[2]))]
+        _read(paths[0]),
+        [
+            (("early", "late")[index] if index < 2 else f"supplement_{index + 1}", _read(path))
+            for index, path in enumerate(paths[1:])
+        ],
     )
     report["input_review_tables"] = [str(path) for path in paths]
     report["same_account_confirmed"] = True
