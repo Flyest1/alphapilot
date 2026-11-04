@@ -28,12 +28,18 @@ status_code() {
     -H "Authorization: Bearer $SCHEDULER_SECRET" "$BACKEND_URL$2" || echo "000"
 }
 
-for attempt in 1 2 3 4 5; do
+for attempt in 1 2 3 4 5; do  # ~40s total
   if curl -fsS -o /dev/null --max-time 30 "$BACKEND_URL/health"; then
     break
   fi
   if [ "$attempt" -eq 5 ]; then
-    echo "::error::Backend /health did not respond; cannot verify secrets."
+    if [ "$PHASE" = "pre" ]; then
+      # Recovery path: a stopped or crashing backend must still be deployable. The strict
+      # post-deploy check verifies the secrets once the new release is running.
+      echo "::warning::Backend /health did not respond before deploy; skipping pre-deploy secret check (post-deploy check still runs)."
+      exit 0
+    fi
+    echo "::error::Backend /health did not respond after deploy; cannot verify secrets."
     exit 1
   fi
   sleep 10

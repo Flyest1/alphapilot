@@ -495,7 +495,8 @@ sudo bash /opt/alphapilot/deploy/oracle/deploy_backend.sh /opt/alphapilot
 `BACKEND_URL`, `SCHEDULER_SECRET` repository secret을 사용해 리포트를 생성하지 않는 HTTP 요청
 (스케줄러 경로 GET → 405, 일반 API → 401)만 보내며, 키 값이나 응답 본문은 로그에 남기지 않습니다.
 GitHub `SCHEDULER_SECRET`이 서버 값과 다르거나 서버의 `SCHEDULER_SECRET`과 `API_ACCESS_TOKEN`이
-같으면 배포 전에 중단합니다.
+같으면 배포 전에 중단합니다. 단, 기존 백엔드가 응답하지 않으면(중지·기동 실패) 복구 배포를 위해
+배포 전 검사는 경고만 남기고 넘어가며, 배포 후 검사는 항상 실행되어 실패 시 워크플로를 실패로 표시합니다.
 
 Oracle VM 운영 시 OS 보안 업데이트, systemd 프로세스 상태, nginx 설정, TLS 인증서 갱신은 직접 관리해야 합니다.
 
