@@ -11,6 +11,13 @@ jobs:
       ORACLE_SSH_USER: ${{ secrets.ORACLE_SSH_USER }}
       ORACLE_SSH_PRIVATE_KEY: ${{ secrets.ORACLE_SSH_PRIVATE_KEY }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Check backend secrets before deploy
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          SCHEDULER_SECRET: ${{ secrets.SCHEDULER_SECRET }}
+        run: bash deploy/oracle/check_backend_secrets.sh pre
       - name: Validate SSH secrets
         run: |
           if [ -z "$ORACLE_SSH_HOST" ] || [ -z "$ORACLE_SSH_USER" ] || [ -z "$ORACLE_SSH_PRIVATE_KEY" ]; then
@@ -27,3 +34,8 @@ jobs:
         run: |
           ssh -i ~/.ssh/oracle_key "$ORACLE_SSH_USER@$ORACLE_SSH_HOST" \
             "sudo bash /opt/alphapilot/deploy/oracle/deploy_backend.sh /opt/alphapilot"
+      - name: Check backend secrets after deploy
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          SCHEDULER_SECRET: ${{ secrets.SCHEDULER_SECRET }}
+        run: bash deploy/oracle/check_backend_secrets.sh post
