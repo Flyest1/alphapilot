@@ -2,7 +2,11 @@ from datetime import datetime, timezone
 from math import isfinite
 from typing import Any
 
-from app.config import get_env_application_defaults, resolve_application_settings
+from app.config import (
+    get_env_application_defaults,
+    persist_usd_krw_rate,
+    resolve_application_settings,
+)
 from app.db.supabase_client import Repository
 from app.models.portfolio import PortfolioSummaryResponse
 from app.utils.assets import held_assets
@@ -431,12 +435,7 @@ class PortfolioService:
             resolved_rate = round(float(latest_rate), 4)
             if abs(resolved_rate - fallback_rate) < 0.0001:
                 return resolved_rate
-            values = app_settings.model_dump(
-                mode="json",
-                exclude={"created_at", "updated_at"},
-            )
-            values["usd_krw_rate"] = resolved_rate
-            self.repository.upsert_settings(values)
+            persist_usd_krw_rate(self.repository, app_settings, resolved_rate)
             return resolved_rate
         except Exception as exc:
             log_external_failure(

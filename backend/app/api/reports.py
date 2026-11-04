@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
@@ -31,6 +32,19 @@ def _run_report_job(
         job = app_state.report_jobs.get(job_id)
         if job is not None and job.status in {"queued", "running"}:
             app_state.report_jobs.mark_failed(job_id, error_category="stale_active_job")
+    except Exception:
+        # Background tasks have no caller to surface errors to; never leave the job active.
+        logging.getLogger("alphapilot").exception(
+            "report job failed before completion", extra={"job_id": job_id}
+        )
+        try:
+            job = app_state.report_jobs.get(job_id)
+            if job is not None and job.status in {"queued", "running"}:
+                app_state.report_jobs.mark_failed(job_id, error_category="internal_error")
+        except Exception:
+            logging.getLogger("alphapilot").exception(
+                "could not mark report job failed", extra={"job_id": job_id}
+            )
 
 
 def _execute_report_job(

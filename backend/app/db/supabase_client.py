@@ -7,8 +7,8 @@ from threading import RLock
 from typing import Any, Protocol
 from uuid import uuid4
 
-from httpx import TransportError
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from httpx import ConnectError, ConnectTimeout, PoolTimeout, TransportError
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from app.config import EnvironmentSettings, get_environment_settings, is_supabase_configured
 from app.utils.logging import log_external_failure
@@ -1040,6 +1040,37 @@ class InMemoryRepository:
         return deepcopy(row)
 
 
+# Errors raised before the request reached the server; safe to retry for any method.
+_UNSENT_REQUEST_ERRORS = (ConnectError, ConnectTimeout, PoolTimeout)
+_IDEMPOTENT_HTTP_METHODS = frozenset({"GET", "HEAD", "PATCH", "DELETE"})
+_NON_RETRYABLE_ATTRIBUTE = "_alphapilot_retry_unsafe"
+
+
+def _is_retryable_supabase_error(exc: BaseException) -> bool:
+    if getattr(exc, _NON_RETRYABLE_ATTRIBUTE, False):
+        return False
+    return isinstance(exc, (ConnectionError, TimeoutError, TransportError))
+
+
+def _builder_http_method(builder: Any) -> str:
+    return str(getattr(getattr(builder, "request", None), "http_method", "GET")).upper()
+
+
+_INVALID_TEXT_REPRESENTATION = "22P02"
+_ID_LOOKUP_OPERATION_PREFIXES = ("get_", "update_", "delete_")
+
+
+def _is_invalid_id_lookup(exc: BaseException, context: Mapping[str, Any]) -> bool:
+    return getattr(exc, "code", None) == _INVALID_TEXT_REPRESENTATION and str(
+        context.get("operation") or ""
+    ).startswith(_ID_LOOKUP_OPERATION_PREFIXES)
+
+
+def _touched(data: dict[str, Any]) -> dict[str, Any]:
+    """Stamp updated_at on writes; the schema has column defaults but no update triggers."""
+    return {**data, "updated_at": data.get("updated_at") or _now_iso()}
+
+
 class SupabaseRepository:
     def __init__(self, env: EnvironmentSettings | None = None, client: Any | None = None) -> None:
         current_env = env or get_environment_settings()
@@ -1055,20 +1086,32 @@ class SupabaseRepository:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((ConnectionError, TimeoutError, TransportError)),
+        retry=retry_if_exception(_is_retryable_supabase_error),
         reraise=True,
     )
     def _execute(self, builder: Any) -> Any:
         # The sync Supabase client owns one HTTP connection pool. FastAPI runs sync
         # endpoints in worker threads, so concurrent use can corrupt an HTTP/2 stream.
-        with self._execute_lock:
-            return builder.execute()
+        try:
+            with self._execute_lock:
+                return builder.execute()
+        except TransportError as exc:
+            # A read timeout or dropped connection after an INSERT/RPC may already have
+            # committed; retrying would duplicate reports, strategies, jobs or ledger rows.
+            if _builder_http_method(builder) not in _IDEMPOTENT_HTTP_METHODS and not isinstance(
+                exc, _UNSENT_REQUEST_ERRORS
+            ):
+                setattr(exc, _NON_RETRYABLE_ATTRIBUTE, True)
+            raise
 
     def _run(self, builder: Any, context: dict[str, Any]) -> list[dict[str, Any]]:
         try:
             response = self._execute(builder)
             return list(response.data or [])
         except Exception as exc:
+            if _is_invalid_id_lookup(exc, context):
+                # A malformed path id cannot match any row; let routes return their 404.
+                return []
             log_external_failure("supabase", exc, context)
             raise
 
@@ -1087,7 +1130,7 @@ class SupabaseRepository:
         return rows[0]
 
     def update_asset(self, asset_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
-        clean_data = {key: value for key, value in data.items() if value is not None}
+        clean_data = _touched({key: value for key, value in data.items() if value is not None})
         builder = self.client.table("assets").update(clean_data).eq("id", asset_id)
         rows = self._run(builder, {"operation": "update_asset", "asset_id": asset_id})
         return rows[0] if rows else None
@@ -1184,7 +1227,7 @@ class SupabaseRepository:
     def update_candidate_asset(
         self, candidate_id: str, data: dict[str, Any]
     ) -> dict[str, Any] | None:
-        clean_data = {key: value for key, value in data.items() if value is not None}
+        clean_data = _touched({key: value for key, value in data.items() if value is not None})
         builder = self.client.table("candidate_assets").update(clean_data).eq("id", candidate_id)
         rows = self._run(
             builder,
@@ -1224,14 +1267,15 @@ class SupabaseRepository:
         return rows[0]
 
     def get_settings(self) -> dict[str, Any] | None:
-        builder = self.client.table("settings").select("*").limit(1)
+        # Deterministic row choice if a concurrent first write ever created two rows.
+        builder = self.client.table("settings").select("*").order("created_at").limit(1)
         rows = self._run(builder, {"operation": "get_settings"})
         return rows[0] if rows else None
 
     def upsert_settings(self, data: dict[str, Any]) -> dict[str, Any]:
         existing = self.get_settings()
         if existing:
-            builder = self.client.table("settings").update(data).eq("id", existing["id"])
+            builder = self.client.table("settings").update(_touched(data)).eq("id", existing["id"])
         else:
             builder = self.client.table("settings").insert(data)
         rows = self._run(builder, {"operation": "upsert_settings"})
@@ -1280,9 +1324,15 @@ class SupabaseRepository:
         the requested range. Only an empty page establishes exhaustion.
         """
         builder = builder.order("id", desc=True)
+        # postgrest-py's range() appends offset/limit params; restore the base params per page
+        # so pages never carry duplicated offset/limit values.
+        request = getattr(builder, "request", None)
+        base_params = getattr(request, "params", None)
         rows: list[dict[str, Any]] = []
         while limit is None or len(rows) < limit:
             count = 500 if limit is None else min(500, limit - len(rows))
+            if base_params is not None:
+                request.params = base_params
             page = self._run(builder.range(len(rows), len(rows) + count - 1), context)
             if not page:
                 break
@@ -1322,7 +1372,7 @@ class SupabaseRepository:
         return rows[0]
 
     def update_report_job(self, job_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
-        clean_data = {key: value for key, value in data.items() if value is not None}
+        clean_data = _touched({key: value for key, value in data.items() if value is not None})
         builder = self.client.table("report_jobs").update(clean_data).eq("job_id", job_id)
         rows = self._run(builder, {"operation": "update_report_job", "job_id": job_id})
         return rows[0] if rows else None
@@ -1430,7 +1480,9 @@ class SupabaseRepository:
     def update_recommendation_cycle(
         self, cycle_id: str, data: dict[str, Any]
     ) -> dict[str, Any] | None:
-        builder = self.client.table("recommendation_cycles").update(data).eq("id", cycle_id)
+        builder = (
+            self.client.table("recommendation_cycles").update(_touched(data)).eq("id", cycle_id)
+        )
         rows = self._run(
             builder, {"operation": "update_recommendation_cycle", "cycle_id": cycle_id}
         )
@@ -1494,14 +1546,16 @@ class SupabaseRepository:
     def update_notification(
         self, notification_id: str, data: dict[str, Any]
     ) -> dict[str, Any] | None:
-        builder = self.client.table("notifications").update(data).eq("id", notification_id)
+        builder = (
+            self.client.table("notifications").update(_touched(data)).eq("id", notification_id)
+        )
         rows = self._run(builder, {"operation": "update_notification"})
         return rows[0] if rows else None
 
     def mark_all_notifications_read(self) -> int:
         builder = (
             self.client.table("notifications")
-            .update({"is_read": True, "read_at": _now_iso()})
+            .update(_touched({"is_read": True, "read_at": _now_iso()}))
             .eq("is_read", False)
         )
         return len(self._run(builder, {"operation": "mark_all_notifications_read"}))

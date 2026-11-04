@@ -26,6 +26,8 @@ from app.api import (
     toss,
 )
 from app.config import (
+    CURRENT_DEFAULT_OPENAI_MODEL,
+    LEGACY_DEFAULT_OPENAI_MODELS,
     get_env_application_defaults,
     get_environment_settings,
     resolve_application_settings,
@@ -53,8 +55,6 @@ SCHEDULER_ENDPOINTS = {
     "/api/reports/domestic/generate",
     "/api/reports/global/generate",
 }
-LEGACY_DEFAULT_OPENAI_MODELS = {"gpt-5.4-mini", "gpt-5.6-luna"}
-CURRENT_DEFAULT_OPENAI_MODEL = "gpt-6-luna"
 
 
 def _bearer_token(request: Request) -> str | None:
@@ -202,14 +202,23 @@ def create_app(repository: Repository | None = None) -> FastAPI:
             return await call_next(request)
 
         current_env = get_environment_settings()
+        is_scheduler_endpoint = request.url.path in SCHEDULER_ENDPOINTS
         expected_token = (
+            current_env.scheduler_secret if is_scheduler_endpoint else current_env.api_access_token
+        )
+        # The browser-stored user token must never unlock scheduler endpoints, so a scheduler
+        # secret equal to the API token is treated as misconfigured (fail closed).
+        scheduler_secret_reused = is_scheduler_endpoint and bool(
             current_env.scheduler_secret
-            if request.url.path in SCHEDULER_ENDPOINTS
-            else current_env.api_access_token
+            and current_env.api_access_token
+            and secrets.compare_digest(
+                current_env.scheduler_secret.encode(), current_env.api_access_token.encode()
+            )
         )
         provided_token = _bearer_token(request)
         if (
             not expected_token
+            or scheduler_secret_reused
             or provided_token is None
             or not secrets.compare_digest(provided_token.encode(), expected_token.encode())
         ):
@@ -230,7 +239,13 @@ def create_app(repository: Repository | None = None) -> FastAPI:
             "unhandled exception",
             extra={"path": request.url.path, "method": request.method, "error": str(exc)},
         )
-        return JSONResponse({"detail": "internal server error"}, status_code=500)
+        # Exception handlers run outside CORSMiddleware; without these headers the browser reports
+        # a CORS/network failure and the client retries as if the backend were cold-starting.
+        return JSONResponse(
+            {"detail": "internal server error"},
+            status_code=500,
+            headers=_cors_headers_for_request(request),
+        )
 
     @app.get("/")
     def root() -> dict[str, str]:
