@@ -17,7 +17,7 @@ from app.models.advisory import (
     parse_advisory_job_request,
     validate_advisory_result,
 )
-from app.utils.datetime import parse_iso_datetime
+from app.utils.datetime import parse_iso_datetime, utc_now_iso
 from app.utils.logging import log_external_failure
 
 ACTIVE_JOB_STATUSES = {"queued", "running"}
@@ -33,8 +33,7 @@ _request_hash_locks: dict[str, tuple[threading.Lock, int]] = {}
 _request_hash_locks_guard = threading.Lock()
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+_now_iso = utc_now_iso
 
 
 def _request_hash(request: AdvisoryJobRequest) -> str:

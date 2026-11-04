@@ -54,25 +54,6 @@ BOOL_APPLICATION_FIELDS = {
     "telegram_notify_drift_warning",
 }
 
-INFRASTRUCTURE_ENV_KEYS = (
-    "APP_ENV",
-    "SUPABASE_URL",
-    "SUPABASE_SERVICE_ROLE_KEY",
-    "SUPABASE_ANON_KEY",
-    "OPENAI_API_KEY",
-    "SCHEDULER_SECRET",
-    "API_ACCESS_TOKEN",
-    "FRONTEND_ORIGIN",
-    "TELEGRAM_BOT_TOKEN",
-    "TELEGRAM_CHAT_ID",
-    "TOSS_INVEST_CLIENT_ID",
-    "TOSS_INVEST_CLIENT_SECRET",
-    "TOSS_INVEST_ACCOUNT_ID",
-    "FRED_API_KEY",
-    "SEC_EDGAR_USER_AGENT",
-    "SEC_EDGAR_CACHE_MAX_BYTES",
-)
-
 
 class EnvironmentSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")

@@ -8,13 +8,10 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
+from app.services.advisory.features.common import finite_float
 
-def finite_number(value: Any) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if np.isfinite(number) else None
+# One finite-number parser for every advisory feature module.
+finite_number = finite_float
 
 
 def rounded(value: float | None, digits: int = 2) -> float | None:

@@ -9,7 +9,7 @@ from typing import Iterator
 from uuid import uuid4
 
 from app.db.supabase_client import Repository
-from app.utils.datetime import parse_iso_datetime
+from app.utils.datetime import parse_iso_datetime, utc_now_iso
 
 ACTIVE_JOB_STATUSES = {"queued", "running"}
 ACTIVE_JOB_TIMEOUT = timedelta(minutes=20)
@@ -19,8 +19,7 @@ class ReportGenerationLockTimeout(TimeoutError):
     pass
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+_now_iso = utc_now_iso
 
 
 @dataclass

@@ -167,10 +167,6 @@ class NewsService:
             ),
         }
 
-    def _build_queries(self, report_type: str, assets: list[dict[str, Any]]) -> list[str]:
-        """Return the legacy query list while query_details carries scope metadata."""
-        return [detail["query"] for detail in self._build_query_details(report_type, assets)]
-
     def _build_query_details(
         self,
         report_type: str,

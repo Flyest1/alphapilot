@@ -47,6 +47,25 @@ def _raise_advisory_storage_error(
     raise exc
 
 
+def _capability_status(request: Request, capability: str, storage_status: str) -> str:
+    """Status of a workflow gated by an additive migration's advisory_capabilities marker."""
+    if storage_status == "migration_required":
+        return "migration_required"
+    if storage_status != "available":
+        return "unavailable"
+    try:
+        return (
+            "available"
+            if request.app.state.advisory_jobs.has_capability(capability)
+            else "migration_required"
+        )
+    except Exception as exc:
+        # The helper recognizes a missing capabilities relation/marker for any workflow.
+        if is_profit_taking_review_migration_required(exc):
+            return "migration_required"
+        return "unavailable"
+
+
 @router.get("/status", response_model=AdvisoryStatusResponse)
 def get_advisory_status(request: Request) -> dict:
     try:
@@ -56,38 +75,12 @@ def get_advisory_status(request: Request) -> dict:
         storage_status = (
             "migration_required" if is_advisory_migration_required(exc) else "unavailable"
         )
-    profit_taking_review_status = "unavailable"
-    if storage_status == "available":
-        try:
-            profit_taking_review_status = (
-                "available"
-                if request.app.state.advisory_jobs.has_capability("profit_taking_review")
-                else "migration_required"
-            )
-        except Exception as exc:
-            profit_taking_review_status = (
-                "migration_required"
-                if is_profit_taking_review_migration_required(exc)
-                else "unavailable"
-            )
-    elif storage_status == "migration_required":
-        profit_taking_review_status = "migration_required"
-    high_upside_status = "unavailable"
-    if storage_status == "available":
-        try:
-            high_upside_status = (
-                "available"
-                if request.app.state.advisory_jobs.has_capability("high_upside_speculative_stocks")
-                else "migration_required"
-            )
-        except Exception as exc:
-            high_upside_status = (
-                "migration_required"
-                if is_profit_taking_review_migration_required(exc)
-                else "unavailable"
-            )
-    elif storage_status == "migration_required":
-        high_upside_status = "migration_required"
+    profit_taking_review_status = _capability_status(
+        request, "profit_taking_review", storage_status
+    )
+    high_upside_status = _capability_status(
+        request, "high_upside_speculative_stocks", storage_status
+    )
     return {
         "storage_status": storage_status,
         "ai_narrative_status": (

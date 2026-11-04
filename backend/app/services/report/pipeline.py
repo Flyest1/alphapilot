@@ -1170,6 +1170,3 @@ class ReportService:
 
     def _infer_market(self, ticker: str) -> str:
         return infer_market(ticker)
-
-    def _normalize_ticker(self, ticker: str) -> str:
-        return normalize_ticker(ticker)

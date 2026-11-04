@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 
 from app.services.advisory.features.common import (
+    margin_pct,
     data_quality,
     evidence_item,
     finite_float,
@@ -210,11 +211,7 @@ class UndervaluedUSStocksAnalyzer:
         except Exception:
             return {}
 
-    @staticmethod
-    def _margin(income: float | None, revenue: float | None) -> float | None:
-        if income is None or revenue in {None, 0.0}:
-            return None
-        return round(income / revenue * 100, 2)
+    _margin = staticmethod(margin_pct)
 
     @staticmethod
     def _candidate_eligibility(

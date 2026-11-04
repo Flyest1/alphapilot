@@ -28,6 +28,13 @@ def rounded(value: Any, digits: int = 2) -> float | None:
     return round(number, digits) if number is not None else None
 
 
+def margin_pct(numerator: float | None, denominator: float | None) -> float | None:
+    """numerator / denominator as a percentage, or None when either side is unknown or zero."""
+    if numerator is None or denominator in {None, 0.0}:
+        return None
+    return round(numerator / denominator * 100, 2)
+
+
 def percent_change(current: Any, previous: Any) -> float | None:
     current_value = finite_float(current)
     previous_value = finite_float(previous)

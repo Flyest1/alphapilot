@@ -12,6 +12,7 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 
 from app.config import EnvironmentSettings, get_environment_settings, is_supabase_configured
 from app.utils.logging import log_external_failure
+from app.utils.datetime import utc_now_iso
 
 
 class Repository(Protocol):
@@ -32,8 +33,6 @@ class Repository(Protocol):
         asset_key: str,
     ) -> dict[str, Any] | None: ...
 
-    def upsert_external_asset(self, data: dict[str, Any]) -> dict[str, Any]: ...
-
     def reconcile_toss_assets(
         self,
         account_id: str,
@@ -42,8 +41,6 @@ class Repository(Protocol):
     ) -> dict[str, Any]: ...
 
     def list_candidate_assets(self) -> list[dict[str, Any]]: ...
-
-    def get_candidate_asset(self, candidate_id: str) -> dict[str, Any] | None: ...
 
     def create_candidate_asset(self, data: dict[str, Any]) -> dict[str, Any]: ...
 
@@ -170,8 +167,7 @@ class Repository(Protocol):
     def create_signal_model_report_link(self, data: dict[str, Any]) -> dict[str, Any]: ...
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+_now_iso = utc_now_iso
 
 
 def _copy_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -378,16 +374,6 @@ class InMemoryRepository:
                 return deepcopy(row)
         return None
 
-    def upsert_external_asset(self, data: dict[str, Any]) -> dict[str, Any]:
-        existing = self.get_asset_by_external_key(
-            str(data.get("external_provider") or ""),
-            str(data.get("external_account_id") or ""),
-            str(data.get("external_asset_key") or ""),
-        )
-        if existing:
-            return self.update_asset(existing["id"], data) or existing
-        return self.create_asset(data)
-
     def reconcile_toss_assets(
         self,
         account_id: str,
@@ -468,10 +454,6 @@ class InMemoryRepository:
 
     def list_candidate_assets(self) -> list[dict[str, Any]]:
         return sorted(_copy_rows(self.candidate_assets.values()), key=lambda row: row["created_at"])
-
-    def get_candidate_asset(self, candidate_id: str) -> dict[str, Any] | None:
-        row = self.candidate_assets.get(candidate_id)
-        return deepcopy(row) if row else None
 
     def create_candidate_asset(self, data: dict[str, Any]) -> dict[str, Any]:
         row = deepcopy(data)
@@ -865,86 +847,10 @@ class InMemoryRepository:
         )
 
     def create_signal_model_evaluation_run(self, data: dict[str, Any]) -> dict[str, Any]:
-        row = deepcopy(data)
-        champion_model_version_id = str(row.get("champion_model_version_id") or "")
-        challenger_model_version_id = str(row.get("challenger_model_version_id") or "")
-        if (
-            champion_model_version_id not in self.signal_model_versions
-            or challenger_model_version_id not in self.signal_model_versions
-            or champion_model_version_id == challenger_model_version_id
-        ):
-            raise ValueError(
-                "evaluation run requires distinct known champion and challenger versions"
-            )
-        if row.get("evaluation_window_weeks", 12) != 12:
-            raise ValueError("evaluation_window_weeks is fixed at 12")
-        if row.get("trigger_type") != "scheduled":
-            raise ValueError("evaluation run trigger_type must be scheduled")
-        if not row.get("report_type") or not row.get("decision_at"):
-            raise ValueError("evaluation run requires report_type and decision_at")
-        input_snapshot = row.get("input_snapshot")
-        if not isinstance(input_snapshot, Mapping):
-            raise ValueError("evaluation run input_snapshot must be an object")
-        now = _now_iso()
-        started_at = row.get("started_at") or now
-        ends_at = _twelve_week_end(started_at)
-        if row.get("ends_at") is not None and row["ends_at"] != ends_at:
-            raise ValueError("evaluation run ends_at must equal started_at plus 12 weeks")
-        champion_sha256 = self.signal_model_versions[champion_model_version_id]["config_sha256"]
-        challenger_sha256 = self.signal_model_versions[challenger_model_version_id]["config_sha256"]
-        if row.get("champion_config_sha256") not in {None, champion_sha256}:
-            raise ValueError("evaluation run champion config hash does not match its model version")
-        if row.get("challenger_config_sha256") not in {None, challenger_sha256}:
-            raise ValueError(
-                "evaluation run challenger config hash does not match its model version"
-            )
-        input_sha256 = _canonical_json_sha256(input_snapshot)
-        if row.get("input_sha256") not in {None, input_sha256}:
-            raise ValueError("evaluation run input hash does not match input_snapshot")
-        status = row.get("status") or "pending"
-        if status not in {"pending", "collecting", "review_ready", "failed"}:
-            raise ValueError("evaluation run status is invalid")
-        if (status == "failed") != bool(row.get("failure_reason")):
-            raise ValueError(
-                "failed evaluations require failure_reason and other states must omit it"
-            )
-        if status == "review_ready":
-            completed_at = row.get("completed_at")
-            if completed_at is None:
-                raise ValueError("review-ready evaluations require completed_at")
-            try:
-                completed = datetime.fromisoformat(str(completed_at).replace("Z", "+00:00"))
-                ends = datetime.fromisoformat(ends_at.replace("Z", "+00:00"))
-            except ValueError as exc:
-                raise ValueError("evaluation completed_at must be an ISO datetime") from exc
-            if completed.tzinfo is None or ends.tzinfo is None:
-                raise ValueError("evaluation timestamps must include a timezone")
-            if completed < ends:
-                raise ValueError("review-ready evaluations must complete after the 12-week window")
-            if ends.tzinfo is None or datetime.now(timezone.utc) < ends:
-                raise ValueError("review-ready evaluations must wait for the 12-week window")
-        for field in (
-            "expected_observation_count",
-            "observed_observation_count",
-            "excluded_observation_count",
-        ):
-            if int(row.get(field) or 0) < 0:
-                raise ValueError(f"{field} must not be negative")
+        # Same validation as the Supabase path; only identity and storage differ.
+        row = _prepare_signal_model_evaluation_run(data, self.signal_model_versions)
         row["id"] = row.get("id") or str(uuid4())
-        row["champion_model_version_id"] = champion_model_version_id
-        row["challenger_model_version_id"] = challenger_model_version_id
-        row["champion_config_sha256"] = champion_sha256
-        row["challenger_config_sha256"] = challenger_sha256
-        row["evaluation_window_weeks"] = 12
-        row["started_at"] = started_at
-        row["ends_at"] = ends_at
-        row["status"] = status
-        row["expected_observation_count"] = int(row.get("expected_observation_count") or 0)
-        row["observed_observation_count"] = int(row.get("observed_observation_count") or 0)
-        row["excluded_observation_count"] = int(row.get("excluded_observation_count") or 0)
-        row["input_snapshot"] = dict(input_snapshot)
-        row["input_sha256"] = input_sha256
-        row["created_at"] = row.get("created_at") or now
+        row["created_at"] = row.get("created_at") or _now_iso()
         self.signal_model_evaluation_runs[row["id"]] = row
         return deepcopy(row)
 
@@ -1165,17 +1071,6 @@ class SupabaseRepository:
         )
         return rows[0] if rows else None
 
-    def upsert_external_asset(self, data: dict[str, Any]) -> dict[str, Any]:
-        existing = self.get_asset_by_external_key(
-            str(data.get("external_provider") or ""),
-            str(data.get("external_account_id") or ""),
-            str(data.get("external_asset_key") or ""),
-        )
-        if existing:
-            updated = self.update_asset(existing["id"], data)
-            return updated or existing
-        return self.create_asset(data)
-
     def reconcile_toss_assets(
         self,
         account_id: str,
@@ -1210,14 +1105,6 @@ class SupabaseRepository:
     def list_candidate_assets(self) -> list[dict[str, Any]]:
         builder = self.client.table("candidate_assets").select("*").order("created_at")
         return self._run(builder, {"operation": "list_candidate_assets"})
-
-    def get_candidate_asset(self, candidate_id: str) -> dict[str, Any] | None:
-        builder = self.client.table("candidate_assets").select("*").eq("id", candidate_id).limit(1)
-        rows = self._run(
-            builder,
-            {"operation": "get_candidate_asset", "candidate_id": candidate_id},
-        )
-        return rows[0] if rows else None
 
     def create_candidate_asset(self, data: dict[str, Any]) -> dict[str, Any]:
         builder = self.client.table("candidate_assets").insert(data)
