@@ -761,3 +761,31 @@ def test_infer_market_treats_alphanumeric_six_character_codes_as_kr():
 
     assert service._infer_market("0183J0") == "KR"
     assert service._infer_market("AAPL") == "US"
+
+
+class MalformedJsonThenValidAI(RetryAI):
+    def generate_report(self, prompt, context):
+        if self.calls == 0:
+            self.calls += 1
+            import json
+
+            return json.loads('{"report_type": "domestic", "market_summary": {"summ')
+        return super().generate_report(prompt, context)
+
+
+def test_truncated_json_gets_the_validation_retry():
+    repo = seeded_repo()
+    ai = MalformedJsonThenValidAI()
+    service = ReportService(
+        repo,
+        market_data_service=FakeMarketData(),
+        technical_analysis_service=FakeTechnical(),
+        ai_provider=ai,
+        news_service=FakeNews(),
+    )
+
+    report = service.generate_report("domestic")
+    content = ReportContent.model_validate(report["content"])
+
+    assert ai.calls == 2
+    assert content.market_summary.summary == "validated report"

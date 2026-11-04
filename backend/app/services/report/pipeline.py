@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from copy import deepcopy
 from datetime import datetime, timezone
+import json
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -413,7 +414,7 @@ class ReportService:
             generated_at=generated_at,
         )
 
-        validation_error: ValidationError | None = None
+        validation_error: ValidationError | json.JSONDecodeError | None = None
         for attempt in range(2):
             diagnostics["attempt_count"] = attempt + 1
             try:
@@ -427,7 +428,9 @@ class ReportService:
                     }
                 )
                 return content, diagnostics
-            except ValidationError as exc:
+            except (ValidationError, json.JSONDecodeError) as exc:
+                # Truncated or malformed JSON is an output-validation failure and gets the same
+                # single corrective retry as a schema mismatch.
                 validation_error = exc
                 log_external_failure(
                     "openai",
