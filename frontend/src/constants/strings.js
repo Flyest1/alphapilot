@@ -16,7 +16,7 @@ export const HORIZON_LABELS = {
   long: "장기 60거래일",
 };
 
-export const CYCLE_STATUS_LABELS = {
+const CYCLE_STATUS_LABELS = {
   active: "진행 중",
   hit_target: "목표 도달",
   hit_stop: "손절 도달",

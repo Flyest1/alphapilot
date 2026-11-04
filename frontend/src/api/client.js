@@ -2,7 +2,7 @@ import { MESSAGES } from "../constants/strings.js";
 
 const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 export const API_BASE_URL = rawApiBaseUrl.replace(/\/+$/, "");
-export const API_ACCESS_TOKEN_STORAGE_KEY = "alphapilot_api_access_token";
+const API_ACCESS_TOKEN_STORAGE_KEY = "alphapilot_api_access_token";
 const API_CACHE_PREFIX = "alphapilot_api_cache:";
 
 export function getApiAccessToken() {
@@ -67,7 +67,7 @@ function writeApiCache(path, data) {
   }
 }
 
-export function clearApiCache() {
+function clearApiCache() {
   const keys = [];
   for (let index = 0; index < window.localStorage.length; index += 1) {
     const key = window.localStorage.key(index);
@@ -76,7 +76,7 @@ export function clearApiCache() {
   keys.forEach((key) => window.localStorage.removeItem(key));
 }
 
-export const DEFAULT_TIMEOUT_MS = 30 * 1000;
+const DEFAULT_TIMEOUT_MS = 30 * 1000;
 
 // 표준 에러 객체: message 외에 status(HTTP 코드)와 kind(분류)를 함께 제공한다.
 export class ApiError extends Error {
