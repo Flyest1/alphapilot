@@ -1,3 +1,4 @@
+import { findPerformanceLog } from "./performanceLogs.js";
 import { compareStrategyBaseConfidence } from "./strategyScores.js";
 
 export const STRATEGY_FILTERS = ["ALL", "BUY", "HOLD", "REDUCE", "SELL", "WATCH", "DATA_LIMITED"];
@@ -17,9 +18,7 @@ export function filterStrategies(strategies = [], filter = "ALL") {
 }
 
 function return20dFor(strategy, performanceLogs) {
-  const log = performanceLogs.find(
-    (row) => row.ticker === strategy.ticker && row.action === strategy.action,
-  );
+  const log = findPerformanceLog(strategy, performanceLogs);
   const numeric = Number(log?.return_after_20d);
   return Number.isFinite(numeric) ? numeric : null;
 }

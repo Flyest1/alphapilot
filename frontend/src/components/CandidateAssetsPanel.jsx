@@ -97,10 +97,15 @@ export default function CandidateAssetsPanel() {
   }
 
   async function remove(candidateId) {
+    if (!window.confirm("이 후보 종목을 삭제할까요?")) return;
     setError("");
     setMessage("");
     try {
       await api.candidates.remove(candidateId);
+      if (editingId === candidateId) {
+        setForm(blankCandidate);
+        setEditingId(null);
+      }
       setMessage("후보 종목을 삭제했습니다.");
       loadCandidates();
     } catch (err) {

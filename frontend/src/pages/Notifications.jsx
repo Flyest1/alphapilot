@@ -21,6 +21,7 @@ export default function Notifications({ onUnreadCountChange = noop }) {
   const [data, setData] = useState({ notifications: [], unread_count: 0 });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [isMarking, setIsMarking] = useState(false);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -40,15 +41,26 @@ export default function Notifications({ onUnreadCountChange = noop }) {
     load();
   }, [load]);
 
-  async function markRead(notification) {
-    if (notification.is_read) return;
-    await api.notifications.read(notification.id);
-    await load();
+  async function runMarkAction(action) {
+    if (isMarking) return;
+    setIsMarking(true);
+    try {
+      await action();
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsMarking(false);
+    }
   }
 
-  async function markAllRead() {
-    await api.notifications.readAll();
-    await load();
+  function markRead(notification) {
+    if (notification.is_read) return undefined;
+    return runMarkAction(() => api.notifications.read(notification.id));
+  }
+
+  function markAllRead() {
+    return runMarkAction(() => api.notifications.readAll());
   }
 
   return (
@@ -60,7 +72,7 @@ export default function Notifications({ onUnreadCountChange = noop }) {
         </div>
         <div className="header-actions">
           <button
-            disabled={isLoading || data.unread_count === 0}
+            disabled={isLoading || isMarking || data.unread_count === 0}
             type="button"
             onClick={markAllRead}
           >

@@ -9,6 +9,28 @@ function roundNumber(value, digits = 4) {
   return Number(numeric.toFixed(digits));
 }
 
+const NUMERIC_SETTING_FIELDS = [
+  "stale_data_business_days",
+  "usd_krw_rate",
+  "target_domestic_pct",
+  "target_global_pct",
+  "target_cash_pct",
+  "target_max_asset_pct",
+  "rebalance_band_pct",
+  "risk_per_trade_pct",
+  "fee_rate_pct",
+  "kr_tax_rate_pct",
+  "fx_spread_pct",
+];
+
+// Number("") is 0, so a cleared field would silently save zero (e.g. every quote becomes stale).
+export function blankNumericSettingFields(settings) {
+  return NUMERIC_SETTING_FIELDS.filter((field) => {
+    const value = settings?.[field];
+    return value == null || String(value).trim() === "" || !Number.isFinite(Number(value));
+  });
+}
+
 function normalizeSettings(settings) {
   return {
     ...settings,
@@ -34,6 +56,10 @@ export default function Settings() {
   async function save(event) {
     event.preventDefault();
     setStatus("");
+    if (blankNumericSettingFields(settings).length) {
+      setStatus("숫자 설정 값을 비워둘 수 없습니다. 빈 항목에 숫자를 입력한 뒤 저장하세요.");
+      return;
+    }
     try {
       const saved = await api.settings.save({
         domestic_report_time: settings.domestic_report_time,

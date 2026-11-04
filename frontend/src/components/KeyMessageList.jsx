@@ -1,5 +1,6 @@
 import { formatStrategyMessageValue, importantStrategyMessages } from "../api/reports.js";
 import { formatReturn as formatReturnValue } from "../utils/formatters.js";
+import { findPerformanceLog } from "../utils/performanceLogs.js";
 import { downsideCalibration, strategyBaseConfidence } from "../utils/strategyScores.js";
 
 function formatRange(strategy) {
@@ -26,12 +27,6 @@ function formatCurrentPercent(value, currentPrice) {
   const percent = ((numeric - current) / current) * 100;
   const formatted = percent.toLocaleString(undefined, { maximumFractionDigits: 2 });
   return `(${formatted}%)`;
-}
-
-function performanceFor(strategy, performanceLogs) {
-  return performanceLogs.find(
-    (row) => row.ticker === strategy.ticker && row.action === strategy.action,
-  );
 }
 
 function formatReturn(value) {
@@ -96,7 +91,7 @@ export default function KeyMessageList({ strategies = [], limit = 8, performance
     <div className="key-message-list">
       {messages.map((message) => {
         const strategy = message.strategy || {};
-        const performance = performanceFor(strategy, performanceLogs);
+        const performance = findPerformanceLog(strategy, performanceLogs);
         return (
           <details className="key-message-item" key={message.key}>
             <summary>

@@ -40,7 +40,6 @@ export const MESSAGES = {
   loadingStats: "추천 성과 통계를 불러오는 중입니다.",
   refreshing: "최신 데이터를 확인하는 중입니다.",
   noReports: "아직 생성된 리포트가 없습니다.",
-  noStrategies: "표시할 전략이 없습니다.",
   requestFailed: "요청에 실패했습니다.",
   networkFailed: "백엔드 연결에 실패했습니다. API URL, 토큰, CORS 설정을 확인하세요.",
   timeout: "요청 시간이 초과되었습니다. 백엔드가 깨어나는 중일 수 있으니 잠시 후 다시 시도하세요.",

@@ -198,10 +198,15 @@ export default function Assets() {
   }
 
   async function deleteAsset(assetId) {
+    if (!window.confirm("이 자산을 삭제할까요? 삭제한 자산은 되돌릴 수 없습니다.")) return;
     setError("");
     setStatus("");
     try {
       await api.assets.remove(assetId);
+      if (editingId === assetId) {
+        setForm(blankAsset);
+        setEditingId(null);
+      }
       setStatus("자산을 삭제했습니다.");
       loadAssets();
     } catch (err) {
