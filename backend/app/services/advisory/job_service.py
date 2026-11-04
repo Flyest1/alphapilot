@@ -18,6 +18,7 @@ from app.models.advisory import (
     validate_advisory_result,
 )
 from app.utils.datetime import parse_iso_datetime
+from app.utils.logging import log_external_failure
 
 ACTIVE_JOB_STATUSES = {"queued", "running"}
 ACTIVE_JOB_TIMEOUT = timedelta(minutes=20)
@@ -374,7 +375,12 @@ class AdvisoryJobStore:
         job_id = str(row.get("job_id") or "")
         if not job_id:
             return False
-        with _AdvisoryJobLock(job_id):
+        # run_advisory_job holds this lock for the whole analysis. A held lock means the job is
+        # executing (or mid-transition) in this process, so it is not stale; never block an API
+        # poll behind a running analysis.
+        with _AdvisoryJobLock(job_id, blocking=False) as guard:
+            if not guard.acquired:
+                return False
             return self._expire_if_stale_unlocked(job_id)
 
     def _expire_if_stale_unlocked(self, job_id: str) -> bool:
@@ -431,7 +437,15 @@ class AdvisoryJobStepTimer:
     def __exit__(self, exc_type: object, _exc: object, _traceback: object) -> None:
         duration_ms = int((perf_counter() - self.started_at) * 1000)
         step_status = "failed" if exc_type else "completed"
-        self.store.mark_step(self.job_id, self.step_name, step_status, duration_ms)
+        # Step timing is diagnostic; a failed write must not turn a saved analysis into a failure.
+        try:
+            self.store.mark_step(self.job_id, self.step_name, step_status, duration_ms)
+        except Exception as exc:
+            log_external_failure(
+                "advisory_jobs",
+                exc,
+                {"operation": "mark_step", "job_id": self.job_id, "step": self.step_name},
+            )
 
 
 class AdvisoryJobHeartbeat:
@@ -456,12 +470,20 @@ class AdvisoryJobHeartbeat:
 
     def _run(self) -> None:
         while not self.stop_event.wait(self.interval_seconds):
-            self.store.heartbeat(self.job_id)
+            # A transient write failure must not stop later heartbeats for a long analysis.
+            try:
+                self.store.heartbeat(self.job_id)
+            except Exception as exc:
+                log_external_failure(
+                    "advisory_jobs", exc, {"operation": "heartbeat", "job_id": self.job_id}
+                )
 
 
 class _AdvisoryJobLock:
-    def __init__(self, job_id: str) -> None:
+    def __init__(self, job_id: str, blocking: bool = True) -> None:
         self.job_id = job_id
+        self.blocking = blocking
+        self.acquired = False
         self.lock: threading.RLock | None = None
 
     def __enter__(self) -> "_AdvisoryJobLock":
@@ -469,13 +491,14 @@ class _AdvisoryJobLock:
             lock, references = _job_locks.get(self.job_id, (threading.RLock(), 0))
             _job_locks[self.job_id] = (lock, references + 1)
             self.lock = lock
-        self.lock.acquire()
+        self.acquired = self.lock.acquire(blocking=self.blocking)
         return self
 
     def __exit__(self, _exc_type: object, _exc: object, _traceback: object) -> None:
         if self.lock is None:
             return
-        self.lock.release()
+        if self.acquired:
+            self.lock.release()
         with _job_locks_guard:
             current_lock, references = _job_locks[self.job_id]
             if current_lock is self.lock and references == 1:

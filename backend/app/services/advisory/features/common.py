@@ -33,6 +33,10 @@ def percent_change(current: Any, previous: Any) -> float | None:
     previous_value = finite_float(previous)
     if current_value is None or previous_value in {None, 0.0}:
         return None
+    if previous_value < 0:
+        # Against a negative base (e.g. FCF -100 -> -200) the plain ratio flips sign and would
+        # report deterioration as improvement; measure the change relative to |previous|.
+        return round((current_value - previous_value) / abs(previous_value) * 100, 2)
     return round((current_value / previous_value - 1) * 100, 2)
 
 

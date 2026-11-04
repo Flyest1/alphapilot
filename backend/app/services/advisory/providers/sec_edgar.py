@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import http.client
 import json
 import math
 import os
 import re
 import threading
 import time
+import zlib
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
@@ -29,6 +31,8 @@ SEC_FUND_TICKERS_URL = "https://www.sec.gov/files/company_tickers_mf.json"
 SEC_RETRYABLE_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
 SEC_MAX_REQUESTS_PER_SECOND = 5
 SEC_MAX_SUBMISSION_BYTES = 16 * 1024 * 1024
+SEC_MEMORY_CACHE_MAX_BYTES = 64 * 1024 * 1024
+SEC_MEMORY_CACHE_MAX_ENTRY_BYTES = SEC_MEMORY_CACHE_MAX_BYTES // 4
 SEC_DEFAULT_MAX_PERSISTENT_ENTRIES = 256
 SEC_DEFAULT_MAX_PERSISTENT_BYTES = 1024 * 1024 * 1024
 SEC_NPORT_PUBLIC_DELAY_DAYS = 60
@@ -42,7 +46,10 @@ _SENTENCE_PATTERN = re.compile(r"(?<=[.!?])\s+")
 _NUMBER_PATTERN = re.compile(
     r"(?:\$\s*)?\d[\d,]*(?:\.\d+)?\s*(?:%|million|billion|thousand)?", re.I
 )
-_AI_TERMS = ("artificial intelligence", "generative ai", "ai ", " ai", "machine learning")
+# Whole-word match: substring terms like " ai"/"ai " also hit "aircraft", "aid" or "Shanghai ".
+_AI_TERM_PATTERN = re.compile(
+    r"\b(?:artificial intelligence|generative ai|machine learning|ai)\b", re.I
+)
 _GUIDANCE_TERMS = ("guidance", "outlook", "expect", "forecast")
 _RISK_TERMS = ("risk", "uncertain", "may adversely", "could adversely", "headwind")
 _FLOW_FIELDS = frozenset(
@@ -159,6 +166,7 @@ class SecEdgarProvider:
         self.sleep = sleep
         self.now_provider = now_provider or (lambda: datetime.now(timezone.utc))
         self._cache: dict[str, tuple[float, bytes]] = {}
+        self._cache_bytes = 0
         self._cache_lock = threading.Lock()
         try:
             with self._submission_cache_guard:
@@ -411,7 +419,7 @@ class SecEdgarProvider:
         filings = self.list_recent_filings(ticker, ("10-K", "10-Q", "8-K"), limit_per_form=2)
         disclosures = []
         for filing in filings:
-            sentences = self._sentences(str(filing.get("text") or ""), _AI_TERMS, 12)
+            sentences = self._sentences(str(filing.get("text") or ""), _AI_TERM_PATTERN, 12)
             if not sentences:
                 continue
             quantitative_sentences = [
@@ -475,7 +483,9 @@ class SecEdgarProvider:
                 continue
             parsed_filings.append({**row, "holdings_count": len(parsed_holdings)})
             holdings.extend(parsed_holdings)
-            flow_fields.update(parsed_flows)
+            # Filings are newest first; an older filing must not overwrite newer flow values.
+            for name, value in parsed_flows.items():
+                flow_fields.setdefault(name, value)
         if not parsed_filings:
             return self._nport_unavailable(ticker, "nport_text_unavailable")
         return {
@@ -601,9 +611,15 @@ class SecEdgarProvider:
                 retryable = exc.code in SEC_RETRYABLE_STATUS_CODES
                 last_error = exc
             except (URLError, TimeoutError, OSError) as exc:
+                # Also covers gzip.BadGzipFile (an OSError subclass) from a truncated body.
                 retryable = True
                 last_error = exc
-            except (gzip.BadGzipFile, ValueError) as exc:
+            except (http.client.IncompleteRead, EOFError, zlib.error) as exc:
+                # Truncated transfers are transient; without this they escaped as non-SEC errors
+                # and bypassed both the retry and the fail-closed handling of callers.
+                retryable = True
+                last_error = exc
+            except ValueError as exc:
                 raise SecEdgarError("SEC EDGAR response could not be decoded") from exc
             except SecEdgarError:
                 raise
@@ -920,17 +936,36 @@ class SecEdgarProvider:
         with self._cache_lock:
             cached = self._cache.get(url)
             if cached is None or cached[0] <= now:
-                self._cache.pop(url, None)
+                self._cache_discard(url)
                 return None
             return cached[1]
 
     def _cache_put(self, url: str, payload: bytes) -> None:
-        if self.cache_ttl_seconds == 0:
+        """Short-lived memory cache bounded by entries and bytes.
+
+        Entry count alone allowed 256 complete submissions (up to 16 MB each) to stay pinned on
+        a small VM. Payloads are now capped in total bytes, oversize ones rely on the verified
+        disk cache, and expired entries are swept on every write.
+        """
+        if self.cache_ttl_seconds == 0 or len(payload) > SEC_MEMORY_CACHE_MAX_ENTRY_BYTES:
             return
+        now = time.monotonic()
         with self._cache_lock:
-            if len(self._cache) >= self.max_cache_entries:
-                self._cache.pop(next(iter(self._cache)))
-            self._cache[url] = (time.monotonic() + self.cache_ttl_seconds, payload)
+            for expired_url in [key for key, (expires, _) in self._cache.items() if expires <= now]:
+                self._cache_discard(expired_url)
+            self._cache_discard(url)
+            while self._cache and (
+                len(self._cache) >= self.max_cache_entries
+                or self._cache_bytes + len(payload) > SEC_MEMORY_CACHE_MAX_BYTES
+            ):
+                self._cache_discard(next(iter(self._cache)))
+            self._cache[url] = (now + self.cache_ttl_seconds, payload)
+            self._cache_bytes += len(payload)
+
+    def _cache_discard(self, url: str) -> None:
+        removed = self._cache.pop(url, None)
+        if removed is not None:
+            self._cache_bytes -= len(removed[1])
 
     @staticmethod
     def _mapping_values(value: Any) -> list[Mapping[str, Any]]:
@@ -1033,12 +1068,23 @@ class SecEdgarProvider:
         return str(value) if value not in (None, "") else None
 
     @staticmethod
-    def _sentences(text: str, terms: Iterable[str], limit: int) -> list[str]:
-        normalized_terms = tuple(term.casefold() for term in terms)
+    def _sentences(text: str, terms: Iterable[str] | re.Pattern[str], limit: int) -> list[str]:
+        if isinstance(terms, re.Pattern):
+            pattern = terms
+
+            def matches(sentence: str) -> bool:
+                return bool(pattern.search(sentence))
+
+        else:
+            normalized_terms = tuple(term.casefold() for term in terms)
+
+            def matches(sentence: str) -> bool:
+                normalized = sentence.casefold()
+                return any(term in normalized for term in normalized_terms)
+
         sentences = []
         for sentence in _SENTENCE_PATTERN.split(" ".join(text.split())):
-            normalized = sentence.casefold()
-            if any(term in normalized for term in normalized_terms):
+            if matches(sentence):
                 sentences.append(sentence[:500])
             if len(sentences) >= limit:
                 break
@@ -1146,15 +1192,24 @@ class SecEdgarProvider:
             }
             if any(value is not None for value in holding.values()):
                 holdings.append(holding)
-        flows = {}
+        flows: dict[str, float] = {}
         for element in root.iter():
-            if SecEdgarProvider._local_name(element.tag).casefold() != "monthlyflow":
-                continue
-            for child in element.iter():
-                name = SecEdgarProvider._local_name(child.tag).casefold()
-                value = SecEdgarProvider._decimal((child.text or "").strip())
-                if name in _FLOW_FIELDS and value is not None:
-                    flows[name] = value
+            tag = SecEdgarProvider._local_name(element.tag).casefold()
+            if re.fullmatch(r"mon[123]flow", tag):
+                # Official N-PORT shape: <mon1Flow sales=".." reinvestment=".." redemption=".."/>
+                # for each of the filing's three months; report the three-month total.
+                for attribute, raw_value in element.attrib.items():
+                    name = SecEdgarProvider._local_name(attribute).casefold()
+                    value = SecEdgarProvider._decimal(str(raw_value).strip())
+                    if name in _FLOW_FIELDS and value is not None:
+                        flows[name] = round(flows.get(name, 0.0) + value, 2)
+            elif tag == "monthlyflow":
+                # Legacy child-element shape kept for previously cached fixtures.
+                for child in element.iter():
+                    name = SecEdgarProvider._local_name(child.tag).casefold()
+                    value = SecEdgarProvider._decimal((child.text or "").strip())
+                    if name in _FLOW_FIELDS and value is not None:
+                        flows[name] = value
         return holdings, flows, series_ids
 
     @staticmethod
