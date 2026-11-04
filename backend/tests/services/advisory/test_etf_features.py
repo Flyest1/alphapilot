@@ -155,6 +155,10 @@ def test_etf_rebalancing_calculates_metrics_scenarios_and_marks_stale_data():
     assert result["top10_overlap"][0]["minimum_confirmed_top10_overlap_pct"] == 24
     assert all(plan["excluded_tickers"] == ["TLT"] for plan in result["scenarios"])
     assert all(plan["weight_changes_vs_current_pct"] is not None for plan in result["scenarios"])
+    for plan in result["scenarios"]:
+        tlt = next(row for row in plan["weight_changes_vs_current_pct"] if row["ticker"] == "TLT")
+        # Stale TLT is unscored: its target is unknown, not a suggestion to sell all of it.
+        assert tlt["target_weight_pct"] is None and tlt["change_pct_points"] is None
     assert all(plan["expected_return_direction"] for plan in result["scenarios"])
     assert all(plan["primary_risk"] for plan in result["scenarios"])
     assert all(plan["suitable_investor"] for plan in result["scenarios"])

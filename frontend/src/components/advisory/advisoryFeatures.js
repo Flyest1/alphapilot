@@ -80,7 +80,7 @@ export function getAdvisoryFeature(analysisType) {
   return ADVISORY_FEATURES.find((feature) => feature.id === analysisType) || ADVISORY_FEATURES[0];
 }
 
-export function parseTickers(value) {
+function parseTickers(value) {
   return [
     ...new Set(
       String(value || "")

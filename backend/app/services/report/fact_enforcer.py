@@ -239,8 +239,7 @@ def _changed_fields(
     return [field for field in fields if getattr(source, field) != getattr(corrected, field)]
 
 
-def _changed_mapping_fields(source: Any, corrected: Any, fields: tuple[str, ...]) -> list[str]:
-    return [field for field in fields if getattr(source, field) != getattr(corrected, field)]
+_changed_mapping_fields = _changed_fields
 
 
 def _add_correction(

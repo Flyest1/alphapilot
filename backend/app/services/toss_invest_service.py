@@ -67,7 +67,7 @@ class TossInvestService:
     ) -> None:
         self.repository = repository
         self.env = env or get_environment_settings()
-        self.http_request = http_request or self._http_request
+        self.http_request = _read_only_http(http_request or self._http_request)
 
     def status(self) -> dict[str, Any]:
         return {
@@ -210,9 +210,9 @@ class TossInvestService:
         account_seq = selected.get("accountSeq")
         if account_seq is None:
             raise TossInvestError("Toss Invest account response is missing accountSeq.")
+        # The raw account number is never returned: sync results reach the browser.
         return {
             "account_seq": str(account_seq),
-            "account_no": selected.get("accountNo"),
             "account_type": selected.get("accountType"),
             "source": "accounts_api",
         }
@@ -353,7 +353,35 @@ class TossInvestService:
             ) from exc
         except URLError as exc:
             raise TossInvestError("Toss Invest API connection failed.") from exc
-        return json.loads(raw or "{}")
+        try:
+            payload = json.loads(raw or "{}")
+        except ValueError as exc:
+            raise TossInvestError("Toss Invest API returned invalid JSON.") from exc
+        if not isinstance(payload, dict):
+            raise TossInvestError("Toss Invest API returned an unexpected response shape.")
+        return payload
+
+
+def _ensure_read_only_request(method: str, path: str) -> None:
+    """Fail closed before any request that is not token issuance or a v1 read.
+
+    Holdings sync and evidence collection are read-only; order creation, modification and
+    cancellation endpoints must be unreachable through this client.
+    """
+    normalized_method = str(method or "").upper()
+    if normalized_method == "POST" and path == "/oauth2/token":
+        return
+    if normalized_method == "GET" and str(path).startswith("/api/v1/"):
+        return
+    raise TossInvestError("Toss Invest request is not allowed in read-only mode.")
+
+
+def _read_only_http(http_request: Any) -> Any:
+    def guarded(method: str, path: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        _ensure_read_only_request(method, path)
+        return http_request(method, path, *args, **kwargs)
+
+    return guarded
 
 
 def _to_nonnegative_number(value: Any, field_name: str) -> float:

@@ -8,6 +8,8 @@ import pandas as pd
 
 from app.services.advisory.features import (
     close_series,
+    complete_calendar_years,
+    distributions_are_stale,
     dividends_from_ticker,
     finite_number,
     quality_summary,
@@ -104,6 +106,7 @@ class HighDividendEtfService:
         distribution = self._distribution_metrics(
             distributions,
             current_price if not market_data.is_stale else None,
+            as_of=market_data.last_trading_date,
         )
         sector = sectors[0] if sectors else None
         score = self._stability_score(distribution, sector)
@@ -190,8 +193,9 @@ class HighDividendEtfService:
     def _distribution_metrics(
         distributions: pd.Series,
         current_price: float | None,
+        as_of: Any | None = None,
     ) -> dict[str, Any]:
-        if distributions.empty:
+        if distributions.empty or distributions_are_stale(distributions, as_of):
             return {
                 "trailing_12m_distribution_amount": None,
                 "trailing_12m_distribution_yield_pct": None,
@@ -223,7 +227,9 @@ class HighDividendEtfService:
             risk_level = "elevated_observed_cut"
         else:
             risk_level = "no_material_observed_cut"
-        annual = distributions.groupby(distributions.index.year).sum()
+        annual = complete_calendar_years(
+            distributions.groupby(distributions.index.year).sum(), as_of
+        )
         paid = annual[annual > 0]
         growth = None
         if len(paid) >= 4:

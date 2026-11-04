@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 
 from app.services.advisory.features.common import (
+    margin_pct,
     data_quality,
     evidence_item,
     finite_float,
@@ -210,11 +211,7 @@ class UndervaluedUSStocksAnalyzer:
         except Exception:
             return {}
 
-    @staticmethod
-    def _margin(income: float | None, revenue: float | None) -> float | None:
-        if income is None or revenue in {None, 0.0}:
-            return None
-        return round(income / revenue * 100, 2)
+    _margin = staticmethod(margin_pct)
 
     @staticmethod
     def _candidate_eligibility(
@@ -292,7 +289,8 @@ class UndervaluedUSStocksAnalyzer:
             points += min(margin_change * 2, 10)
         if fcf_change is not None and fcf_change > 0:
             points += min(fcf_change / 2, 10)
-        if debt_to_equity is not None and debt_to_equity < 100:
+        # Negative equity yields a negative ratio; that is distress, not low leverage.
+        if debt_to_equity is not None and 0 <= debt_to_equity < 100:
             points += 5
         if cash is not None and cash > 0:
             points += 5

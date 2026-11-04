@@ -234,3 +234,21 @@ def test_candidate_gate_rejects_turnover_and_max_drawdown_worsening() -> None:
     assert status == "rejected"
     assert "turnover_worsened" in reasons
     assert "max_drawdown_worsened" in reasons
+
+
+def test_portfolio_proxy_drawdown_counts_a_first_period_loss():
+    import pandas as pd
+
+    from app.services.signal_research_service import SignalResearchService
+
+    selected = pd.DataFrame(
+        {
+            "date": ["2026-01-02", "2026-01-05"],
+            "ticker": ["AAA", "AAA"],
+            "net_return_pct": [-10.0, 5.0],
+        }
+    )
+
+    metrics = SignalResearchService()._portfolio_proxy_metrics(selected)
+
+    assert metrics["max_drawdown_pct"] == -10.0

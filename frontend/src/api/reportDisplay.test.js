@@ -11,4 +11,11 @@ describe("report display text", () => {
     ).toBe("반도체 수요가 개선됐습니다. 참고");
     expect(displayReportText("추가 참고 https://news.example.com/story")).toBe("추가 참고");
   });
+
+  it("keeps tickers and ordinary bracketed notes", () => {
+    expect(displayReportText("삼성전자(005930.KS) 반등")).toBe("삼성전자(005930.KS) 반등");
+    expect(displayReportText("[ETF 집중 주의] 비중 확인")).toBe("[ETF 집중 주의] 비중 확인");
+    expect(displayReportText("[Fed meeting] 금리")).toBe("[Fed meeting] 금리");
+    expect(displayReportText("[E2 · source: filing] 공시 확인")).toBe("공시 확인");
+  });
 });

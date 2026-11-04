@@ -1,6 +1,6 @@
 // 증권사/백업 CSV로 자산 일괄 등록·내보내기 (Phase 6-5)
 
-export const CSV_COLUMNS = [
+const CSV_COLUMNS = [
   "market",
   "ticker",
   "name",

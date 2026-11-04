@@ -386,3 +386,53 @@ def test_manual_report_job_status_returns_404_for_unknown_job():
     )
 
     assert response.status_code == 404
+
+
+def test_scheduler_endpoint_fails_closed_when_secret_equals_api_token(monkeypatch):
+    monkeypatch.setenv("SCHEDULER_SECRET", "test-api-token")
+    clear_settings_cache()
+    test_client = client()
+
+    response = test_client.post(
+        "/api/reports/domestic/generate",
+        headers={"Authorization": "Bearer test-api-token"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_unhandled_errors_keep_cors_headers(monkeypatch):
+    repository = InMemoryRepository()
+
+    def broken_list_assets():
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(repository, "list_assets", broken_list_assets)
+    test_client = TestClient(create_app(repository=repository), raise_server_exceptions=False)
+
+    response = test_client.get(
+        "/api/assets",
+        headers={"Authorization": "Bearer test-api-token", "Origin": "http://localhost:5173"},
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "internal server error"}
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
+def test_report_job_is_failed_when_setup_raises_before_generation(monkeypatch):
+    from app.api.reports import _run_report_job
+
+    app = create_app(repository=InMemoryRepository())
+    store = app.state.report_jobs
+    job, _created = store.create_or_get_active("domestic", generation_source="manual")
+
+    def broken_mark_running(_job_id):
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(store, "mark_running", broken_mark_running)
+    _run_report_job(app.state, app.state.repository, "domestic", job.job_id)
+
+    failed = store.get(job.job_id)
+    assert failed.status == "failed"
+    assert failed.error_category == "internal_error"

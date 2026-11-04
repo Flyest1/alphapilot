@@ -224,11 +224,7 @@ class NotificationService:
                 exc,
                 {"operation": "resolve_notification_settings"},
             )
-            updated = self.repository.update_notification(
-                row["id"],
-                {"telegram_status": "settings_unavailable"},
-            )
-            return updated or row
+            return self._record_telegram_status(row, "settings_unavailable")
         enabled = bool(getattr(settings, TELEGRAM_SETTING_BY_EVENT[event["event_type"]]))
         status = "disabled"
         if enabled and not self.telegram_sender.configured:
@@ -251,7 +247,19 @@ class NotificationService:
                         "error_type": type(exc).__name__,
                     },
                 )
-        updated = self.repository.update_notification(row["id"], {"telegram_status": status})
+        return self._record_telegram_status(row, status)
+
+    def _record_telegram_status(self, row: dict[str, Any], status: str) -> dict[str, Any]:
+        # The notification already exists; a failed status write must not abort later events.
+        try:
+            updated = self.repository.update_notification(row["id"], {"telegram_status": status})
+        except Exception as exc:
+            log_external_failure(
+                "notifications",
+                exc,
+                {"operation": "update_notification_status", "telegram_status": status},
+            )
+            return row
         return updated or row
 
 

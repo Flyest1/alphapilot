@@ -41,7 +41,7 @@ const STATUS_LABELS = {
   limitation: "한계",
 };
 
-export const FIELD_LABELS = {
+const FIELD_LABELS = {
   disclaimer: "안내",
   summary: "요약",
   ticker: "티커",

@@ -56,7 +56,9 @@ def _read(path):
     return raw
 
 
-def _json(raw):
+def strict_json_loads(raw):
+    """Parse JSON while rejecting duplicate keys, which would silently keep the last value."""
+
     def unique(pairs):
         result = {}
         for key, value in pairs:
@@ -66,6 +68,9 @@ def _json(raw):
         return result
 
     return json.loads(raw, object_pairs_hook=unique)
+
+
+_json = strict_json_loads
 
 
 def _day(value):

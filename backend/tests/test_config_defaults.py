@@ -102,3 +102,44 @@ def test_advisory_provider_infrastructure_env_keys_are_documented():
         assert f"{name}=" in env_text
         assert f"{name}=" in oracle_env_text
         assert name in agents_text
+
+
+def test_legacy_env_model_is_upgraded_for_every_resolver(monkeypatch):
+    from app.config import CURRENT_DEFAULT_OPENAI_MODEL, get_env_application_defaults
+
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-5.6-luna")
+    assert get_env_application_defaults()["ai_model"] == CURRENT_DEFAULT_OPENAI_MODEL
+    monkeypatch.setenv("OPENAI_MODEL", "custom-model")
+    assert get_env_application_defaults()["ai_model"] == "custom-model"
+
+
+def test_fx_refresh_writes_only_rate_to_existing_settings_row():
+    from app.config import persist_usd_krw_rate, resolve_application_settings
+    from app.db.supabase_client import InMemoryRepository
+
+    repository = InMemoryRepository()
+    repository.upsert_settings({"risk_profile": "aggressive"})
+    stale_view = resolve_application_settings(
+        {"risk_profile": "conservative"}, {"risk_profile": "conservative"}
+    )
+
+    persist_usd_krw_rate(repository, stale_view, 1385.5)
+
+    stored = repository.get_settings()
+    assert stored["usd_krw_rate"] == 1385.5
+    assert stored["risk_profile"] == "aggressive"
+
+
+def test_fx_refresh_inserts_resolved_settings_when_no_row_exists():
+    from app.config import persist_usd_krw_rate, resolve_application_settings
+    from app.db.supabase_client import InMemoryRepository
+
+    repository = InMemoryRepository()
+    resolved = resolve_application_settings(None, {"risk_profile": "aggressive"})
+
+    persist_usd_krw_rate(repository, resolved, 1390.0)
+
+    stored = repository.get_settings()
+    assert stored["usd_krw_rate"] == 1390.0
+    assert stored["risk_profile"] == "aggressive"
+    assert stored["ai_model"] == resolved.ai_model

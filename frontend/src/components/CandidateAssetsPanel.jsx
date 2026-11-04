@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { api } from "../api/client.js";
+import { isKrTicker, isUsTicker } from "../utils/tickers.js";
 
 const blankCandidate = {
   market: "KR",
@@ -20,10 +21,10 @@ const marketDefaults = {
 function validateCandidate(payload) {
   if (!payload.ticker) return "후보 티커를 입력하세요.";
   if (!payload.name) return "후보 이름을 입력하세요.";
-  if (payload.market === "KR" && !/^[A-Z0-9]{6}$/.test(payload.ticker)) {
+  if (payload.market === "KR" && !isKrTicker(payload.ticker)) {
     return "국내 후보는 6자리 종목코드를 입력하세요. 예: 005930, 0183J0";
   }
-  if (["US", "ETF"].includes(payload.market) && !/^[A-Z][A-Z0-9.-]{0,14}$/.test(payload.ticker)) {
+  if (["US", "ETF"].includes(payload.market) && !isUsTicker(payload.ticker)) {
     return "미국 주식/ETF 후보는 영문 티커를 입력하세요.";
   }
   return "";
@@ -97,10 +98,15 @@ export default function CandidateAssetsPanel() {
   }
 
   async function remove(candidateId) {
+    if (!window.confirm("이 후보 종목을 삭제할까요?")) return;
     setError("");
     setMessage("");
     try {
       await api.candidates.remove(candidateId);
+      if (editingId === candidateId) {
+        setForm(blankCandidate);
+        setEditingId(null);
+      }
       setMessage("후보 종목을 삭제했습니다.");
       loadCandidates();
     } catch (err) {

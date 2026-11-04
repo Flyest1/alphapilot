@@ -9,6 +9,7 @@ import pandas as pd
 from app.services.advisory.features import (
     annualized_volatility,
     close_series,
+    distributions_are_stale,
     dividends_from_ticker,
     finite_number,
     period_return,
@@ -84,6 +85,7 @@ class EtfRebalancingService:
         trailing_yield = (
             self._trailing_yield(distributions, close, current_price)
             if not market_data.is_stale
+            and not distributions_are_stale(distributions, market_data.last_trading_date)
             else None
         )
         holdings, holdings_status = top_holdings_from_funds_data(funds_data)
@@ -280,6 +282,7 @@ class EtfRebalancingService:
             suitable_investor,
         ) in definitions:
             raw = [(item["ticker"], self._scenario_score(item, name)) for item in usable]
+            evaluated = {ticker for ticker, score in raw if score is not None}
             scored = [(ticker, score) for ticker, score in raw if score is not None and score > 0]
             targets = target_weights(scored) if scored else []
             scenarios.append(
@@ -302,11 +305,14 @@ class EtfRebalancingService:
                         etfs,
                         targets,
                         current_weight_metadata["status"] == "available",
+                        evaluated,
                     ),
                     "unallocated_weight_pct": rounded(
                         100 - sum(row["target_weight_pct"] for row in targets)
                     ),
-                    "excluded_tickers": [item["ticker"] for item in etfs if item not in usable],
+                    "excluded_tickers": [
+                        item["ticker"] for item in etfs if item["ticker"] not in evaluated
+                    ],
                     "review_only": True,
                 }
             )
@@ -317,21 +323,30 @@ class EtfRebalancingService:
         etfs: list[dict[str, Any]],
         targets: list[dict[str, Any]],
         current_weights_available: bool,
+        evaluated_tickers: set[str] | None = None,
     ) -> list[dict[str, Any]] | None:
         if not current_weights_available:
             return None
         target_by_ticker = {item["ticker"]: item["target_weight_pct"] for item in targets}
-        return [
-            {
-                "ticker": item["ticker"],
-                "current_weight_pct": item["current_weight_pct"],
-                "target_weight_pct": target_by_ticker.get(item["ticker"], 0.0),
-                "change_pct_points": rounded(
-                    target_by_ticker.get(item["ticker"], 0.0) - item["current_weight_pct"]
-                ),
-            }
-            for item in etfs
-        ]
+        rows = []
+        for item in etfs:
+            if evaluated_tickers is not None and item["ticker"] not in evaluated_tickers:
+                # Unscored (stale/data-limited) ETFs have no target; showing 0 would read as a
+                # full-exit suggestion that the evidence does not support.
+                target = None
+            else:
+                target = target_by_ticker.get(item["ticker"], 0.0)
+            rows.append(
+                {
+                    "ticker": item["ticker"],
+                    "current_weight_pct": item["current_weight_pct"],
+                    "target_weight_pct": target,
+                    "change_pct_points": (
+                        rounded(target - item["current_weight_pct"]) if target is not None else None
+                    ),
+                }
+            )
+        return rows
 
     @staticmethod
     def _scenario_score(item: dict[str, Any], scenario: str) -> float | None:

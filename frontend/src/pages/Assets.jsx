@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { api, readApiCache } from "../api/client.js";
 import { assetsToCsv, parseAssetsCsv } from "../utils/assetsCsv.js";
+import { isKrTicker, isUsTicker } from "../utils/tickers.js";
 
 const blankAsset = {
   market: "KR",
@@ -69,13 +70,13 @@ function validateAsset(payload) {
   if (!Number.isFinite(payload.avg_price) || payload.avg_price < 0) {
     return "평균 매입가는 0 이상 숫자로 입력하세요.";
   }
-  if (payload.market === "KR" && !/^[A-Z0-9]{6}$/.test(payload.ticker)) {
+  if (payload.market === "KR" && !isKrTicker(payload.ticker)) {
     return "KR과 국내 ETF는 6자리 종목코드를 입력하세요. 예: 005930, 069500, 0183J0";
   }
-  if (payload.market === "ETF" && /^[A-Z0-9]{6}$/.test(payload.ticker)) {
+  if (payload.market === "ETF" && isKrTicker(payload.ticker)) {
     return "국내 ETF 6자리 코드는 시장을 ETF가 아니라 KR로 선택하세요.";
   }
-  if (["US", "ETF"].includes(payload.market) && !/^[A-Z][A-Z0-9.-]{0,14}$/.test(payload.ticker)) {
+  if (["US", "ETF"].includes(payload.market) && !isUsTicker(payload.ticker)) {
     return "미국 주식/ETF는 영문 티커를 입력하세요. 예: AAPL, VOO";
   }
   return "";
@@ -198,10 +199,15 @@ export default function Assets() {
   }
 
   async function deleteAsset(assetId) {
+    if (!window.confirm("이 자산을 삭제할까요? 삭제한 자산은 되돌릴 수 없습니다.")) return;
     setError("");
     setStatus("");
     try {
       await api.assets.remove(assetId);
+      if (editingId === assetId) {
+        setForm(blankAsset);
+        setEditingId(null);
+      }
       setStatus("자산을 삭제했습니다.");
       loadAssets();
     } catch (err) {

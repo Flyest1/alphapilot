@@ -2,11 +2,16 @@ from datetime import datetime, timezone
 from math import isfinite
 from typing import Any
 
-from app.config import get_env_application_defaults, resolve_application_settings
+from app.config import (
+    get_env_application_defaults,
+    persist_usd_krw_rate,
+    resolve_application_settings,
+)
 from app.db.supabase_client import Repository
 from app.models.portfolio import PortfolioSummaryResponse
 from app.utils.assets import held_assets
 from app.utils.logging import log_external_failure
+from app.utils.tickers import is_kr_listed_etf
 
 # 집중도 경고 임계치 (Phase 4-3). 단일 종목 임계치는 설정 target_max_asset_pct를 따른다.
 SINGLE_SECTOR_WEIGHT_WARNING = 40.0
@@ -431,12 +436,7 @@ class PortfolioService:
             resolved_rate = round(float(latest_rate), 4)
             if abs(resolved_rate - fallback_rate) < 0.0001:
                 return resolved_rate
-            values = app_settings.model_dump(
-                mode="json",
-                exclude={"created_at", "updated_at"},
-            )
-            values["usd_krw_rate"] = resolved_rate
-            self.repository.upsert_settings(values)
+            persist_usd_krw_rate(self.repository, app_settings, resolved_rate)
             return resolved_rate
         except Exception as exc:
             log_external_failure(
@@ -664,6 +664,12 @@ class PortfolioService:
 
     def _fx_rate(self, asset: dict[str, Any], currency: str, usd_krw_rate: float) -> float:
         market = str(asset.get("market") or "").upper()
-        if currency == "USD" or market in {"US", "ETF"}:
+        if currency == "USD" or market == "US":
+            return usd_krw_rate
+        if market == "ETF":
+            # A KRW ETF with a KRX listing code is quoted in KRW. Other ETF rows keep the legacy
+            # USD treatment because the API defaults currency to KRW for manually entered ETFs.
+            if currency == "KRW" and is_kr_listed_etf(market, str(asset.get("ticker") or "")):
+                return 1.0
             return usd_krw_rate
         return 1.0

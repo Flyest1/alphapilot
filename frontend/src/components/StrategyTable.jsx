@@ -1,5 +1,6 @@
 import { actionLabel, displayText } from "../api/reports.js";
 import { formatReturn, formatValue } from "../utils/formatters.js";
+import { findPerformanceLog } from "../utils/performanceLogs.js";
 import { confidenceBadge } from "../utils/recommendationStats.js";
 import { strategyBaseConfidence } from "../utils/strategyScores.js";
 
@@ -38,6 +39,8 @@ function nonNegativeNumber(value) {
 }
 
 function finiteNumber(value) {
+  // Number(null) is 0; unknown risk metrics must stay unknown instead of rendering as zero.
+  if (value == null || value === "") return null;
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
 }
@@ -75,12 +78,6 @@ function formatRange(low, high) {
 
 function isDataLimited(strategy) {
   return strategy.reasoning === "data-limited";
-}
-
-function performanceFor(strategy, performanceLogs) {
-  return performanceLogs.find(
-    (row) => row.ticker === strategy.ticker && row.action === strategy.action,
-  );
 }
 
 function confidenceDetailText(detail, calibratedConfidence) {
@@ -333,7 +330,7 @@ export default function StrategyTable({ strategies = [], performanceLogs = [], i
   return (
     <div className="strategy-accordion">
       {strategies.map((strategy) => {
-        const performance = performanceFor(strategy, performanceLogs);
+        const performance = findPerformanceLog(strategy, performanceLogs);
         const badge = confidenceBadge(strategy.confidence_detail);
         const inputs = inputsByTicker?.[strategy.ticker];
         return (

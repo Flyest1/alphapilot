@@ -124,7 +124,9 @@ def test_recommendation_cycle_update_preserves_explicit_nulls():
         {"status": "active", "closed_at": None, "barrier_hit_at": None},
     )
 
-    assert client.builder.payload == {
+    payload = dict(client.builder.payload)
+    assert payload.pop("updated_at")
+    assert payload == {
         "status": "active",
         "closed_at": None,
         "barrier_hit_at": None,
@@ -347,3 +349,83 @@ def test_notification_repository_read_state_and_dedup_lookup():
     assert len(repo.list_notifications(unread_only=True)) == 1
     assert repo.mark_all_notifications_read() == 1
     assert repo.list_notifications(unread_only=True) == []
+
+
+def test_report_job_update_advances_updated_at_for_stale_detection():
+    # Supabase has no updated_at trigger; without this a long-running job looks stale.
+    client = _CaptureClient()
+    repository = SupabaseRepository(client=client)
+
+    repository.update_report_job("job-1", {"status": "running", "message": None})
+
+    assert client.builder.payload["status"] == "running"
+    assert "message" not in client.builder.payload
+    assert client.builder.payload["updated_at"]
+
+
+class _PostRequest:
+    http_method = "POST"
+
+
+class _TimedOutInsertBuilder:
+    def __init__(self, error):
+        self.request = _PostRequest()
+        self.attempts = 0
+        self.error = error
+
+    def execute(self):
+        self.attempts += 1
+        if self.attempts == 1:
+            raise self.error
+        return "ok"
+
+
+def test_supabase_repository_does_not_retry_insert_after_possible_commit(monkeypatch):
+    import httpx
+
+    repository = SupabaseRepository(client=object())
+    monkeypatch.setattr(SupabaseRepository._execute.retry, "wait", wait_none())
+    builder = _TimedOutInsertBuilder(httpx.ReadTimeout("read timed out"))
+
+    with pytest.raises(httpx.ReadTimeout):
+        repository._execute(builder)
+    assert builder.attempts == 1
+
+    unsent = _TimedOutInsertBuilder(httpx.ConnectError("connection refused"))
+    assert repository._execute(unsent) == "ok"
+    assert unsent.attempts == 2
+
+
+def test_run_all_pages_does_not_accumulate_range_params():
+    from postgrest import SyncPostgrestClient
+
+    client = SyncPostgrestClient("http://127.0.0.1:1/rest/v1")
+    builder = client.from_("strategies").select("*")
+    repository = SupabaseRepository(client=object())
+    seen = []
+    pages = iter([[{"id": str(index)} for index in range(500)], []])
+
+    def fake_run(page_builder, _context):
+        seen.append(str(page_builder.request.params))
+        return next(pages)
+
+    repository._run = fake_run
+    rows = repository._run_all_pages(builder, {"operation": "test"})
+
+    assert len(rows) == 500
+    assert all(params.count("offset=") == 1 and params.count("limit=") == 1 for params in seen)
+    assert "offset=500" in seen[1]
+
+
+def test_malformed_uuid_lookups_are_reported_as_missing_rows():
+    from postgrest.exceptions import APIError
+
+    class _InvalidUuidBuilder:
+        def execute(self):
+            raise APIError({"code": "22P02", "message": "invalid input syntax for type uuid"})
+
+    repository = SupabaseRepository(client=object())
+
+    assert repository._run(_InvalidUuidBuilder(), {"operation": "get_report"}) == []
+    with pytest.raises(APIError):
+        repository._run(_InvalidUuidBuilder(), {"operation": "create_strategy"})

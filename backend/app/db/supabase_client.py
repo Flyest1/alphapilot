@@ -7,11 +7,12 @@ from threading import RLock
 from typing import Any, Protocol
 from uuid import uuid4
 
-from httpx import TransportError
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from httpx import ConnectError, ConnectTimeout, PoolTimeout, TransportError
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from app.config import EnvironmentSettings, get_environment_settings, is_supabase_configured
 from app.utils.logging import log_external_failure
+from app.utils.datetime import utc_now_iso
 
 
 class Repository(Protocol):
@@ -32,8 +33,6 @@ class Repository(Protocol):
         asset_key: str,
     ) -> dict[str, Any] | None: ...
 
-    def upsert_external_asset(self, data: dict[str, Any]) -> dict[str, Any]: ...
-
     def reconcile_toss_assets(
         self,
         account_id: str,
@@ -42,8 +41,6 @@ class Repository(Protocol):
     ) -> dict[str, Any]: ...
 
     def list_candidate_assets(self) -> list[dict[str, Any]]: ...
-
-    def get_candidate_asset(self, candidate_id: str) -> dict[str, Any] | None: ...
 
     def create_candidate_asset(self, data: dict[str, Any]) -> dict[str, Any]: ...
 
@@ -170,8 +167,7 @@ class Repository(Protocol):
     def create_signal_model_report_link(self, data: dict[str, Any]) -> dict[str, Any]: ...
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+_now_iso = utc_now_iso
 
 
 def _copy_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -378,16 +374,6 @@ class InMemoryRepository:
                 return deepcopy(row)
         return None
 
-    def upsert_external_asset(self, data: dict[str, Any]) -> dict[str, Any]:
-        existing = self.get_asset_by_external_key(
-            str(data.get("external_provider") or ""),
-            str(data.get("external_account_id") or ""),
-            str(data.get("external_asset_key") or ""),
-        )
-        if existing:
-            return self.update_asset(existing["id"], data) or existing
-        return self.create_asset(data)
-
     def reconcile_toss_assets(
         self,
         account_id: str,
@@ -468,10 +454,6 @@ class InMemoryRepository:
 
     def list_candidate_assets(self) -> list[dict[str, Any]]:
         return sorted(_copy_rows(self.candidate_assets.values()), key=lambda row: row["created_at"])
-
-    def get_candidate_asset(self, candidate_id: str) -> dict[str, Any] | None:
-        row = self.candidate_assets.get(candidate_id)
-        return deepcopy(row) if row else None
 
     def create_candidate_asset(self, data: dict[str, Any]) -> dict[str, Any]:
         row = deepcopy(data)
@@ -865,86 +847,10 @@ class InMemoryRepository:
         )
 
     def create_signal_model_evaluation_run(self, data: dict[str, Any]) -> dict[str, Any]:
-        row = deepcopy(data)
-        champion_model_version_id = str(row.get("champion_model_version_id") or "")
-        challenger_model_version_id = str(row.get("challenger_model_version_id") or "")
-        if (
-            champion_model_version_id not in self.signal_model_versions
-            or challenger_model_version_id not in self.signal_model_versions
-            or champion_model_version_id == challenger_model_version_id
-        ):
-            raise ValueError(
-                "evaluation run requires distinct known champion and challenger versions"
-            )
-        if row.get("evaluation_window_weeks", 12) != 12:
-            raise ValueError("evaluation_window_weeks is fixed at 12")
-        if row.get("trigger_type") != "scheduled":
-            raise ValueError("evaluation run trigger_type must be scheduled")
-        if not row.get("report_type") or not row.get("decision_at"):
-            raise ValueError("evaluation run requires report_type and decision_at")
-        input_snapshot = row.get("input_snapshot")
-        if not isinstance(input_snapshot, Mapping):
-            raise ValueError("evaluation run input_snapshot must be an object")
-        now = _now_iso()
-        started_at = row.get("started_at") or now
-        ends_at = _twelve_week_end(started_at)
-        if row.get("ends_at") is not None and row["ends_at"] != ends_at:
-            raise ValueError("evaluation run ends_at must equal started_at plus 12 weeks")
-        champion_sha256 = self.signal_model_versions[champion_model_version_id]["config_sha256"]
-        challenger_sha256 = self.signal_model_versions[challenger_model_version_id]["config_sha256"]
-        if row.get("champion_config_sha256") not in {None, champion_sha256}:
-            raise ValueError("evaluation run champion config hash does not match its model version")
-        if row.get("challenger_config_sha256") not in {None, challenger_sha256}:
-            raise ValueError(
-                "evaluation run challenger config hash does not match its model version"
-            )
-        input_sha256 = _canonical_json_sha256(input_snapshot)
-        if row.get("input_sha256") not in {None, input_sha256}:
-            raise ValueError("evaluation run input hash does not match input_snapshot")
-        status = row.get("status") or "pending"
-        if status not in {"pending", "collecting", "review_ready", "failed"}:
-            raise ValueError("evaluation run status is invalid")
-        if (status == "failed") != bool(row.get("failure_reason")):
-            raise ValueError(
-                "failed evaluations require failure_reason and other states must omit it"
-            )
-        if status == "review_ready":
-            completed_at = row.get("completed_at")
-            if completed_at is None:
-                raise ValueError("review-ready evaluations require completed_at")
-            try:
-                completed = datetime.fromisoformat(str(completed_at).replace("Z", "+00:00"))
-                ends = datetime.fromisoformat(ends_at.replace("Z", "+00:00"))
-            except ValueError as exc:
-                raise ValueError("evaluation completed_at must be an ISO datetime") from exc
-            if completed.tzinfo is None or ends.tzinfo is None:
-                raise ValueError("evaluation timestamps must include a timezone")
-            if completed < ends:
-                raise ValueError("review-ready evaluations must complete after the 12-week window")
-            if ends.tzinfo is None or datetime.now(timezone.utc) < ends:
-                raise ValueError("review-ready evaluations must wait for the 12-week window")
-        for field in (
-            "expected_observation_count",
-            "observed_observation_count",
-            "excluded_observation_count",
-        ):
-            if int(row.get(field) or 0) < 0:
-                raise ValueError(f"{field} must not be negative")
+        # Same validation as the Supabase path; only identity and storage differ.
+        row = _prepare_signal_model_evaluation_run(data, self.signal_model_versions)
         row["id"] = row.get("id") or str(uuid4())
-        row["champion_model_version_id"] = champion_model_version_id
-        row["challenger_model_version_id"] = challenger_model_version_id
-        row["champion_config_sha256"] = champion_sha256
-        row["challenger_config_sha256"] = challenger_sha256
-        row["evaluation_window_weeks"] = 12
-        row["started_at"] = started_at
-        row["ends_at"] = ends_at
-        row["status"] = status
-        row["expected_observation_count"] = int(row.get("expected_observation_count") or 0)
-        row["observed_observation_count"] = int(row.get("observed_observation_count") or 0)
-        row["excluded_observation_count"] = int(row.get("excluded_observation_count") or 0)
-        row["input_snapshot"] = dict(input_snapshot)
-        row["input_sha256"] = input_sha256
-        row["created_at"] = row.get("created_at") or now
+        row["created_at"] = row.get("created_at") or _now_iso()
         self.signal_model_evaluation_runs[row["id"]] = row
         return deepcopy(row)
 
@@ -1040,6 +946,37 @@ class InMemoryRepository:
         return deepcopy(row)
 
 
+# Errors raised before the request reached the server; safe to retry for any method.
+_UNSENT_REQUEST_ERRORS = (ConnectError, ConnectTimeout, PoolTimeout)
+_IDEMPOTENT_HTTP_METHODS = frozenset({"GET", "HEAD", "PATCH", "DELETE"})
+_NON_RETRYABLE_ATTRIBUTE = "_alphapilot_retry_unsafe"
+
+
+def _is_retryable_supabase_error(exc: BaseException) -> bool:
+    if getattr(exc, _NON_RETRYABLE_ATTRIBUTE, False):
+        return False
+    return isinstance(exc, (ConnectionError, TimeoutError, TransportError))
+
+
+def _builder_http_method(builder: Any) -> str:
+    return str(getattr(getattr(builder, "request", None), "http_method", "GET")).upper()
+
+
+_INVALID_TEXT_REPRESENTATION = "22P02"
+_ID_LOOKUP_OPERATION_PREFIXES = ("get_", "update_", "delete_")
+
+
+def _is_invalid_id_lookup(exc: BaseException, context: Mapping[str, Any]) -> bool:
+    return getattr(exc, "code", None) == _INVALID_TEXT_REPRESENTATION and str(
+        context.get("operation") or ""
+    ).startswith(_ID_LOOKUP_OPERATION_PREFIXES)
+
+
+def _touched(data: dict[str, Any]) -> dict[str, Any]:
+    """Stamp updated_at on writes; the schema has column defaults but no update triggers."""
+    return {**data, "updated_at": data.get("updated_at") or _now_iso()}
+
+
 class SupabaseRepository:
     def __init__(self, env: EnvironmentSettings | None = None, client: Any | None = None) -> None:
         current_env = env or get_environment_settings()
@@ -1055,20 +992,32 @@ class SupabaseRepository:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((ConnectionError, TimeoutError, TransportError)),
+        retry=retry_if_exception(_is_retryable_supabase_error),
         reraise=True,
     )
     def _execute(self, builder: Any) -> Any:
         # The sync Supabase client owns one HTTP connection pool. FastAPI runs sync
         # endpoints in worker threads, so concurrent use can corrupt an HTTP/2 stream.
-        with self._execute_lock:
-            return builder.execute()
+        try:
+            with self._execute_lock:
+                return builder.execute()
+        except TransportError as exc:
+            # A read timeout or dropped connection after an INSERT/RPC may already have
+            # committed; retrying would duplicate reports, strategies, jobs or ledger rows.
+            if _builder_http_method(builder) not in _IDEMPOTENT_HTTP_METHODS and not isinstance(
+                exc, _UNSENT_REQUEST_ERRORS
+            ):
+                setattr(exc, _NON_RETRYABLE_ATTRIBUTE, True)
+            raise
 
     def _run(self, builder: Any, context: dict[str, Any]) -> list[dict[str, Any]]:
         try:
             response = self._execute(builder)
             return list(response.data or [])
         except Exception as exc:
+            if _is_invalid_id_lookup(exc, context):
+                # A malformed path id cannot match any row; let routes return their 404.
+                return []
             log_external_failure("supabase", exc, context)
             raise
 
@@ -1087,7 +1036,7 @@ class SupabaseRepository:
         return rows[0]
 
     def update_asset(self, asset_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
-        clean_data = {key: value for key, value in data.items() if value is not None}
+        clean_data = _touched({key: value for key, value in data.items() if value is not None})
         builder = self.client.table("assets").update(clean_data).eq("id", asset_id)
         rows = self._run(builder, {"operation": "update_asset", "asset_id": asset_id})
         return rows[0] if rows else None
@@ -1121,17 +1070,6 @@ class SupabaseRepository:
             },
         )
         return rows[0] if rows else None
-
-    def upsert_external_asset(self, data: dict[str, Any]) -> dict[str, Any]:
-        existing = self.get_asset_by_external_key(
-            str(data.get("external_provider") or ""),
-            str(data.get("external_account_id") or ""),
-            str(data.get("external_asset_key") or ""),
-        )
-        if existing:
-            updated = self.update_asset(existing["id"], data)
-            return updated or existing
-        return self.create_asset(data)
 
     def reconcile_toss_assets(
         self,
@@ -1168,14 +1106,6 @@ class SupabaseRepository:
         builder = self.client.table("candidate_assets").select("*").order("created_at")
         return self._run(builder, {"operation": "list_candidate_assets"})
 
-    def get_candidate_asset(self, candidate_id: str) -> dict[str, Any] | None:
-        builder = self.client.table("candidate_assets").select("*").eq("id", candidate_id).limit(1)
-        rows = self._run(
-            builder,
-            {"operation": "get_candidate_asset", "candidate_id": candidate_id},
-        )
-        return rows[0] if rows else None
-
     def create_candidate_asset(self, data: dict[str, Any]) -> dict[str, Any]:
         builder = self.client.table("candidate_assets").insert(data)
         rows = self._run(builder, {"operation": "create_candidate_asset"})
@@ -1184,7 +1114,7 @@ class SupabaseRepository:
     def update_candidate_asset(
         self, candidate_id: str, data: dict[str, Any]
     ) -> dict[str, Any] | None:
-        clean_data = {key: value for key, value in data.items() if value is not None}
+        clean_data = _touched({key: value for key, value in data.items() if value is not None})
         builder = self.client.table("candidate_assets").update(clean_data).eq("id", candidate_id)
         rows = self._run(
             builder,
@@ -1224,14 +1154,15 @@ class SupabaseRepository:
         return rows[0]
 
     def get_settings(self) -> dict[str, Any] | None:
-        builder = self.client.table("settings").select("*").limit(1)
+        # Deterministic row choice if a concurrent first write ever created two rows.
+        builder = self.client.table("settings").select("*").order("created_at").limit(1)
         rows = self._run(builder, {"operation": "get_settings"})
         return rows[0] if rows else None
 
     def upsert_settings(self, data: dict[str, Any]) -> dict[str, Any]:
         existing = self.get_settings()
         if existing:
-            builder = self.client.table("settings").update(data).eq("id", existing["id"])
+            builder = self.client.table("settings").update(_touched(data)).eq("id", existing["id"])
         else:
             builder = self.client.table("settings").insert(data)
         rows = self._run(builder, {"operation": "upsert_settings"})
@@ -1280,9 +1211,15 @@ class SupabaseRepository:
         the requested range. Only an empty page establishes exhaustion.
         """
         builder = builder.order("id", desc=True)
+        # postgrest-py's range() appends offset/limit params; restore the base params per page
+        # so pages never carry duplicated offset/limit values.
+        request = getattr(builder, "request", None)
+        base_params = getattr(request, "params", None)
         rows: list[dict[str, Any]] = []
         while limit is None or len(rows) < limit:
             count = 500 if limit is None else min(500, limit - len(rows))
+            if base_params is not None:
+                request.params = base_params
             page = self._run(builder.range(len(rows), len(rows) + count - 1), context)
             if not page:
                 break
@@ -1322,7 +1259,7 @@ class SupabaseRepository:
         return rows[0]
 
     def update_report_job(self, job_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
-        clean_data = {key: value for key, value in data.items() if value is not None}
+        clean_data = _touched({key: value for key, value in data.items() if value is not None})
         builder = self.client.table("report_jobs").update(clean_data).eq("job_id", job_id)
         rows = self._run(builder, {"operation": "update_report_job", "job_id": job_id})
         return rows[0] if rows else None
@@ -1430,7 +1367,9 @@ class SupabaseRepository:
     def update_recommendation_cycle(
         self, cycle_id: str, data: dict[str, Any]
     ) -> dict[str, Any] | None:
-        builder = self.client.table("recommendation_cycles").update(data).eq("id", cycle_id)
+        builder = (
+            self.client.table("recommendation_cycles").update(_touched(data)).eq("id", cycle_id)
+        )
         rows = self._run(
             builder, {"operation": "update_recommendation_cycle", "cycle_id": cycle_id}
         )
@@ -1494,14 +1433,16 @@ class SupabaseRepository:
     def update_notification(
         self, notification_id: str, data: dict[str, Any]
     ) -> dict[str, Any] | None:
-        builder = self.client.table("notifications").update(data).eq("id", notification_id)
+        builder = (
+            self.client.table("notifications").update(_touched(data)).eq("id", notification_id)
+        )
         rows = self._run(builder, {"operation": "update_notification"})
         return rows[0] if rows else None
 
     def mark_all_notifications_read(self) -> int:
         builder = (
             self.client.table("notifications")
-            .update({"is_read": True, "read_at": _now_iso()})
+            .update(_touched({"is_read": True, "read_at": _now_iso()}))
             .eq("is_read", False)
         )
         return len(self._run(builder, {"operation": "mark_all_notifications_read"}))

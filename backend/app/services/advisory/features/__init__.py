@@ -8,13 +8,10 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
+from app.services.advisory.features.common import finite_float
 
-def finite_number(value: Any) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if np.isfinite(number) else None
+# One finite-number parser for every advisory feature module.
+finite_number = finite_float
 
 
 def rounded(value: float | None, digits: int = 2) -> float | None:
@@ -156,3 +153,30 @@ def target_weights(scored: list[tuple[str, float]]) -> list[dict[str, Any]]:
             weight = rounded(score / total * 100) or 0.0
         rows.append({"ticker": ticker, "target_weight_pct": rounded(weight)})
     return rows
+
+
+# A fund that has not paid within this window cannot claim a current trailing-12m yield.
+STALE_DISTRIBUTION_DAYS = 400
+
+
+def distributions_are_stale(distributions: pd.Series, as_of: Any) -> bool:
+    """True when the latest distribution is too old relative to the market-data date."""
+    if distributions.empty or as_of is None:
+        return False
+    as_of_timestamp = pd.Timestamp(as_of)
+    if as_of_timestamp.tzinfo is not None:
+        as_of_timestamp = as_of_timestamp.tz_convert(None)
+    latest = pd.Timestamp(distributions.index.max())
+    if latest.tzinfo is not None:
+        latest = latest.tz_convert(None)
+    return (as_of_timestamp - latest).days > STALE_DISTRIBUTION_DAYS
+
+
+def complete_calendar_years(annual: pd.Series, as_of: Any) -> pd.Series:
+    """Drop the as-of calendar year unless it has ended, so partial years never look like cuts."""
+    if as_of is None or annual.empty:
+        return annual
+    as_of_timestamp = pd.Timestamp(as_of)
+    if as_of_timestamp.month == 12 and as_of_timestamp.day == 31:
+        return annual
+    return annual[annual.index < as_of_timestamp.year]

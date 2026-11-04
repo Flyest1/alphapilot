@@ -1,17 +1,72 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from io import StringIO
 import logging
+import threading
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from app.utils.datetime import parse_iso_datetime
 from app.utils.logging import log_external_failure
+from app.utils.tickers import is_kr_listed_etf
 from app.services.market_price_lineage import collect_price_lineage
+
+KR_YFINANCE_SUFFIXES = (".KS", ".KQ")
+MARKET_TIMEZONES = {"pykrx": ZoneInfo("Asia/Seoul"), "yfinance": ZoneInfo("America/New_York")}
+_QUIET_LOGGING_LOCK = threading.Lock()
+_quiet_logging_depth = 0
+_quiet_logging_saved_level = logging.NOTSET
+
+
+_TRANSIENT_HTTP_LIBRARY_PREFIXES = ("requests", "urllib3", "curl_cffi", "httpx")
+
+
+def _is_transient_market_data_error(exc: BaseException) -> bool:
+    """Retry network-level failures from the HTTP stacks used by yfinance/pykrx.
+
+    Their connection/timeout exceptions do not subclass the builtin ConnectionError or
+    TimeoutError, so a builtin-only filter never retried. Rate limits and parse errors are
+    not retried.
+    """
+    if isinstance(exc, (ConnectionError, TimeoutError)):
+        return True
+    for exc_type in type(exc).__mro__:
+        name = exc_type.__name__
+        if exc_type.__module__.startswith(_TRANSIENT_HTTP_LIBRARY_PREFIXES) and (
+            "Timeout" in name or name in {"ConnectionError", "ConnectError", "ProtocolError"}
+        ):
+            return True
+    return False
+
+
+@contextmanager
+def _quiet_logging() -> Iterator[None]:
+    """Silence pykrx's root-logger noise without racing concurrent fetch threads.
+
+    ``logging.disable`` is process-global; a save/restore per call lets overlapping threads
+    restore each other's CRITICAL level and switch logging off permanently. A shared depth
+    counter restores the original level only when the last caller leaves.
+    """
+    global _quiet_logging_depth, _quiet_logging_saved_level
+    with _QUIET_LOGGING_LOCK:
+        if _quiet_logging_depth == 0:
+            _quiet_logging_saved_level = logging.root.manager.disable
+            logging.disable(logging.CRITICAL)
+        _quiet_logging_depth += 1
+    try:
+        yield
+    finally:
+        with _QUIET_LOGGING_LOCK:
+            _quiet_logging_depth -= 1
+            if _quiet_logging_depth == 0:
+                logging.disable(_quiet_logging_saved_level)
 
 
 @dataclass
@@ -61,7 +116,8 @@ class MarketDataService:
                 current_price=None,
             )
 
-        normalized_ticker = self.normalize_ticker(normalized_market, ticker)
+        price_market = self._price_market(normalized_market, ticker)
+        normalized_ticker = self.normalize_ticker(price_market, ticker)
         cache_key = (
             normalized_market,
             normalized_ticker,
@@ -77,7 +133,7 @@ class MarketDataService:
             self._price_cache[cache_key] = persisted
             return persisted
 
-        provider = self._provider_name(normalized_market, normalized_ticker)
+        provider = self._provider_name(price_market, normalized_ticker)
         try:
             if provider == "pykrx":
                 raw = self._fetch_kr_with_retry(normalized_ticker, lookback_days)
@@ -141,7 +197,7 @@ class MarketDataService:
             frame = self._standardize_frame(raw)
             if frame.empty or "close" not in frame:
                 return fallback
-            return float(frame.loc[frame.index.max(), "close"])
+            return float(frame["close"].iloc[-1])
         except Exception as exc:
             log_external_failure(
                 "yfinance",
@@ -158,16 +214,13 @@ class MarketDataService:
         normalized_market = market.upper()
         if normalized_market == "CASH":
             return None
-        normalized_ticker = self.normalize_ticker(normalized_market, ticker)
+        price_market = self._price_market(normalized_market, ticker)
+        normalized_ticker = self.normalize_ticker(price_market, ticker)
         cache_key = (normalized_market, normalized_ticker)
         if cache_key in self._sector_cache:
             return self._sector_cache[cache_key]
 
-        symbols = (
-            [f"{normalized_ticker}.KS", f"{normalized_ticker}.KQ"]
-            if normalized_market == "KR"
-            else [normalized_ticker]
-        )
+        symbols = self._yfinance_symbols(price_market, normalized_ticker)
         sector: str | None = None
         for symbol in symbols:
             try:
@@ -205,13 +258,11 @@ class MarketDataService:
         for asset in assets:
             if asset.get("market") == "CASH" or not asset.get("ticker"):
                 continue
-            normalized_market = str(asset.get("market") or "US").upper()
-            normalized_ticker = self.normalize_ticker(normalized_market, str(asset["ticker"]))
-            symbols = (
-                [f"{normalized_ticker}.KS", f"{normalized_ticker}.KQ"]
-                if normalized_market == "KR"
-                else [normalized_ticker]
+            price_market = self._price_market(
+                str(asset.get("market") or "US").upper(), str(asset["ticker"])
             )
+            normalized_ticker = self.normalize_ticker(price_market, str(asset["ticker"]))
+            symbols = self._yfinance_symbols(price_market, normalized_ticker)
             calendar = None
             for symbol in symbols:
                 try:
@@ -283,14 +334,26 @@ class MarketDataService:
 
     def _provider_name(self, market: str, ticker: str) -> str:
         upper_ticker = ticker.upper()
-        if market == "KR" or upper_ticker.endswith((".KS", ".KQ")):
+        if market == "KR" or upper_ticker.endswith(KR_YFINANCE_SUFFIXES):
             return "pykrx"
         return "yfinance"
+
+    def _price_market(self, market: str, ticker: str) -> str:
+        """Route KRX-listed ETFs (e.g. 069500 or 069500.KS) to the KR provider.
+
+        Normalizing first would turn 069500.KS into 069500-KS and send it to yfinance.
+        """
+        return "KR" if is_kr_listed_etf(market, ticker) else market
+
+    def _yfinance_symbols(self, market: str, normalized_ticker: str) -> list[str]:
+        if market == "KR":
+            return [f"{normalized_ticker}{suffix}" for suffix in KR_YFINANCE_SUFFIXES]
+        return [normalized_ticker]
 
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+        retry=retry_if_exception(_is_transient_market_data_error),
         reraise=True,
     )
     def _fetch_kr_with_retry(self, ticker: str, lookback_days: int) -> pd.DataFrame:
@@ -309,7 +372,7 @@ class MarketDataService:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+        retry=retry_if_exception(_is_transient_market_data_error),
         reraise=True,
     )
     def _fetch_us_with_retry(self, ticker: str, lookback_days: int) -> pd.DataFrame:
@@ -322,7 +385,7 @@ class MarketDataService:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+        retry=retry_if_exception(_is_transient_market_data_error),
         reraise=True,
     )
     def _fetch_usd_krw_with_retry(self) -> pd.DataFrame:
@@ -445,7 +508,7 @@ class MarketDataService:
 
         last_timestamp = pd.to_datetime(frame.index.max())
         last_date = last_timestamp.to_pydatetime()
-        current_price = float(frame.loc[frame.index.max(), "close"])
+        current_price = float(frame["close"].iloc[-1])
         stale = self._is_stale(last_date, provider, stale_data_business_days)
         note = "stale market data; data-limited" if stale else "ok"
         return MarketDataResult(
@@ -484,6 +547,9 @@ class MarketDataService:
         if "close" not in expected:
             return pd.DataFrame()
         frame = frame[expected].sort_index()
+        # Providers occasionally repeat the latest bar; keep the last copy so scalar lookups and
+        # rolling indicators never see duplicated timestamps.
+        frame = frame[~frame.index.duplicated(keep="last")]
         for column in expected:
             frame[column] = pd.to_numeric(frame[column], errors="coerce")
         return frame.dropna(subset=["close"])
@@ -494,7 +560,7 @@ class MarketDataService:
         provider: str,
         stale_data_business_days: int,
     ) -> bool:
-        now_date = self.now_provider().date()
+        now_date = self._market_today(provider)
         if provider == "pykrx":
             now_date = self._nearest_kr_business_date(now_date)
         last_date = last_trading_date.date()
@@ -504,6 +570,16 @@ class MarketDataService:
         end = np.datetime64(now_date + timedelta(days=1), "D")
         business_days = int(np.busday_count(start, end))
         return business_days > stale_data_business_days
+
+    def _market_today(self, provider: str) -> Any:
+        """Today's date in the listing market's time zone (AGENTS.md stale-data rule)."""
+        now = self.now_provider()
+        market_timezone = MARKET_TIMEZONES.get(provider)
+        if market_timezone is None:
+            return now.date()
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        return now.astimezone(market_timezone).date()
 
     def _nearest_kr_business_date(self, current_date: Any) -> Any:
         provider = self._kr_provider()
@@ -523,12 +599,8 @@ class MarketDataService:
         return current_date
 
     def _quiet_pykrx_call(self, func: Any, *args: Any, **kwargs: Any) -> Any:
-        previous_disable_level = logging.root.manager.disable
-        logging.disable(logging.CRITICAL)
-        try:
+        with _quiet_logging():
             return func(*args, **kwargs)
-        finally:
-            logging.disable(previous_disable_level)
 
     def _kr_provider(self) -> Any:
         if self.kr_provider is None:

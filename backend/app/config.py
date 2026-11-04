@@ -54,25 +54,6 @@ BOOL_APPLICATION_FIELDS = {
     "telegram_notify_drift_warning",
 }
 
-INFRASTRUCTURE_ENV_KEYS = (
-    "APP_ENV",
-    "SUPABASE_URL",
-    "SUPABASE_SERVICE_ROLE_KEY",
-    "SUPABASE_ANON_KEY",
-    "OPENAI_API_KEY",
-    "SCHEDULER_SECRET",
-    "API_ACCESS_TOKEN",
-    "FRONTEND_ORIGIN",
-    "TELEGRAM_BOT_TOKEN",
-    "TELEGRAM_CHAT_ID",
-    "TOSS_INVEST_CLIENT_ID",
-    "TOSS_INVEST_CLIENT_SECRET",
-    "TOSS_INVEST_ACCOUNT_ID",
-    "FRED_API_KEY",
-    "SEC_EDGAR_USER_AGENT",
-    "SEC_EDGAR_CACHE_MAX_BYTES",
-)
-
 
 class EnvironmentSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -136,6 +117,12 @@ def get_environment_settings() -> EnvironmentSettings:
     )
 
 
+# Previous application defaults are upgraded wherever the env value is read, so reports,
+# settings, advisory and status all resolve the same model.
+LEGACY_DEFAULT_OPENAI_MODELS = frozenset({"gpt-5.4-mini", "gpt-5.6-luna"})
+CURRENT_DEFAULT_OPENAI_MODEL = "gpt-6-luna"
+
+
 def get_env_application_defaults() -> dict[str, Any]:
     load_dotenv()
     values: dict[str, Any] = {}
@@ -151,7 +138,28 @@ def get_env_application_defaults() -> dict[str, Any]:
             values[field_name] = raw_value.lower() in {"1", "true", "yes", "on"}
         else:
             values[field_name] = raw_value
+    if values.get("ai_model") in LEGACY_DEFAULT_OPENAI_MODELS:
+        values["ai_model"] = CURRENT_DEFAULT_OPENAI_MODEL
     return values
+
+
+def load_application_settings(repository: Any) -> Settings:
+    """Resolve settings in the documented order: stored row, then .env, then defaults."""
+    return resolve_application_settings(repository.get_settings(), get_env_application_defaults())
+
+
+def persist_usd_krw_rate(repository: Any, app_settings: Settings, rate: float) -> dict[str, Any]:
+    """Store a refreshed FX rate without overwriting other settings.
+
+    An existing row only receives ``usd_krw_rate`` so a concurrent user save is not reverted.
+    Without a row, the fully resolved settings are inserted; a partial insert would otherwise
+    pick up SQL column defaults that outrank the operator's ``.env`` values.
+    """
+    if repository.get_settings():
+        return repository.upsert_settings({"usd_krw_rate": rate})
+    values = app_settings.model_dump(mode="json", exclude={"created_at", "updated_at"})
+    values["usd_krw_rate"] = rate
+    return repository.upsert_settings(values)
 
 
 def resolve_application_settings(

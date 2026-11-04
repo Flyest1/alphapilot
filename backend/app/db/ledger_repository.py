@@ -18,17 +18,10 @@ from app.services.ledger.reconciliation import reconcile_ledger
 from app.services.ledger.replay import replay_ledger
 from app.services.ledger.review import prepare_replay
 from app.services.ledger.statement import normalize_statement
-from app.services.ledger.storage_preview import proposed_import
 
-
-def canonical(value):
-    return json.dumps(
-        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
-    )
-
-
-def digest(value):
-    return sha256(canonical(value).encode("utf-8")).hexdigest()
+# One canonical JSON/digest definition shared with the storage preview, so preview and
+# persistence can never disagree on publication identity.
+from app.services.ledger.storage_preview import digest, proposed_import
 
 
 class LedgerRepository:

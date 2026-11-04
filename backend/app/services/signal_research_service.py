@@ -516,7 +516,9 @@ class SignalResearchService:
             turnover.append(len(previous.symmetric_difference(current)) / (2 * denominator))
         daily_returns = selected.groupby("date", sort=True)["net_return_pct"].mean() / 100
         equity = (1 + daily_returns).cumprod()
-        drawdown = (equity / equity.cummax() - 1) * 100
+        # Include the 1.0 starting capital as a peak so a first-period loss counts as drawdown
+        # (same convention as backtest_metrics._drawdown_metrics).
+        drawdown = (equity / np.maximum(equity.cummax(), 1.0) - 1) * 100
         return {
             "sample_count": int(len(selected)),
             "expected_value_pct": self._mean(selected["net_return_pct"]),

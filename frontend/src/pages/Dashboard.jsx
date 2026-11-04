@@ -23,6 +23,7 @@ import KeyMessageList from "../components/KeyMessageList.jsx";
 import Skeleton from "../components/Skeleton.jsx";
 import StrategyTable from "../components/StrategyTable.jsx";
 import { MESSAGES } from "../constants/strings.js";
+import { logsForReport } from "../utils/performanceLogs.js";
 
 const DASHBOARD_CACHE_MS = 5 * 60 * 1000;
 
@@ -125,6 +126,7 @@ export default function Dashboard() {
   const report = pickReportWithStrategies(latest);
   const content = report?.content || {};
   const strategies = content.asset_strategies || [];
+  const reportPerformanceLogs = logsForReport(performanceLogs, report?.id);
   const { ownedStrategies, candidateStrategies } = splitStrategiesByAssets(strategies, assets);
   const actionCounts = ["BUY", "HOLD", "REDUCE", "SELL", "WATCH"].map((action) => ({
     action,
@@ -201,7 +203,11 @@ export default function Dashboard() {
         </div>
         <div className="key-message-panel">
           <h3>핵심 매매 메시지</h3>
-          <KeyMessageList limit={6} performanceLogs={performanceLogs} strategies={strategies} />
+          <KeyMessageList
+            limit={6}
+            performanceLogs={reportPerformanceLogs}
+            strategies={strategies}
+          />
         </div>
         <TopStrategies emptyMessage="표시할 최신 전략이 없습니다." strategies={ownedStrategies} />
       </section>
@@ -253,7 +259,7 @@ export default function Dashboard() {
         ) : (
           <StrategyTable
             inputsByTicker={report?.report_inputs?.tickers}
-            performanceLogs={performanceLogs}
+            performanceLogs={reportPerformanceLogs}
             strategies={ownedStrategies}
           />
         )}
