@@ -120,3 +120,13 @@ def test_explicit_persist_passes_normalized_events_and_context(cli, tmp_path, mo
     assert calls[0][0]["events"][0]["fee"] is None
     assert len(calls) == 2
     assert json.loads(capsys.readouterr().out)["stored"] is True
+
+
+def test_mapping_with_duplicate_keys_is_rejected():
+    import pytest
+
+    from app.services.ledger.preparation import strict_json_loads
+
+    with pytest.raises(ValueError):
+        strict_json_loads('{"columns": {"a": 1}, "columns": {"b": 2}}')
+    assert strict_json_loads('{"columns": {"a": 1}}') == {"columns": {"a": 1}}

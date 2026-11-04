@@ -860,3 +860,25 @@ def test_toss_sync_removes_closed_position_and_preserves_history(items, old_quan
     assert repository.list_recommendation_cycles() == [cycle]
     assert repository.list_portfolio_snapshots() == [snapshot]
     assert service.sync_holdings()["stale_count"] == 0
+
+
+def test_toss_client_refuses_non_read_requests_before_sending():
+    calls = []
+
+    def recording_http(method, path, headers=None, body=None):
+        calls.append((method, path))
+        return {}
+
+    service = TossInvestService(InMemoryRepository(), env=_env(), http_request=recording_http)
+
+    for method, path in (
+        ("POST", "/api/v1/orders"),
+        ("DELETE", "/api/v1/orders/1"),
+        ("GET", "/oauth2/token"),
+        ("PUT", "/api/v1/holdings"),
+    ):
+        with pytest.raises(TossInvestError):
+            service.http_request(method, path)
+    assert calls == []
+    service.http_request("GET", "/api/v1/accounts")
+    assert calls == [("GET", "/api/v1/accounts")]

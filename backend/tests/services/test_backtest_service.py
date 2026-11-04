@@ -398,3 +398,29 @@ def test_buy_hold_baseline_includes_gap_between_evaluation_windows():
     )
 
     assert buy_hold["metrics"]["gross"]["cumulative_return_pct"] == pytest.approx(30.0)
+
+
+def test_stop_exit_uses_gap_open_when_bar_opens_through_the_stop():
+    from types import SimpleNamespace
+
+    import pandas as pd
+
+    from app.services.backtest_service import RuleBacktestService
+    from app.services.report.tracking import trading_timestamp
+
+    service = RuleBacktestService.__new__(RuleBacktestService)
+    rows = pd.DataFrame(
+        {"open": [99.0, 80.0], "high": [101.0, 82.0], "low": [96.0, 78.0], "close": [98.0, 79.0]},
+        index=pd.to_datetime(["2026-01-02", "2026-01-05"]),
+    )
+    hit_at = trading_timestamp(rows.index[1])
+    long_stop = SimpleNamespace(action="BUY", target_price=120.0, stop_loss=90.0)
+    short_stop = SimpleNamespace(action="SELL", target_price=60.0, stop_loss=75.0)
+
+    hit_open = service._barrier_bar_open(rows, hit_at)
+
+    assert hit_open == 80.0
+    assert service._exit_price(long_stop, "hit_stop", 79.0, hit_open=hit_open) == 80.0
+    assert service._exit_price(short_stop, "hit_stop", 79.0, hit_open=hit_open) == 80.0
+    assert service._exit_price(long_stop, "hit_stop", 79.0, hit_open=95.0) == 90.0
+    assert service._exit_price(long_stop, "hit_target", 79.0, hit_open=80.0) == 120.0

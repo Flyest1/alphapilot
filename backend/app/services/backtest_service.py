@@ -6,6 +6,7 @@ from math import ceil
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from app.config import get_env_application_defaults, resolve_application_settings
@@ -21,7 +22,7 @@ from app.services.backtest_validation import (
     create_walk_forward_folds,
 )
 from app.services.market_data_service import MarketDataService
-from app.services.report.tracking import evaluate_barriers, horizon_days
+from app.services.report.tracking import evaluate_barriers, horizon_days, trading_timestamp
 from app.services.signal_research_service import SignalResearchService
 from app.services.strategy_service import StrategyService
 from app.services.technical_analysis_service import TechnicalAnalysisService
@@ -268,6 +269,7 @@ class RuleBacktestService:
                 strategy,
                 outcome_status,
                 future_price,
+                hit_open=self._barrier_bar_open(future_rows, barrier_hit_at),
             )
             gross_return_pct = self._directional_return_pct(
                 strategy.action,
@@ -652,12 +654,35 @@ class RuleBacktestService:
             return "KR"
         return market
 
-    def _exit_price(self, strategy: Any, outcome_status: str, future_price: float) -> float:
+    def _exit_price(
+        self,
+        strategy: Any,
+        outcome_status: str,
+        future_price: float,
+        hit_open: float | None = None,
+    ) -> float:
         if outcome_status == "hit_target" and strategy.target_price is not None:
             return float(strategy.target_price)
         if outcome_status in {"hit_stop", "ambiguous"} and strategy.stop_loss is not None:
-            return float(strategy.stop_loss)
+            stop = float(strategy.stop_loss)
+            if hit_open is None or not np.isfinite(hit_open):
+                return stop
+            # A bar that opens through the stop fills at the worse open, not at the stop
+            # (same convention as challenger_research).
+            if str(strategy.action).upper() in {"SELL", "REDUCE"}:
+                return max(stop, float(hit_open))
+            return min(stop, float(hit_open))
         return future_price
+
+    @staticmethod
+    def _barrier_bar_open(future_rows: pd.DataFrame, barrier_hit_at: str | None) -> float | None:
+        if not barrier_hit_at or "open" not in future_rows:
+            return None
+        for trading_day, row in future_rows.iterrows():
+            if trading_timestamp(trading_day) == barrier_hit_at:
+                value = pd.to_numeric(row["open"], errors="coerce")
+                return float(value) if pd.notna(value) else None
+        return None
 
     def _directional_return_pct(self, action: str, entry_price: float, exit_price: float) -> float:
         raw_return = ((exit_price - entry_price) / entry_price) * 100
