@@ -373,6 +373,10 @@ export default function Advisory() {
   async function selectAnalysis(analysis) {
     const analysisId = analysis.id || analysis.analysis_id;
     const nextType = analysisType(analysis);
+    // A manual history selection supersedes any pending completed-job or history load.
+    const requestId = ++analysisLoadSequenceRef.current;
+    setAnalysisLoadRequest(null);
+    setIsLoadingCompletedAnalysis(false);
     if (nextType) setSelectedType(nextType);
     if (!analysisId || analysis.result || analysis.content) {
       setSelectedAnalysis(analysis);
@@ -381,10 +385,12 @@ export default function Advisory() {
     setError("");
     try {
       const loadedAnalysis = await getAdvisoryAnalysis(analysisId);
+      if (requestId !== analysisLoadSequenceRef.current) return;
       const loadedType = analysisType(loadedAnalysis);
       if (loadedType) setSelectedType(loadedType);
       setSelectedAnalysis(loadedAnalysis);
     } catch (requestError) {
+      if (requestId !== analysisLoadSequenceRef.current) return;
       setError(advisoryErrorMessage(requestError, "저장된 자문을 불러오지 못했습니다."));
     }
   }

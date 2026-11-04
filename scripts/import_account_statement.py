@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 from pydantic import AwareDatetime, TypeAdapter  # noqa: E402
 
 from app.models.account_ledger import Identifier  # noqa: E402
+from app.services.ledger.preparation import strict_json_loads as _strict_json  # noqa: E402
 from app.services.ledger.statement import MAX_DOCUMENT_BYTES, normalize_statement  # noqa: E402
 
 
@@ -80,7 +81,7 @@ def main(argv=None):
         _archive(folder / f"mapping-{mapping_digest}.json", mapping_raw)
         TypeAdapter(Identifier).validate_python(args.account_id)
         TypeAdapter(AwareDatetime).validate_python(args.observed_at)
-        mapping = json.loads(mapping_raw)
+        mapping = _strict_json(mapping_raw)
         batch = normalize_statement(
             raw,
             account_id=args.account_id,
@@ -107,7 +108,7 @@ def main(argv=None):
             _archive(
                 folder / f"context-{hashlib.sha256(context_raw).hexdigest()}.json", context_raw
             )
-            context = json.loads(context_raw)
+            context = _strict_json(context_raw)
             if (
                 not isinstance(context, dict)
                 or set(context) - {"opening", "as_of", "known_at", "observed"}

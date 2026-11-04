@@ -488,8 +488,11 @@ class AdvisoryPipeline:
                     "provider": "gdelt_doc_2_0",
                     "title": article.get("title") or "최근 뉴스",
                     "url": article.get("url"),
-                    "as_of": article.get("published_at") or article.get("seendate"),
-                    "scope": article.get("scope"),
+                    # NewsService emits seen_at/query_scope; older keys are kept as fallbacks.
+                    "as_of": article.get("seen_at")
+                    or article.get("published_at")
+                    or article.get("seendate"),
+                    "scope": article.get("query_scope") or article.get("scope"),
                     "asset_ticker": article.get("asset_ticker"),
                     "limitations": ["최근 뉴스·동향 문맥이며 기업 공식 공시를 대체하지 않습니다."],
                 }
@@ -517,9 +520,11 @@ class AdvisoryPipeline:
             for row in sector_rows
             if isinstance(row.get("etf_flow_context"), dict)
         ]
+        # Delayed N-PORT counts as actual flow evidence only when flow values were parsed.
         actual_flow_count = sum(
             context.get("provider") == "sec_edgar_nport"
             and context.get("status") in {"available", "data_limited"}
+            and bool(context.get("flow_fields"))
             for context in flow_contexts
         )
         proxy_flow_count = sum(

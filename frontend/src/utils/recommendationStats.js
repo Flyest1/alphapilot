@@ -1,7 +1,7 @@
 import { ACTION_LABELS } from "../api/reports.js";
 import { HORIZON_LABELS, SCORE_BAND_LABELS } from "../constants/strings.js";
 
-export const MIN_SAMPLE_FOR_HEADLINE = 5;
+const MIN_SAMPLE_FOR_HEADLINE = 5;
 
 export function groupTitle(group) {
   const action = ACTION_LABELS[group.action] || group.action;

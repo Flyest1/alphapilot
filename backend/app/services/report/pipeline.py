@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from copy import deepcopy
 from datetime import datetime, timezone
+import json
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -16,6 +17,7 @@ from pydantic import ValidationError
 from app.config import (
     get_env_application_defaults,
     get_environment_settings,
+    persist_usd_krw_rate,
     resolve_application_settings,
 )
 from app.db.supabase_client import Repository
@@ -412,7 +414,7 @@ class ReportService:
             generated_at=generated_at,
         )
 
-        validation_error: ValidationError | None = None
+        validation_error: ValidationError | json.JSONDecodeError | None = None
         for attempt in range(2):
             diagnostics["attempt_count"] = attempt + 1
             try:
@@ -426,7 +428,9 @@ class ReportService:
                     }
                 )
                 return content, diagnostics
-            except ValidationError as exc:
+            except (ValidationError, json.JSONDecodeError) as exc:
+                # Truncated or malformed JSON is an output-validation failure and gets the same
+                # single corrective retry as a schema mismatch.
                 validation_error = exc
                 log_external_failure(
                     "openai",
@@ -1141,7 +1145,7 @@ class ReportService:
         if abs(rounded_rate - float(app_settings.usd_krw_rate)) < 0.01:
             return app_settings
         try:
-            saved = self.repository.upsert_settings({"usd_krw_rate": rounded_rate})
+            saved = persist_usd_krw_rate(self.repository, app_settings, rounded_rate)
             return resolve_application_settings(saved, get_env_application_defaults())
         except Exception as exc:
             log_external_failure("settings", exc, {"operation": "refresh_usd_krw_rate"})
@@ -1166,6 +1170,3 @@ class ReportService:
 
     def _infer_market(self, ticker: str) -> str:
         return infer_market(ticker)
-
-    def _normalize_ticker(self, ticker: str) -> str:
-        return normalize_ticker(ticker)

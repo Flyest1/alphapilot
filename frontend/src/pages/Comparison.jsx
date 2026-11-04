@@ -100,17 +100,27 @@ export default function Comparison() {
     const fresh = isApiCacheFresh(cachePath, COMPARISON_CACHE_MS);
     if (fresh) {
       setData(readApiCache(cachePath, { maxAgeMs: COMPARISON_CACHE_MS }));
-      return;
+      setIsLoading(false);
+      return undefined;
     }
+    let cancelled = false;
     setIsLoading(true);
     api.portfolio
       .benchmarkReturns(days)
       .then((result) => {
+        if (cancelled) return;
         setData(result);
         setError("");
       })
-      .catch((err) => setError(err.message))
-      .finally(() => setIsLoading(false));
+      .catch((err) => {
+        if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [cachePath, days]);
 
   useEffect(() => {

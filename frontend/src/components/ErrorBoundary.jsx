@@ -1,5 +1,12 @@
 import { Component } from "react";
 
+export function isChunkLoadError(error) {
+  const message = String(error?.message || error || "");
+  return /dynamically imported module|Loading chunk|Importing a module script failed/i.test(
+    message,
+  );
+}
+
 // 페이지 렌더링 중 예외가 나도 앱 전체가 죽지 않도록 감싸는 경계 컴포넌트.
 export default class ErrorBoundary extends Component {
   constructor(props) {
@@ -18,6 +25,12 @@ export default class ErrorBoundary extends Component {
   }
 
   retry = () => {
+    // React caches a rejected lazy() import, so a page chunk that vanished after a new deploy can
+    // only be recovered by reloading the app shell.
+    if (isChunkLoadError(this.state.error)) {
+      window.location.reload();
+      return;
+    }
     this.setState({ error: null });
   };
 

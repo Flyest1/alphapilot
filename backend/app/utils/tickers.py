@@ -18,3 +18,19 @@ def infer_market(ticker: str) -> str:
     if len(clean) == 6 and clean.isalnum():
         return "KR"
     return "US"
+
+
+def is_kr_listing_code(ticker: str) -> bool:
+    """True for KRX listing codes such as 069500, 0080G0 or 069500.KS.
+
+    KRX codes are six characters starting with a digit; US tickers never are.
+    """
+    upper = str(ticker).strip().upper()
+    if upper.endswith((".KS", ".KQ")):
+        return True
+    return len(upper) == 6 and upper.isalnum() and upper[0].isdigit()
+
+
+def is_kr_listed_etf(market: str, ticker: str) -> bool:
+    """An ETF row whose ticker is a KRX listing code is priced in KRW via pykrx."""
+    return str(market or "").upper() == "ETF" and is_kr_listing_code(ticker)

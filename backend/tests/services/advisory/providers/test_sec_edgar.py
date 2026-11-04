@@ -522,3 +522,62 @@ def test_nport_fails_closed_on_series_mismatch_and_non_finite_values():
 
     assert result["status"] == "unavailable"
     assert result["limitations"] == ["nport_text_unavailable"]
+
+
+def test_memory_cache_is_bounded_by_bytes_and_sweeps_expired_entries(monkeypatch):
+    from app.services.advisory.providers import sec_edgar
+
+    monkeypatch.setattr(sec_edgar, "SEC_MEMORY_CACHE_MAX_BYTES", 100)
+    monkeypatch.setattr(sec_edgar, "SEC_MEMORY_CACHE_MAX_ENTRY_BYTES", 60)
+    provider = SecEdgarProvider(user_agent="AlphaPilot test@example.com", opener=lambda *_: None)
+
+    provider._cache_put("a", b"x" * 50)
+    provider._cache_put("b", b"y" * 40)
+    provider._cache_put("c", b"z" * 30)  # evicts "a" to stay within 100 bytes
+    provider._cache_put("huge", b"h" * 61)  # larger than one entry may be; not cached
+
+    assert set(provider._cache) == {"b", "c"}
+    assert provider._cache_bytes == 70
+    assert provider._cache_get("huge") is None
+
+    provider._cache["b"] = (0.0, provider._cache["b"][1])  # force expiry
+    provider._cache_put("d", b"d" * 10)
+    assert set(provider._cache) == {"c", "d"}
+    assert provider._cache_bytes == 40
+
+
+def test_truncated_transfer_is_retried_as_a_sec_error():
+    import http.client
+
+    tickers_url = "https://www.sec.gov/files/company_tickers.json"
+    sleeps = []
+    client = provider(
+        {
+            tickers_url: [
+                http.client.IncompleteRead(b"partial"),
+                json.dumps({"0": {"ticker": "EXM", "cik_str": 320193}}),
+            ]
+        },
+        sleep=sleeps.append,
+    )
+
+    assert client.ticker_to_cik("EXM") == "0000320193"
+    assert sleeps == [0.5]
+
+
+def test_nport_parses_official_monthly_flow_attributes():
+    text = """
+    <DOCUMENT><TEXT><XML>
+    <edgarSubmission xmlns="http://www.sec.gov/edgar/nport">
+      <seriesId>S000000001</seriesId>
+      <mon1Flow redemption="100.5" reinvestment="0" sales="60"/>
+      <mon2Flow redemption="50" reinvestment="5.25" sales="40"/>
+      <mon3Flow redemption="10" reinvestment="0" sales="20.5"/>
+    </edgarSubmission>
+    </XML></TEXT></DOCUMENT>
+    """
+
+    _holdings, flows, series_ids = SecEdgarProvider._parse_nport_submission(text)
+
+    assert series_ids == {"S000000001"}
+    assert flows == {"redemption": 160.5, "reinvestment": 5.25, "sales": 120.5}

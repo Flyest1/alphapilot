@@ -23,7 +23,8 @@ def save_settings(
         repository.get_settings(), get_env_application_defaults()
     )
     update_values = payload.model_dump(exclude_unset=True)
-    merged = current.model_dump()
+    # Timestamps are owned by the database/repository; writing them back would freeze updated_at.
+    merged = current.model_dump(exclude={"created_at", "updated_at"})
     merged.update(update_values)
     saved = repository.upsert_settings(merged)
     resolved = resolve_application_settings(saved, get_env_application_defaults())

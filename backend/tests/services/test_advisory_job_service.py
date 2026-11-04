@@ -510,3 +510,58 @@ def test_advisory_runner_continues_after_unhandled_job_failure(monkeypatch):
     assert calls == [jobs[0].job_id, jobs[1].job_id]
     assert store.get(jobs[0].job_id).status == "failed"
     assert store.get(jobs[1].job_id).status == "completed"
+
+
+def test_polling_a_running_job_does_not_wait_for_the_analysis():
+    repository = InMemoryRepository()
+    store = AdvisoryJobStore(repository)
+    job, _created = store.create_or_get_active(
+        parse_advisory_job_request({"analysis_type": "ai_beneficiaries"})
+    )
+    analysis_started = Event()
+    release_analysis = Event()
+
+    def handler(_job, request):
+        analysis_started.set()
+        release_analysis.wait(timeout=5)
+        return ai_beneficiaries_result(request)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        running = executor.submit(
+            run_advisory_job,
+            store,
+            AdvisoryDispatcher({"ai_beneficiaries": handler}),
+            job.job_id,
+        )
+        assert analysis_started.wait(timeout=5)
+        poll = executor.submit(store.get, job.job_id)
+        polled = poll.result(timeout=1)  # previously blocked until the analysis finished
+        assert polled.status == "running"
+        release_analysis.set()
+        running.result(timeout=5)
+
+    assert store.get(job.job_id).status == "completed"
+
+
+def test_step_timing_failure_does_not_fail_a_saved_analysis(monkeypatch):
+    repository = InMemoryRepository()
+    store = AdvisoryJobStore(repository)
+    job, _created = store.create_or_get_active(
+        parse_advisory_job_request({"analysis_type": "ai_beneficiaries"})
+    )
+
+    def broken_mark_step(*_args, **_kwargs):
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(store, "mark_step", broken_mark_step)
+    run_advisory_job(
+        store,
+        AdvisoryDispatcher(
+            {"ai_beneficiaries": lambda _job, request: ai_beneficiaries_result(request)}
+        ),
+        job.job_id,
+    )
+
+    completed = store.get(job.job_id)
+    assert completed.status == "completed"
+    assert completed.analysis_id

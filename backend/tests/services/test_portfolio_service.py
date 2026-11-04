@@ -341,3 +341,16 @@ def test_report_prompt_explicitly_preserves_unavailable_portfolio_values():
     prompt = build_prompt("global")
     assert "Preserve null portfolio values" in prompt
     assert "never replace them with zero or purchase cost" in prompt
+
+
+def test_krw_krx_etf_is_not_converted_with_usd_rate():
+    service = PortfolioService(InMemoryRepository(), FakeMarketData())
+
+    kr_etf = {"market": "ETF", "ticker": "069500", "currency": "KRW"}
+    legacy_us_etf = {"market": "ETF", "ticker": "SPY", "currency": "KRW"}
+    us_etf = {"market": "ETF", "ticker": "SPY", "currency": "USD"}
+
+    assert service._fx_rate(kr_etf, "KRW", 1400) == 1.0
+    assert service._fx_rate(legacy_us_etf, "KRW", 1400) == 1400
+    assert service._fx_rate(us_etf, "USD", 1400) == 1400
+    assert service._fx_rate({"market": "KR", "ticker": "005930"}, "KRW", 1400) == 1.0

@@ -199,7 +199,7 @@ class SectorOutlookService:
                 continue
             latest = observations[-1]
             previous = observations[-2] if len(observations) > 1 else None
-            year_ago = observations[-13] if len(observations) >= 13 else None
+            year_ago = self._year_ago_observation(observations)
             row = {
                 "series_id": series.get("series_id"),
                 "label": series.get("label"),
@@ -284,6 +284,26 @@ class SectorOutlookService:
             return yf_module.Ticker(ticker)
         except Exception:
             return None
+
+    @staticmethod
+    def _year_ago_observation(observations: list[Mapping[str, Any]]) -> Mapping[str, Any] | None:
+        """Latest observation at least 365 days before the newest one.
+
+        Counting 13 rows back is only a year for monthly series; for daily DGS10/T10Y2Y it was
+        about two weeks.
+        """
+        dated = []
+        for observation in observations:
+            try:
+                observed = datetime.fromisoformat(str(observation.get("observation_date"))[:10])
+            except ValueError:
+                continue
+            dated.append((observed, observation))
+        if not dated:
+            return None
+        cutoff = dated[-1][0] - timedelta(days=365)
+        eligible = [observation for observed, observation in dated if observed <= cutoff]
+        return eligible[-1] if eligible else None
 
     @staticmethod
     def _representative_holdings(fund: Any | None) -> tuple[list[dict[str, Any]], str]:

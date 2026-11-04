@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from app.services.advisory.features.common import (
+    margin_pct,
     evidence_item,
     finite_float,
     now_iso,
@@ -368,11 +369,7 @@ class ProfitTakingReviewService:
             ),
         }
 
-    @staticmethod
-    def _margin(numerator: float | None, denominator: float | None) -> float | None:
-        if numerator is None or denominator in {None, 0.0}:
-            return None
-        return round(numerator / denominator * 100, 2)
+    _margin = staticmethod(margin_pct)
 
     @staticmethod
     def _signals(technical: Any, current_price: float) -> dict[str, Any]:

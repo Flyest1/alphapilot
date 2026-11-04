@@ -16,6 +16,7 @@ import StrategyFilters from "../components/reports/StrategyFilters.jsx";
 import Skeleton from "../components/Skeleton.jsx";
 import StrategyTable from "../components/StrategyTable.jsx";
 import { HORIZON_LABELS, MESSAGES } from "../constants/strings.js";
+import { logsForReport } from "../utils/performanceLogs.js";
 import { findPreviousReport } from "../utils/reportDiff.js";
 import { filterStrategies, sortStrategies } from "../utils/strategyFilters.js";
 
@@ -113,11 +114,15 @@ export default function Reports() {
   const [error, setError] = useState("");
   const [historyCount, setHistoryCount] = useState(INITIAL_HISTORY_COUNT);
   const lastRefreshAt = useRef(0);
+  // Focus/visibility listeners are registered once, so they read the current selection via a ref.
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
   const activeGenerationJob = isActiveReportJob(generationJob) ? generationJob : null;
   const generatingType = activeGenerationJob?.report_type || "";
 
   function loadReports({ background = false, preferredReportId = "" } = {}) {
     lastRefreshAt.current = Date.now();
+    setError("");
     if (background) {
       setIsRefreshing(true);
     } else {
@@ -137,9 +142,10 @@ export default function Reports() {
         setSettings(appSettings);
         const preferredReport =
           preferredReportId && reportList.find((report) => report.id === preferredReportId);
+        const current = selectedRef.current;
         const nextReport =
           preferredReport ||
-          (selected ? reportList.find((report) => report.id === selected.id) : null) ||
+          (current ? reportList.find((report) => report.id === current.id) : null) ||
           initialReport;
         setSelected(nextReport);
         if (nextReport) setActiveType(nextReport.report_type);
@@ -210,12 +216,20 @@ export default function Reports() {
     if (!isActiveReportJob(generationJob)) return undefined;
 
     let cancelled = false;
+    let finished = false;
+    let intervalId = null;
     async function checkReportJob() {
+      if (finished) return;
       try {
         const job = await api.reports.jobStatus(generationJob.job_id);
-        if (cancelled) return;
+        if (cancelled || finished) return;
         setGenerationJob(job);
         writeStoredReportJob(job);
+        if (job.status === "completed" || job.status === "failed") {
+          // Stop polling before the (slow) reload so later ticks cannot start duplicate reloads.
+          finished = true;
+          window.clearInterval(intervalId);
+        }
         if (job.status === "completed") {
           setStatusMessage(reportJobMessage(job));
           await loadReports({ background: true, preferredReportId: job.report_id });
@@ -239,8 +253,8 @@ export default function Reports() {
       }
     }
 
+    intervalId = window.setInterval(checkReportJob, 5000);
     checkReportJob();
-    const intervalId = window.setInterval(checkReportJob, 5000);
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
@@ -261,14 +275,19 @@ export default function Reports() {
   );
   const selectedStrategyGroup =
     strategyGroup === "candidates" ? candidateStrategies : ownedStrategies;
+  const reportPerformanceLogs = performanceDataLoaded
+    ? logsForReport(performanceLogs, selected?.id)
+    : [];
   const filteredStrategies = sortStrategies(
     filterStrategies(selectedStrategyGroup, strategyFilter),
     strategySort,
-    performanceDataLoaded ? performanceLogs : [],
+    reportPerformanceLogs,
   );
   const previousReport = findPreviousReport(selected, reports);
   const selectedTickers = new Set(strategies.map((strategy) => strategy.ticker));
-  const selectedPerformanceLogs = performanceLogs.filter((row) => selectedTickers.has(row.ticker));
+  const selectedPerformanceLogs = reportPerformanceLogs.filter((row) =>
+    selectedTickers.has(row.ticker),
+  );
   const selectedRecommendationCycles = recommendationCycles.filter((row) =>
     selectedTickers.has(row.ticker),
   );
@@ -368,7 +387,7 @@ export default function Reports() {
         candidateCount={candidateStrategies.length}
         dataLimitedCountValue={dataLimitedCount(selected)}
         ownedCount={ownedStrategies.length}
-        performanceLogs={performanceLogs}
+        performanceLogs={reportPerformanceLogs}
         performanceDataLoaded={performanceDataLoaded}
         selected={selected}
         technicalOnly={isTechnicalOnlyReport(selected)}
@@ -413,7 +432,7 @@ export default function Reports() {
             />
             <StrategyTable
               inputsByTicker={selected?.report_inputs?.tickers}
-              performanceLogs={performanceDataLoaded ? performanceLogs : []}
+              performanceLogs={reportPerformanceLogs}
               strategies={filteredStrategies}
             />
           </>

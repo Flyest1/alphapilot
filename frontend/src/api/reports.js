@@ -256,15 +256,26 @@ export function displayText(value) {
   return text;
 }
 
+// A bare host name: the first label must contain a letter so KR tickers such as 005930.KS
+// survive, and exchange suffixes are never treated as domains.
+const BARE_DOMAIN_PATTERN =
+  /\b(?:www\.)?(?=[a-z0-9-]*[a-z])[a-z0-9-]+(?:\.(?!(?:KS|KQ)\b)[a-z]{2,})+(?:\/\S*)?\b/gi;
+
+// Legacy evidence brackets start with an evidence id such as [N1 · Reuters · ...] (case-sensitive),
+// or carry explicit evidence/source metadata. Ordinary bracketed notes like [ETF 집중 주의] stay.
+function isEvidenceBracket(inner) {
+  if (/^\s*[NE]\d+\b/.test(inner)) return true;
+  if (/\b(?:evidence|source|provider|publisher|domain)\b/i.test(inner)) return true;
+  BARE_DOMAIN_PATTERN.lastIndex = 0;
+  return BARE_DOMAIN_PATTERN.test(inner);
+}
+
 export function displayReportText(value) {
   return displayText(value)
     .replace(/\[[^\]]*https?:\/\/[^\]]*\]/gi, "")
-    .replace(
-      /\[(?=[^\]]*(?:evidence|source|provider|publisher|domain|(?:N|E)[A-Za-z0-9:_-]*|(?:www\.)?[a-z0-9-]+(?:\.[a-z]{2,})+))[^\]]*\]/gi,
-      "",
-    )
+    .replace(/\[([^\]]*)\]/g, (match, inner) => (isEvidenceBracket(inner) ? "" : match))
     .replace(/https?:\/\/\S+/gi, "")
-    .replace(/\b(?:www\.)?[a-z0-9-]+(?:\.[a-z]{2,})+(?:\/\S*)?\b/gi, "")
+    .replace(BARE_DOMAIN_PATTERN, "")
     .replace(/\bGDELT(?:\s+DOC\s+2\.0)?\b/gi, "")
     .replace(/\s+([,.;:!?])/g, "$1")
     .replace(/\s{2,}/g, " ")

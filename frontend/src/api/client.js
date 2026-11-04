@@ -1,6 +1,8 @@
+import { MESSAGES } from "../constants/strings.js";
+
 const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 export const API_BASE_URL = rawApiBaseUrl.replace(/\/+$/, "");
-export const API_ACCESS_TOKEN_STORAGE_KEY = "alphapilot_api_access_token";
+const API_ACCESS_TOKEN_STORAGE_KEY = "alphapilot_api_access_token";
 const API_CACHE_PREFIX = "alphapilot_api_cache:";
 
 export function getApiAccessToken() {
@@ -11,9 +13,19 @@ export function setApiAccessToken(token) {
   window.localStorage.setItem(API_ACCESS_TOKEN_STORAGE_KEY, token.trim());
 }
 
+// Job ids tracked across page reloads belong to the unlocked session.
+const SESSION_JOB_STORAGE_KEYS = ["alphapilot_active_report_job"];
+const SESSION_JOB_SESSION_STORAGE_KEYS = ["alphapilot.activeAdvisoryJobId"];
+
 export function clearApiAccessToken() {
   window.localStorage.removeItem(API_ACCESS_TOKEN_STORAGE_KEY);
   clearApiCache();
+  try {
+    SESSION_JOB_STORAGE_KEYS.forEach((key) => window.localStorage.removeItem(key));
+    SESSION_JOB_SESSION_STORAGE_KEYS.forEach((key) => window.sessionStorage.removeItem(key));
+  } catch (_error) {
+    // Storage may be unavailable in private mode; the token itself is already removed.
+  }
 }
 
 function cacheKey(path) {
@@ -55,7 +67,7 @@ function writeApiCache(path, data) {
   }
 }
 
-export function clearApiCache() {
+function clearApiCache() {
   const keys = [];
   for (let index = 0; index < window.localStorage.length; index += 1) {
     const key = window.localStorage.key(index);
@@ -64,7 +76,7 @@ export function clearApiCache() {
   keys.forEach((key) => window.localStorage.removeItem(key));
 }
 
-export const DEFAULT_TIMEOUT_MS = 30 * 1000;
+const DEFAULT_TIMEOUT_MS = 30 * 1000;
 
 // 표준 에러 객체: message 외에 status(HTTP 코드)와 kind(분류)를 함께 제공한다.
 export class ApiError extends Error {
@@ -77,6 +89,18 @@ export class ApiError extends Error {
   }
 }
 
+// FastAPI validation errors return `detail` as a list of {loc, msg}; surface their messages.
+export function errorDetailMessage(detail) {
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => (typeof item === "string" ? item : item?.msg))
+      .filter(Boolean)
+      .join(" / ");
+  }
+  if (detail && typeof detail === "object") return detail.message || "";
+  return detail || "";
+}
+
 async function fetchWithTimeout(url, fetchOptions, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -84,14 +108,9 @@ async function fetchWithTimeout(url, fetchOptions, timeoutMs) {
     return await fetch(url, { ...fetchOptions, signal: controller.signal });
   } catch (error) {
     if (error?.name === "AbortError") {
-      throw new ApiError(
-        "요청 시간이 초과되었습니다. 백엔드가 깨어나는 중일 수 있으니 잠시 후 다시 시도하세요.",
-        { kind: "timeout" },
-      );
+      throw new ApiError(MESSAGES.timeout, { kind: "timeout" });
     }
-    throw new ApiError("백엔드 연결에 실패했습니다. API URL, 토큰, CORS 설정을 확인하세요.", {
-      kind: "network",
-    });
+    throw new ApiError(MESSAGES.networkFailed, { kind: "network" });
   } finally {
     clearTimeout(timer);
   }
@@ -103,7 +122,7 @@ export async function apiRequest(path, options = {}) {
   const { accessToken: _accessToken, timeoutMs = DEFAULT_TIMEOUT_MS, ...fetchOptions } = options;
   const method = (fetchOptions.method || "GET").toUpperCase();
   if (!accessToken) {
-    throw new ApiError("접속 토큰을 먼저 입력하세요.", { kind: "auth" });
+    throw new ApiError(MESSAGES.tokenRequired, { kind: "auth" });
   }
 
   const url = `${API_BASE_URL}${normalizedPath}`;
@@ -126,11 +145,12 @@ export async function apiRequest(path, options = {}) {
   }
 
   if (!response.ok) {
-    const body = await response.json().catch(() => ({ detail: "요청에 실패했습니다." }));
-    const detail = body.detail;
-    const message = typeof detail === "object" ? detail?.message : detail;
-    const code = typeof detail === "object" ? detail?.code : null;
-    throw new ApiError(message || "요청에 실패했습니다.", {
+    const body = await response.json().catch(() => ({ detail: MESSAGES.requestFailed }));
+    const detail = body?.detail;
+    const message = errorDetailMessage(detail);
+    const code =
+      detail && typeof detail === "object" && !Array.isArray(detail) ? detail.code : null;
+    throw new ApiError(message || MESSAGES.requestFailed, {
       status: response.status,
       code: code || null,
     });
