@@ -803,7 +803,10 @@ python scripts/recalculate_recommendation_cycles.py --apply
 - 모든 `/api/*` 요청은 토큰이 필요합니다.
 - 정기 리포트 생성 엔드포인트는 `SCHEDULER_SECRET`을 사용합니다.
 - 일반 API와 수동 리포트 생성은 `API_ACCESS_TOKEN`을 사용합니다.
-- 두 값은 반드시 서로 다르게 설정하세요. 같게 설정하면 스케줄러 시크릿으로 일반 API까지 호출할 수 있습니다.
+- 두 값은 반드시 서로 다르게 설정하세요. 2026-11 이후 두 값이 같으면 스케줄러 엔드포인트는
+  항상 401로 거부됩니다(브라우저에 저장된 사용자 토큰으로 정기 리포트를 호출할 수 없도록 fail-closed).
+  이 경우 GitHub Actions 정기 리포트도 실패하므로 `SCHEDULER_SECRET`을 새 값으로 바꾸고
+  GitHub secret도 함께 갱신하세요.
 - GitHub Pages 정적 URL 자체는 public일 수 있지만, 토큰 없이는 백엔드 데이터 API를 호출할 수 없습니다.
 - Toss Invest credential은 백엔드 환경변수에만 두며 API 응답에는 credential 값을 반환하지 않습니다.
 
@@ -816,6 +819,10 @@ python scripts/recalculate_recommendation_cycles.py --apply
 - 수익 보장 없음
 - 뉴스/동향 컨텍스트는 GDELT DOC 2.0 API에 한정되며 누락되거나 호출량 제한을 받을 수 있음
 - pykrx/yfinance 데이터는 지연되거나 실패할 수 있음
+- 데이터 지연(stale) 판정은 각 시장 현지 날짜(국내 Asia/Seoul, 미국 America/New_York)의
+  영업일 기준이며 거래소 휴장일 달력은 반영하지 않음
+- 시장을 `ETF`로 입력했더라도 KRX 종목코드(예: `069500`, `069500.KS`)이고 통화가 `KRW`이면
+  pykrx로 조회하고 원화로 평가합니다. 영문 티커 ETF는 기존처럼 yfinance·USD 기준입니다.
 - Oracle VM 운영, 보안 업데이트, TLS 인증서 갱신은 직접 관리해야 함
 - Render 롤백 시 Render Free cold start 가능
 - GitHub Actions 예약 실행 지연 가능
