@@ -104,6 +104,35 @@ describe("Advisory page", () => {
     ).toBeTruthy();
   });
 
+  it("refreshes recent history when its response arrives after the job completes", async () => {
+    let resolveHistory;
+    api.listAdvisoryAnalyses.mockResolvedValueOnce([]).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveHistory = resolve;
+        }),
+    );
+    render(<Advisory />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "AI 자문 요청" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "AI 자문 요청" }));
+    expect(await screen.findByText("자문 결과")).toBeInTheDocument();
+    await waitFor(() => expect(resolveHistory).toBeTypeOf("function"));
+
+    resolveHistory([
+      {
+        analysis_id: "analysis-1",
+        analysis_type: "undervalued_us_stocks",
+        created_at: "2026-11-14T05:00:00Z",
+      },
+    ]);
+
+    expect(
+      await screen.findByRole("button", { name: /저평가 미국 주식.*2026년/ }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("아직 저장된 AI 자문 결과가 없습니다.")).not.toBeInTheDocument();
+  });
+
   it("opens a recent advisory result beneath the matching feature card", async () => {
     api.listAdvisoryAnalyses.mockResolvedValue([
       {

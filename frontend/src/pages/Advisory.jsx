@@ -218,6 +218,21 @@ export default function Advisory() {
   }, []);
 
   useEffect(() => {
+    if (!activeJobId || !isComplete(job?.status)) return undefined;
+    let cancelled = false;
+    listAdvisoryAnalyses()
+      .then((payload) => {
+        if (!cancelled) setHistory(analysisItems(payload));
+      })
+      .catch(() => {
+        // Keep the completed result visible even if its history refresh fails.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeJobId, job?.status]);
+
+  useEffect(() => {
     if (!activeJobId || !hasActiveJob) return undefined;
     let cancelled = false;
     let intervalId;
@@ -256,14 +271,6 @@ export default function Advisory() {
             setError(
               "AI 자문 작업은 완료됐지만 결과 식별자를 확인할 수 없습니다. 같은 요청을 다시 실행해 주세요.",
             );
-          }
-          try {
-            const updatedHistory = await listAdvisoryAnalyses();
-            if (!cancelled && pollId === latestPollRef.current) {
-              setHistory(analysisItems(updatedHistory));
-            }
-          } catch {
-            // The terminal job state remains authoritative even if history refresh fails.
           }
           return;
         }
