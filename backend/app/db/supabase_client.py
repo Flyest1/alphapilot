@@ -174,6 +174,19 @@ def _copy_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     return [deepcopy(row) for row in rows]
 
 
+REPORT_LIST_FIELDS = ("id", "report_type", "title", "summary", "content", "created_at")
+
+
+def _report_list_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Keep display data without copying every report's raw price/evidence snapshot."""
+    inputs = row.get("report_inputs") or {}
+    generation = row.get("ai_generation", inputs.get("ai_generation"))
+    return {
+        **{key: deepcopy(row[key]) for key in REPORT_LIST_FIELDS if key in row},
+        "report_inputs": {"ai_generation": deepcopy(generation)},
+    }
+
+
 def _prepare_signal_model_version(data: dict[str, Any]) -> dict[str, Any]:
     row = deepcopy(data)
     config = row.get("config")
@@ -519,11 +532,14 @@ class InMemoryRepository:
         return deepcopy(self.settings)
 
     def list_reports(self) -> list[dict[str, Any]]:
-        return sorted(
-            _copy_rows(self.reports.values()),
-            key=lambda row: row["created_at"],
-            reverse=True,
-        )
+        return [
+            _report_list_row(row)
+            for row in sorted(
+                self.reports.values(),
+                key=lambda row: row["created_at"],
+                reverse=True,
+            )
+        ]
 
     def get_report(self, report_id: str) -> dict[str, Any] | None:
         row = self.reports.get(report_id)
@@ -533,7 +549,7 @@ class InMemoryRepository:
         reports = self.list_reports()
         if report_type is not None:
             reports = [row for row in reports if row.get("report_type") == report_type]
-        return reports[0] if reports else None
+        return self.get_report(reports[0]["id"]) if reports else None
 
     def create_report(self, data: dict[str, Any]) -> dict[str, Any]:
         row = deepcopy(data)
@@ -1169,8 +1185,12 @@ class SupabaseRepository:
         return rows[0]
 
     def list_reports(self) -> list[dict[str, Any]]:
-        builder = self.client.table("reports").select("*").order("created_at", desc=True)
-        return self._run(builder, {"operation": "list_reports"})
+        columns = ",".join((*REPORT_LIST_FIELDS, "ai_generation:report_inputs->ai_generation"))
+        builder = self.client.table("reports").select(columns).order("created_at", desc=True)
+        return [
+            _report_list_row(row)
+            for row in self._run_all_pages(builder, {"operation": "list_reports"})
+        ]
 
     def get_report(self, report_id: str) -> dict[str, Any] | None:
         builder = self.client.table("reports").select("*").eq("id", report_id).limit(1)

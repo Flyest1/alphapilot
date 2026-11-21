@@ -102,7 +102,11 @@ export default function Reports() {
   const [isPerformanceLoading, setIsPerformanceLoading] = useState(false);
   const [performanceError, setPerformanceError] = useState("");
   const [settings, setSettings] = useState(cachedSettings);
-  const [selected, setSelected] = useState(cachedSelected);
+  const [selectedSummary, setSelected] = useState(cachedSelected);
+  const [selectedDetail, setSelectedDetail] = useState(null);
+  const [detailError, setDetailError] = useState("");
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
+  const selected = selectedDetail?.id === selectedSummary?.id ? selectedDetail : selectedSummary;
   const [activeType, setActiveType] = useState("domestic");
   const [strategyGroup, setStrategyGroup] = useState("owned");
   const [strategyFilter, setStrategyFilter] = useState("ALL");
@@ -211,6 +215,27 @@ export default function Reports() {
     // 초기 로드와 포커스 복귀 리스너는 한 번만 등록한다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!selectedSummary?.id) return undefined;
+    let cancelled = false;
+    setDetailError("");
+    setIsDetailLoading(true);
+    api.reports
+      .get(selectedSummary.id)
+      .then((report) => {
+        if (!cancelled) setSelectedDetail(report);
+      })
+      .catch((err) => {
+        if (!cancelled) setDetailError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setIsDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSummary]);
 
   useEffect(() => {
     if (!isActiveReportJob(generationJob)) return undefined;
@@ -350,10 +375,16 @@ export default function Reports() {
           ))}
         </div>
       </header>
-      {error && (
+      {(error || detailError) && (
         <div className="notice notice-with-action">
-          <span className="alert">{error}</span>
-          <button type="button" onClick={() => loadReports()}>
+          <span className="alert">{error || detailError}</span>
+          <button
+            type="button"
+            onClick={() => {
+              if (error) loadReports();
+              else setSelected((current) => ({ ...current }));
+            }}
+          >
             다시 시도
           </button>
         </div>
@@ -369,6 +400,7 @@ export default function Reports() {
       )}
       {isLoading && <Skeleton label={MESSAGES.loadingReports} lines={4} />}
       {isRefreshing && <p className="field-hint">{MESSAGES.refreshing}</p>}
+      {isDetailLoading && <p className="field-hint">선택한 리포트 상세를 불러오고 있습니다.</p>}
 
       <ReportSelector
         activeType={activeType}

@@ -462,6 +462,12 @@ Manual report generation must be asynchronous from the frontend perspective:
 
 Report jobs are persisted in Supabase `report_jobs`.
 
+Report history listing retains `id`, `report_type`, `title`, `summary`, `content`, `created_at`,
+and `report_inputs.ai_generation`, without transferring every historical raw input snapshot.
+The existing report detail and latest-report endpoints retain full `report_inputs`. The frontend
+loads the selected report's detail to preserve historical ticker data-quality information.
+This read-path optimization must not rewrite stored reports or remove historical content/strategies.
+
 ### Performance
 
 ```text
