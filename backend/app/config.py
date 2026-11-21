@@ -76,6 +76,8 @@ class EnvironmentSettings(BaseModel):
     fred_api_key: str | None = None
     sec_edgar_user_agent: str | None = None
     sec_edgar_cache_max_bytes: int | None = None
+    startup_upgrade_legacy_ai_model: bool = True
+    startup_recover_advisory_jobs: bool = True
 
 
 def _clean(value: str | None) -> str | None:
@@ -114,6 +116,8 @@ def get_environment_settings() -> EnvironmentSettings:
         fred_api_key=_clean(os.getenv("FRED_API_KEY")),
         sec_edgar_user_agent=_clean(os.getenv("SEC_EDGAR_USER_AGENT")),
         sec_edgar_cache_max_bytes=_clean(os.getenv("SEC_EDGAR_CACHE_MAX_BYTES")),
+        startup_upgrade_legacy_ai_model=os.getenv("STARTUP_UPGRADE_LEGACY_AI_MODEL", "true"),
+        startup_recover_advisory_jobs=os.getenv("STARTUP_RECOVER_ADVISORY_JOBS", "true"),
     )
 
 

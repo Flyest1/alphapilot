@@ -105,13 +105,14 @@ async def _advisory_job_lifespan(app: FastAPI):
         app.state.advisory_jobs,
         app.state.advisory_dispatcher,
     )
-    try:
-        job_ids = app.state.advisory_jobs.recover_unfinished_jobs()
-    except Exception:
-        logging.getLogger("alphapilot").exception("advisory job recovery scan failed")
-    else:
-        for job_id in job_ids:
-            app.state.advisory_runner.submit(job_id)
+    if get_environment_settings().startup_recover_advisory_jobs:
+        try:
+            job_ids = app.state.advisory_jobs.recover_unfinished_jobs()
+        except Exception:
+            logging.getLogger("alphapilot").exception("advisory job recovery scan failed")
+        else:
+            for job_id in job_ids:
+                app.state.advisory_runner.submit(job_id)
     try:
         yield
     finally:
@@ -134,11 +135,12 @@ def create_app(repository: Repository | None = None) -> FastAPI:
     except Exception:
         logging.getLogger("alphapilot").exception("application settings lookup failed at startup")
         stored_settings = None
-    stored_settings, app_defaults = _upgrade_legacy_ai_model(
-        app.state.repository,
-        stored_settings,
-        app_defaults,
-    )
+    if env.startup_upgrade_legacy_ai_model:
+        stored_settings, app_defaults = _upgrade_legacy_ai_model(
+            app.state.repository,
+            stored_settings,
+            app_defaults,
+        )
     application_settings = resolve_application_settings(stored_settings, app_defaults)
     app.state.application_settings = application_settings
     narrative_provider = (
