@@ -57,10 +57,9 @@ was applied manually to the operating Supabase project on 2026-07-17. No challen
 threshold is configured yet.
 The manually requested AI advisory baseline tracked in `docs/ai_advisory_plan_2026_07.md` is implemented
 and deployed. Migration 017 and the original eight authenticated request-to-persistence workflows were
-verified against the operating environment on 2026-07-17. A ninth `profit_taking_review` workflow is
-approved for implementation and requires additive migration 020 before operating use.
-A tenth `high_upside_speculative_stocks` workflow is implemented in code and requires additive
-migration 021 before operating use.
+verified against the operating environment on 2026-07-17. On 2026-11-22, a read-only check of
+the operating database confirmed enabled capability markers and completed jobs linked to saved
+analyses for both profit_taking_review (migration 020) and high_upside_speculative_stocks (021).
 ```
 
 The detailed upgrade plan lives in `docs/development_plan_v2.md` and the code review baseline in `docs/code_review_2026_06.md`. When this file and the plan conflict, this file wins.
@@ -1116,12 +1115,9 @@ and active-job browser recovery) were implemented, deployed, and operationally v
 cache byte cap with status metrics, inline advanced request forms, `gpt-5.6-luna` as the application
 default, lazy-loaded frontend pages, and a 30-stock curated US equity universe.
 
-The ninth `profit_taking_review` workflow is implemented only after its code and additive migration 020
-are present. It remains operationally unavailable until migration 020 is manually applied to the
-operating Supabase project and the authenticated request-to-persistence flow is verified.
-
-The tenth `high_upside_speculative_stocks` workflow is implemented in code and remains operationally
-unavailable until additive migration 021 is manually applied and verified.
+The ninth `profit_taking_review` and tenth `high_upside_speculative_stocks` workflows are
+implemented. Their database capabilities and persisted job-to-analysis links were verified on
+2026-11-22. New installations require migrations 020 and 021 respectively.
 
 Goal: provide the ten manual analysis workflows defined in `docs/ai_advisory_plan_2026_07.md`
 without automatic trading, order tickets, or unsupported factual claims.
@@ -1163,7 +1159,7 @@ Follow this order unless the user explicitly changes priority:
 12. Phase 9: in-app notification center.
 13. Decide and implement stronger security (Phase 7) if approved; Phase 10 only with explicit approval.
 14. Complete the eight manual AI advisory workflows and deploy migration 017. Done.
-15. Implement the independent profit-taking review workflow and deploy migration 020.
+15. Implement the independent profit-taking review workflow and deploy migration 020. Done.
 
 Each step must include:
 

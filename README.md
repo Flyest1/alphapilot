@@ -407,6 +407,9 @@ backend/app/db/migrations/021_add_high_upside_speculative_stocks_advisory.sql
 비상장 스타트업을 제외하고 미국 상장주만 다루며, 결과를 성공 확률이나 목표수익률로 해석하지
 않고 모두 추가 조사용 `WATCH`로 표시합니다.
 
+2026-11-22 운영 DB에서 이익실현 검토와 고위험·고상승 잠재 종목 탐색의 활성 상태를 확인했습니다.
+두 유형 모두 완료된 작업 ID와 저장된 분석 결과 ID가 서로 연결돼 있었습니다.
+
 AI 자문의 SEC 공시 분석은 무료 공식 EDGAR 데이터를 읽기 전용으로 사용합니다.
 `SEC_EDGAR_USER_AGENT`에는 애플리케이션 이름과 실제 연락 가능한 이메일을 입력해야 하며,
 공식 JSON/XML·complete-submission 문서·N-PORT 자료만 조회합니다. N-PORT 결과는 공시 지연이
