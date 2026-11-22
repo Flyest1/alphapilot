@@ -552,6 +552,13 @@ POST /api/settings
 GET /api/system/status
 ```
 
+For each market the scheduler section shows the latest due weekday slot in KST and the last
+`generation_source=scheduled` job received for that market between the slot and the status check.
+Use job creation for receipt and the completed job's last update for completion. Show whole minutes
+from slot to receipt. A completed run is late if receipt missed the scheduled minute or completion
+exceeded the six-hour grace period. Without a receipt, show pending through the grace period and
+missing thereafter. A failed lookup is unavailable. App-initiated manual reports do not satisfy a slot.
+
 ---
 
 ## Authoritative Report Models

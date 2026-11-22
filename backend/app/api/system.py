@@ -61,6 +61,27 @@ def get_system_status(
         "list_recommendation_cycles",
         [],
     )
+    now = datetime.now(KST)
+    scheduler = {}
+    schedule_errors = []
+    for report_type, target_time, report in (
+        ("domestic", time(8, 30), domestic_report),
+        ("global", time(22, 30), global_report),
+    ):
+        expected = _last_expected_weekday_run(now, target_time)
+        job, error = _safe_database_call(
+            lambda: repository.latest_scheduled_job(report_type, expected, now),
+            f"latest_scheduled_{report_type}_job",
+            None,
+        )
+        schedule_errors.append(error)
+        scheduler[report_type] = _schedule_status(job, expected, now, error)
+        # Retain the latest report timestamp for clients of the original status endpoint.
+        latest = parse_iso_datetime(report.get("created_at")) if report else None
+        scheduler[report_type]["latest_created_at"] = (
+            latest.astimezone(KST).isoformat() if latest else None
+        )
+
     database_errors = [
         error
         for error in (
@@ -72,6 +93,7 @@ def get_system_status(
             report_job_error,
             snapshot_error,
             cycle_error,
+            *schedule_errors,
         )
         if error
     ]
@@ -164,10 +186,7 @@ def get_system_status(
             ),
             "latest_global_created_at": global_report.get("created_at") if global_report else None,
         },
-        "scheduler": {
-            "domestic": _schedule_status(domestic_report, time(8, 30)),
-            "global": _schedule_status(global_report, time(22, 30)),
-        },
+        "scheduler": scheduler,
         "report_jobs": {
             "total_recent_count": len(report_jobs),
             "active_count": len(
@@ -211,33 +230,46 @@ def _report_generation(report: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
-def _schedule_status(latest_report: dict[str, Any] | None, target_time: time) -> dict[str, Any]:
-    now = datetime.now(KST)
-    expected = _last_expected_weekday_run(now, target_time)
-    latest_created_at = (
-        parse_iso_datetime(latest_report.get("created_at")) if latest_report else None
-    )
-    latest_kst = latest_created_at.astimezone(KST) if latest_created_at else None
-    grace_cutoff = expected + timedelta(hours=SCHEDULE_GRACE_HOURS)
-    is_ok = latest_kst is not None and latest_kst >= expected
-    is_pending = latest_kst is None or latest_kst < expected
-    status_label = "정상"
-    status = "ok"
-    if is_pending and now <= grace_cutoff:
-        status = "pending"
-        status_label = "대기"
-    elif is_pending:
-        status = "late"
-        status_label = "지연"
+def _schedule_status(
+    job: dict[str, Any] | None, expected: datetime, now: datetime, error: str | None
+) -> dict[str, Any]:
+    cutoff = expected + timedelta(hours=SCHEDULE_GRACE_HOURS)
+    received = parse_iso_datetime(job.get("created_at")) if job else None
+    completed = None
+    delay_minutes = None
+    status, label = "unavailable", "확인 불가"
+    if job is None and not error:
+        status, label = ("pending", "접수 대기") if now <= cutoff else ("missing", "접수 누락")
+    elif received is not None and received.tzinfo is not None:
+        delay_minutes = int((received - expected).total_seconds() // 60)
+        state = job.get("status")
+        if state == "completed":
+            updated = parse_iso_datetime(job.get("updated_at"))
+            if updated and updated.tzinfo and received <= updated:
+                completed = updated
+                if delay_minutes > 0 or completed > cutoff:
+                    status, label = "late_completed", "지연 완료"
+                else:
+                    status, label = "ok", "완료"
+        elif state == "queued":
+            status, label = "queued", "접수됨"
+        elif state == "running":
+            status, label = "running", "생성 중"
+        elif state == "failed":
+            status, label = "failed", "생성 실패"
 
     return {
         "status": status,
-        "status_label": status_label,
+        "status_label": label,
         "last_expected_at": expected.isoformat(),
-        "latest_created_at": latest_kst.isoformat() if latest_kst else None,
+        "received_at": (
+            received.astimezone(KST).isoformat() if received and received.tzinfo else None
+        ),
+        "completed_at": completed.astimezone(KST).isoformat() if completed else None,
+        "receipt_delay_minutes": delay_minutes,
         "grace_hours": SCHEDULE_GRACE_HOURS,
         "note": "GitHub Actions scheduled workflows are best-effort and can be delayed.",
-        "is_ok": is_ok,
+        "is_ok": status == "ok",
     }
 
 

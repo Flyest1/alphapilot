@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => ({
@@ -58,5 +58,39 @@ describe("Status page", () => {
     expect(screen.getByText("자문 작업 실행")).toBeInTheDocument();
     expect(screen.getByText("활성 1개 · 대기 2개")).toBeInTheDocument();
     expect(screen.getByText("최대 3개")).toBeInTheDocument();
+  });
+  it("shows separate receipt and completion times for late and missing scheduled reports", async () => {
+    api.system.status.mockResolvedValueOnce({
+      scheduler: {
+        domestic: {
+          status_label: "접수 누락",
+          last_expected_at: "2026-11-20T08:30:00+09:00",
+          received_at: null,
+          completed_at: null,
+          receipt_delay_minutes: null,
+        },
+        global: {
+          status_label: "지연 완료",
+          last_expected_at: "2026-11-20T22:30:00+09:00",
+          received_at: "2026-11-21T06:26:00+09:00",
+          completed_at: "2026-11-21T06:31:00+09:00",
+          receipt_delay_minutes: 476,
+        },
+      },
+    });
+    render(<Status />);
+    const domestic = within(await screen.findByRole("region", { name: "국내 예약 리포트" }));
+    expect(domestic.getByRole("heading", { name: "국내 · 접수 누락" })).toBeInTheDocument();
+    expect(domestic.getAllByText("—")).toHaveLength(3);
+    const global = within(screen.getByRole("region", { name: "글로벌 예약 리포트" }));
+    expect(global.getByRole("heading", { name: "글로벌 · 지연 완료" })).toBeInTheDocument();
+    for (const stamp of [
+      "2026-11-20T22:30:00+09:00",
+      "2026-11-21T06:26:00+09:00",
+      "2026-11-21T06:31:00+09:00",
+      "476분",
+    ]) {
+      expect(global.getByText(stamp)).toBeInTheDocument();
+    }
   });
 });

@@ -12,7 +12,7 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 
 from app.config import EnvironmentSettings, get_environment_settings, is_supabase_configured
 from app.utils.logging import log_external_failure
-from app.utils.datetime import utc_now_iso
+from app.utils.datetime import parse_iso_datetime, utc_now_iso
 
 
 class Repository(Protocol):
@@ -91,6 +91,10 @@ class Repository(Protocol):
     def list_report_jobs(
         self, status: str | None = None, limit: int | None = None
     ) -> list[dict[str, Any]]: ...
+
+    def latest_scheduled_job(
+        self, report_type: str, since: datetime, until: datetime
+    ) -> dict[str, Any] | None: ...
 
     def create_advisory_job(self, data: dict[str, Any]) -> dict[str, Any]: ...
 
@@ -631,6 +635,20 @@ class InMemoryRepository:
             rows = [row for row in rows if row.get("status") == status]
         rows = sorted(rows, key=lambda row: row.get("created_at") or "", reverse=True)
         return rows[:limit] if limit is not None else rows
+
+    def latest_scheduled_job(
+        self, report_type: str, since: datetime, until: datetime
+    ) -> dict[str, Any] | None:
+        matches = []
+        for row in self.report_jobs.values():
+            if row.get("report_type") != report_type or row.get("generation_source") != "scheduled":
+                continue
+            received = parse_iso_datetime(row.get("created_at"))
+            if received and received.tzinfo and since <= received <= until:
+                matches.append((received, row))
+        if not matches:
+            return None
+        return deepcopy(max(matches, key=lambda item: (item[0], item[1]["job_id"]))[1])
 
     def create_advisory_job(self, data: dict[str, Any]) -> dict[str, Any]:
         row = deepcopy(data)
@@ -1298,6 +1316,23 @@ class SupabaseRepository:
         if limit is not None:
             builder = builder.limit(limit)
         return self._run(builder, {"operation": "list_report_jobs", "status": status})
+
+    def latest_scheduled_job(
+        self, report_type: str, since: datetime, until: datetime
+    ) -> dict[str, Any] | None:
+        builder = (
+            self.client.table("report_jobs")
+            .select("status,created_at,updated_at")
+            .eq("report_type", report_type)
+            .eq("generation_source", "scheduled")
+            .gte("created_at", since.isoformat())
+            .lte("created_at", until.isoformat())
+            .order("created_at", desc=True)
+            .order("job_id", desc=True)
+            .limit(1)
+        )
+        rows = self._run(builder, {"operation": "latest_scheduled_job", "report_type": report_type})
+        return rows[0] if rows else None
 
     def create_advisory_job(self, data: dict[str, Any]) -> dict[str, Any]:
         builder = self.client.table("advisory_jobs").insert(data)

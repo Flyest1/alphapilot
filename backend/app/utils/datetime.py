@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import re
 from typing import Any
 
 
@@ -6,7 +7,13 @@ def parse_iso_datetime(value: Any) -> datetime | None:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        # PostgreSQL omits trailing zeroes; Python 3.10 accepts only 3 or 6 fraction digits.
+        stamp = re.sub(
+            r"(?<=:\d{2})\.(\d{1,5})(?=Z|[+-]|$)",
+            lambda match: "." + match[1].ljust(6, "0"),
+            str(value),
+        )
+        return datetime.fromisoformat(stamp.replace("Z", "+00:00"))
     except ValueError:
         return None
 

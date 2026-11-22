@@ -150,14 +150,6 @@ export default function Status() {
                 <strong>{status.reports?.total_count ?? 0}</strong>
               </div>
               <div>
-                <span>국내 자동 리포트</span>
-                <strong>{status.scheduler?.domestic?.status_label || "-"}</strong>
-              </div>
-              <div>
-                <span>글로벌 자동 리포트</span>
-                <strong>{status.scheduler?.global?.status_label || "-"}</strong>
-              </div>
-              <div>
                 <span>리포트 작업</span>
                 <strong>{status.report_jobs?.active_count ?? 0}개 진행 중</strong>
               </div>
@@ -188,6 +180,47 @@ export default function Status() {
           </section>
 
           <section className="panel">
+            <h2>예약 리포트</h2>
+            <p className="field-hint">
+              한국시간 기준 · 예정 시각에서 6시간이 지나도록 접수 기록이 없으면 누락으로 표시합니다.
+            </p>
+            {[
+              ["domestic", "국내"],
+              ["global", "글로벌"],
+            ].map(([type, name]) => {
+              const schedule = status.scheduler?.[type];
+              return (
+                <section key={type} aria-label={`${name} 예약 리포트`}>
+                  <h3>
+                    {name} ·{" "}
+                    {schedule?.received_at !== undefined ? schedule.status_label : "확인 불가"}
+                  </h3>
+                  <div className="metric-grid compact">
+                    {[
+                      ["예정", schedule?.last_expected_at],
+                      ["접수", schedule?.received_at],
+                      ["완료", schedule?.completed_at],
+                    ].map(([label, stamp]) => (
+                      <div key={label}>
+                        <span>{label}</span>
+                        <strong>{stamp ? formatReportTime(stamp, "Asia/Seoul") : "—"}</strong>
+                      </div>
+                    ))}
+                    <div>
+                      <span>접수 지연</span>
+                      <strong>
+                        {schedule?.receipt_delay_minutes != null
+                          ? `${schedule.receipt_delay_minutes}분`
+                          : "—"}
+                      </strong>
+                    </div>
+                  </div>
+                </section>
+              );
+            })}
+          </section>
+
+          <section className="panel">
             <h2>최근 리포트</h2>
             <div className="metric-grid compact">
               <div>
@@ -205,14 +238,6 @@ export default function Status() {
               <div>
                 <span>Supabase 설정</span>
                 <strong>{statusText(status.database?.configured)}</strong>
-              </div>
-              <div>
-                <span>국내 예정 시간</span>
-                <strong>{formatReportTime(status.scheduler?.domestic?.last_expected_at)}</strong>
-              </div>
-              <div>
-                <span>글로벌 예정 시간</span>
-                <strong>{formatReportTime(status.scheduler?.global?.last_expected_at)}</strong>
               </div>
               <div>
                 <span>최근 작업 상태</span>
